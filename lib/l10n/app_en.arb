@@ -1,0 +1,27 @@
+{
+  "@@locale": "en",
+  "appTitle": "Pluvio",
+  "@appTitle": {
+    "description": "Application name shown in the app bar."
+  },
+  "refresh": "Refresh",
+  "@refresh": {
+    "description": "App bar action that re-fetches radar data."
+  },
+  "locationError": "Couldn't determine your location.",
+  "@locationError": {},
+  "radarError": "Couldn't fetch radar data.",
+  "@radarError": {},
+  "nowcastError": "Couldn't fetch the nowcast.",
+  "@nowcastError": {},
+  "nowcastDry": "No rain expected in the next two hours.",
+  "@nowcastDry": {},
+  "nowcastRaining": "It's raining now.",
+  "@nowcastRaining": {},
+  "nowcastRainInMinutes": "Rain expected in {minutes} min.",
+  "@nowcastRainInMinutes": {
+    "placeholders": {
+      "minutes": { "type": "int", "format": "decimalPattern" }
+    }
+  }
+}

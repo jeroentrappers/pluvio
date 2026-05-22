@@ -1,0 +1,82 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+**/generated_plugin_registrant.dart
+
+# FVM
+.fvm/flutter_sdk
+.fvm/versions
+
+# Generated files — never commit, always regen via build_runner
+*.g.dart
+*.freezed.dart
+*.gr.dart
+*.config.dart
+
+# Editors / IDEs
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Coverage
+coverage/
+*.lcov
+
+# Android
+android/.gradle/
+android/captures/
+android/local.properties
+android/key.properties
+android/app/upload-keystore.jks
+android/app/release.keystore
+android/app/google-services.json
+*.jks
+*.keystore
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Runner/GoogleService-Info.plist
+xcuserdata/
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.pbxuser
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+fastlane/README.md
+*.app.dSYM.zip
+*.ipa
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+
+# Symbolication / obfuscation
+app.*.symbols
+app.*.map.json
+app.*.dSYM.zip
+app.*.dSYM/
+
+# Misc
+*.log
+*.swp
+.DS_Store
+.history

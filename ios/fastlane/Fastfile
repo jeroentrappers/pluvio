@@ -1,0 +1,78 @@
+# Pluvio — iOS delivery
+#
+# Quick reference:
+#   bundle exec fastlane ios verify              # analyze + tests
+#   bundle exec fastlane ios build_ipa           # signed IPA for upload
+#   bundle exec fastlane ios deploy_testflight   # upload to TestFlight
+#   bundle exec fastlane ios deploy_production   # submit for review
+#
+# Signing uses match — set up the certs repo in App Store Connect and supply
+# FASTLANE_PLUVIO_MATCH_GIT_URL + MATCH_PASSWORD via env (CI secret store).
+
+default_platform(:ios)
+
+FLUTTER = 'fvm flutter'.freeze
+
+platform :ios do
+
+  before_all do
+    setup_ci if ENV['CI']
+  end
+
+  desc 'Static analysis + unit/widget tests'
+  lane :verify do
+    Dir.chdir('../..') do
+      sh("#{FLUTTER} pub get")
+      sh("#{FLUTTER} analyze")
+      sh("#{FLUTTER} test --coverage --reporter=expanded")
+    end
+  end
+
+  desc 'Sync provisioning + certs via match (read-only outside of CI)'
+  lane :sync_signing do
+    match(
+      type: ENV.fetch('FASTLANE_PLUVIO_MATCH_TYPE', 'appstore'),
+      readonly: ENV['FASTLANE_PLUVIO_MATCH_READONLY'] != 'false',
+      git_url: ENV.fetch('FASTLANE_PLUVIO_MATCH_GIT_URL'),
+      app_identifier: ['app.appmire.pluvio']
+    )
+  end
+
+  desc 'Build a signed IPA from the Flutter app'
+  lane :build_ipa do |options|
+    verify unless options[:skip_verify]
+    sync_signing
+    Dir.chdir('../..') do
+      sh(
+        "#{FLUTTER} build ipa --release " \
+        '--dart-define=PLUVIO_KMI_BASE_URL=https://app.meteo.be/services/appviewer ' \
+        '--dart-define=PLUVIO_KMI_RADAR_WMS_URL=https://opendata.meteo.be/service/radar/wms ' \
+        '--dart-define=PLUVIO_KMI_RADAR_LAYER=RADAR.BE_COMPOSITE ' \
+        '--export-options-plist=ios/ExportOptions.plist'
+      )
+    end
+    UI.success('IPA written to build/ios/ipa/')
+  end
+
+  desc 'Upload the built IPA to TestFlight'
+  lane :deploy_testflight do
+    build_ipa(skip_verify: false)
+    upload_to_testflight(
+      ipa: '../build/ios/ipa/pluvio.ipa',
+      skip_waiting_for_build_processing: true,
+      changelog: File.read('metadata/en-US/release_notes.txt')
+    )
+  end
+
+  desc 'Submit the latest TestFlight build for App Store review'
+  lane :deploy_production do
+    deliver(
+      submit_for_review: true,
+      automatic_release: false,
+      force: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      precheck_include_in_app_purchases: false
+    )
+  end
+end

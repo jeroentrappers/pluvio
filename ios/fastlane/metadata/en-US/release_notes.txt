@@ -1,0 +1,4 @@
+- Initial public build.
+- 2-hour precipitation nowcast for Belgium.
+- Animated radar timeline.
+- Open source under GPLv3.

@@ -1,0 +1,11 @@
+{
+  "@@locale": "fr",
+  "appTitle": "Pluvio",
+  "refresh": "Actualiser",
+  "locationError": "Impossible de déterminer votre position.",
+  "radarError": "Impossible de récupérer les données radar.",
+  "nowcastError": "Impossible de récupérer la prévision immédiate.",
+  "nowcastDry": "Pas de pluie prévue dans les deux prochaines heures.",
+  "nowcastRaining": "Il pleut actuellement.",
+  "nowcastRainInMinutes": "Pluie prévue dans {minutes} min."
+}

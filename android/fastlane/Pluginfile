@@ -1,0 +1,2 @@
+# Plugins specific to the Android lanes. Keep this list minimal — every
+# plugin is an extra dependency to vet and keep secure.

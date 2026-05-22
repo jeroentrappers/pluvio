@@ -1,0 +1,2 @@
+json_key_file(ENV['FASTLANE_PLUVIO_PLAY_JSON_KEY'] || '../play-store-key.json')
+package_name('app.appmire.pluvio')

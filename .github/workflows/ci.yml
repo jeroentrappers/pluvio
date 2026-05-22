@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned Flutter version
+        id: flutter
+        run: echo "version=$(cat .fvmrc | sed 's/[^0-9.]//g')" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter.outputs.version }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib test integration_test
+
+      - name: Static analysis
+        run: flutter analyze --fatal-infos
+
+      - name: Unit + widget tests
+        run: flutter test --coverage --reporter=expanded
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: warn
+
+  build-android:
+    name: Build Android (debug)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned Flutter version
+        id: flutter
+        run: echo "version=$(cat .fvmrc | sed 's/[^0-9.]//g')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter.outputs.version }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build apk --debug
+
+  build-ios:
+    name: Build iOS (no-codesign)
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned Flutter version
+        id: flutter
+        run: echo "version=$(cat .fvmrc | sed 's/[^0-9.]//g')" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter.outputs.version }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build ios --debug --no-codesign

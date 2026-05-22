@@ -1,0 +1,4 @@
+app_identifier('app.appmire.pluvio')
+apple_id(ENV['FASTLANE_PLUVIO_APPLE_ID'])
+team_id(ENV['FASTLANE_PLUVIO_TEAM_ID'])
+itc_team_id(ENV['FASTLANE_PLUVIO_ITC_TEAM_ID'])

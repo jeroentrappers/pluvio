@@ -1,0 +1,80 @@
+name: pluvio
+description: "Open-source precipitation radar and nowcast for Belgium and the Low Countries."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State
+  flutter_riverpod: ^3.0.0
+  hooks_riverpod: ^3.0.0
+  flutter_hooks: ^0.21.2
+  riverpod_annotation: ^3.0.0
+
+  # Navigation
+  auto_route: ^11.0.0
+
+  # Models
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.9.0
+
+  # HTTP
+  dio: ^5.7.0
+
+  # Map
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Storage
+  shared_preferences: ^2.5.3
+  path_provider: ^2.1.5
+
+  # Location & permissions
+  geolocator: ^13.0.2
+  permission_handler: ^12.0.1
+
+  # Logging / observability
+  talker_flutter: ^5.0.0
+  talker_dio_logger: ^5.0.0
+  talker_riverpod_logger: ^5.0.0
+
+  # i18n
+  intl: any
+
+  # Misc
+  package_info_plus: ^9.0.0
+  url_launcher: ^6.3.1
+  collection: ^1.18.0
+  meta: ^1.16.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  build_runner: ^2.4.0
+  freezed: ^3.0.0
+  json_serializable: ^6.9.0
+  riverpod_generator: ^3.0.0
+  auto_route_generator: ^10.0.0
+
+  very_good_analysis: ^7.0.0
+
+  mocktail: ^1.0.4
+  alchemist: ^0.11.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    - assets/icons/

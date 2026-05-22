@@ -1,0 +1,11 @@
+{
+  "@@locale": "de",
+  "appTitle": "Pluvio",
+  "refresh": "Aktualisieren",
+  "locationError": "Standort konnte nicht ermittelt werden.",
+  "radarError": "Radardaten konnten nicht geladen werden.",
+  "nowcastError": "Nowcast konnte nicht geladen werden.",
+  "nowcastDry": "In den nächsten zwei Stunden kein Regen erwartet.",
+  "nowcastRaining": "Es regnet jetzt.",
+  "nowcastRainInMinutes": "Regen in {minutes} Min. erwartet."
+}

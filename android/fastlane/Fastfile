@@ -1,0 +1,75 @@
+# Pluvio — Android delivery
+#
+# Quick reference:
+#   bundle exec fastlane android verify             # flutter analyze + tests
+#   bundle exec fastlane android build_aab          # signed AAB for upload
+#   bundle exec fastlane android build_apk          # universal APK (smoke)
+#   bundle exec fastlane android deploy_internal    # upload to Play internal track
+#   bundle exec fastlane android deploy_production  # promote internal → production
+#
+# Signing material is NOT passed through fastlane — gradle reads it from
+# android/key.properties (gitignored) or the FASTLANE_PLUVIO_* env vars set
+# in CI. See README "Releasing" for the full setup.
+
+default_platform(:android)
+
+FLUTTER = 'fvm flutter'.freeze
+
+platform :android do
+
+  desc 'Static analysis + unit/widget tests'
+  lane :verify do
+    Dir.chdir('../..') do
+      sh("#{FLUTTER} pub get")
+      sh("#{FLUTTER} analyze")
+      sh("#{FLUTTER} test --coverage --reporter=expanded")
+    end
+  end
+
+  desc 'Build a signed Android App Bundle ready for Play upload'
+  lane :build_aab do |options|
+    verify unless options[:skip_verify]
+    Dir.chdir('../..') do
+      sh(
+        "#{FLUTTER} build appbundle --release " \
+        '--dart-define=PLUVIO_KMI_BASE_URL=https://app.meteo.be/services/appviewer ' \
+        '--dart-define=PLUVIO_KMI_RADAR_WMS_URL=https://opendata.meteo.be/service/radar/wms ' \
+        '--dart-define=PLUVIO_KMI_RADAR_LAYER=RADAR.BE_COMPOSITE'
+      )
+    end
+    UI.success('AAB written to build/app/outputs/bundle/release/app-release.aab')
+  end
+
+  desc 'Build a universal release APK (for smoke installs, not Play upload)'
+  lane :build_apk do
+    Dir.chdir('../..') do
+      sh("#{FLUTTER} build apk --release --target-platform android-arm,android-arm64,android-x64")
+    end
+  end
+
+  desc 'Upload the freshly built AAB to the Play Console internal track'
+  lane :deploy_internal do
+    build_aab(skip_verify: false)
+    upload_to_play_store(
+      track: 'internal',
+      aab: '../build/app/outputs/bundle/release/app-release.aab',
+      skip_upload_apk: true,
+      skip_upload_screenshots: true,
+      release_status: 'draft'
+    )
+  end
+
+  desc 'Promote the current internal release to production'
+  lane :deploy_production do
+    upload_to_play_store(
+      track: 'production',
+      track_promote_to: 'production',
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: false,
+      skip_upload_changelogs: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

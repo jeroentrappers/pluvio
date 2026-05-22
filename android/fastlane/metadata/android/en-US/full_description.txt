@@ -1,0 +1,14 @@
+Pluvio is a free, open-source rain radar for Belgium and the Low Countries.
+
+What it does
+• Animated radar from the past hour through the next two hours.
+• Per-location precipitation nowcast: see when rain starts, how intense it'll be, and when it'll stop.
+• Brussels, Antwerp, Liège, Gent, Charleroi — anywhere with KMI radar coverage.
+
+Privacy first
+• No ads, no trackers, no account.
+• Location stays on your device.
+• Data comes from KMI / IRM open data (opendata.meteo.be) under CC BY 4.0.
+
+Made in Belgium, by Appmire.
+Source code: https://github.com/appmire/pluvio

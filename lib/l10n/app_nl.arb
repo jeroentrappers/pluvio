@@ -1,0 +1,11 @@
+{
+  "@@locale": "nl",
+  "appTitle": "Pluvio",
+  "refresh": "Vernieuwen",
+  "locationError": "Kon je locatie niet bepalen.",
+  "radarError": "Kon de radargegevens niet ophalen.",
+  "nowcastError": "Kon de buienverwachting niet ophalen.",
+  "nowcastDry": "Geen regen verwacht in de komende twee uur.",
+  "nowcastRaining": "Het regent nu.",
+  "nowcastRainInMinutes": "Regen verwacht over {minutes} min."
+}

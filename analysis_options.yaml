@@ -1,0 +1,37 @@
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/*.gr.dart"
+    - "**/*.config.dart"
+    - "build/**"
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    invalid_annotation_target: ignore
+
+linter:
+  rules:
+    public_member_api_docs: false
+    sort_pub_dependencies: false
+    one_member_abstracts: false
+    avoid_redundant_argument_values: false
+    flutter_style_todos: false
+    lines_longer_than_80_chars: false
+    always_use_package_imports: false
+    always_put_required_named_parameters_first: false
+    unnecessary_lambdas: false
+    prefer_const_constructors: false
+    sort_constructors_first: false
+    prefer_final_locals: false
+    comment_references: false
+    no_runtimetype_tostring: false
+    avoid_catching_errors: false
+    unintended_html_in_doc_comment: false
+
+formatter:
+  page_width: 100
