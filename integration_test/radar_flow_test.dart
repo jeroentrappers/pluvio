@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:integration_test/integration_test.dart';
@@ -7,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:pluvio/core/networking/api_failure.dart';
 import 'package:pluvio/core/result/result.dart';
 import 'package:pluvio/features/location/application/location_providers.dart';
+import 'package:pluvio/features/location/data/location_service.dart';
 import 'package:pluvio/features/radar/application/radar_providers.dart';
 import 'package:pluvio/features/radar/domain/nowcast.dart';
 import 'package:pluvio/features/radar/domain/radar_animation.dart';
@@ -23,7 +23,7 @@ void main() {
       location: const LatLng(50.85, 4.35),
       issuedAt: issued,
       points: [
-        NowcastPoint(timestamp: issued, precipitationMmPerHour: 0.0),
+        NowcastPoint(timestamp: issued, precipitationMmPerHour: 0),
       ],
     );
     final animation = RadarAnimation(

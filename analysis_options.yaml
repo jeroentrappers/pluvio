@@ -32,6 +32,8 @@ linter:
     no_runtimetype_tostring: false
     avoid_catching_errors: false
     unintended_html_in_doc_comment: false
+    prefer_const_literals_to_create_immutables: false
+    prefer_int_literals: false
 
 formatter:
   page_width: 100
