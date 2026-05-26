@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:pluvio/features/radar/domain/radar_animation.dart';
 import 'package:pluvio/features/radar/presentation/widgets/timeline_slider.dart';
 import 'package:pluvio/l10n/app_localizations.dart';
 
 void main() {
+  const here = LatLng(50.85, 4.35);
+
   Widget host(Widget child) {
     return MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -14,18 +17,22 @@ void main() {
     );
   }
 
+  RadarFrame f(DateTime t, [double mm = 0]) => RadarFrame(
+        timestamp: t,
+        imageUrl: 'https://example.test/${t.millisecondsSinceEpoch}.png',
+        valueMmPerHour: mm,
+      );
+
   testWidgets('shows the observation pill for frames at or before reference time',
       (tester) async {
-    final ref = DateTime.utc(2026, 5, 22, 10);
+    final ref = DateTime.utc(2026, 5, 26, 8);
     final anim = RadarAnimation(
       frames: [
-        RadarFrame(
-          timestamp: ref.subtract(const Duration(minutes: 5)),
-          tileUrlTemplate: 'x',
-        ),
-        RadarFrame(timestamp: ref, tileUrlTemplate: 'x'),
+        f(ref.subtract(const Duration(minutes: 10))),
+        f(ref),
       ],
       referenceTime: ref,
+      location: here,
     );
 
     await tester.pumpWidget(host(
@@ -38,16 +45,14 @@ void main() {
 
   testWidgets('shows the forecast pill for frames after reference time',
       (tester) async {
-    final ref = DateTime.utc(2026, 5, 22, 10);
+    final ref = DateTime.utc(2026, 5, 26, 8);
     final anim = RadarAnimation(
       frames: [
-        RadarFrame(timestamp: ref, tileUrlTemplate: 'x'),
-        RadarFrame(
-          timestamp: ref.add(const Duration(minutes: 5)),
-          tileUrlTemplate: 'x',
-        ),
+        f(ref),
+        f(ref.add(const Duration(minutes: 10))),
       ],
       referenceTime: ref,
+      location: here,
     );
 
     await tester.pumpWidget(host(
@@ -58,16 +63,14 @@ void main() {
   });
 
   testWidgets('emits the new index when the slider is dragged', (tester) async {
-    final ref = DateTime.utc(2026, 5, 22, 10);
+    final ref = DateTime.utc(2026, 5, 26, 8);
     final anim = RadarAnimation(
       frames: List.generate(
         5,
-        (i) => RadarFrame(
-          timestamp: ref.add(Duration(minutes: i * 5)),
-          tileUrlTemplate: 'x',
-        ),
+        (i) => f(ref.add(Duration(minutes: i * 10))),
       ),
       referenceTime: ref,
+      location: here,
     );
     var captured = -1;
 

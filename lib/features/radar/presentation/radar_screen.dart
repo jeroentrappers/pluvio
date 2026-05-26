@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../location/application/location_providers.dart';
 import '../application/radar_providers.dart';
-import '../domain/nowcast.dart';
 import '../domain/radar_animation.dart';
 import 'widgets/precipitation_legend.dart';
 import 'widgets/radar_map.dart';
@@ -19,7 +18,6 @@ class RadarScreen extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final location = ref.watch(currentLocationProvider);
-    final animationState = ref.watch(radarAnimationProvider);
     final frameIndex = useState<int?>(null);
 
     return Scaffold(
@@ -29,47 +27,68 @@ class RadarScreen extends HookConsumerWidget {
           IconButton(
             tooltip: l10n.refresh,
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(radarAnimationProvider),
+            onPressed: () {
+              final loc = location.value;
+              if (loc != null) ref.invalidate(radarAnimationProvider(loc));
+            },
           ),
         ],
       ),
       body: location.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, __) => _ErrorView(message: l10n.locationError),
-        data: (latLng) => animationState.when(
-          loading: () => _MapShell(
-            center: latLng,
-            animation: null,
-            frameIndex: 0,
-            onIndexChanged: (_) {},
-            body: const _LoadingHint(),
-          ),
-          error: (_, __) => _MapShell(
-            center: latLng,
-            animation: null,
-            frameIndex: 0,
-            onIndexChanged: (_) {},
-            body: _ErrorView(message: l10n.radarError),
-          ),
-          data: (result) => result.when(
-            ok: (anim) {
-              final idx = frameIndex.value ?? anim.currentIndex;
-              return _MapShell(
-                center: latLng,
-                animation: anim,
-                frameIndex: idx,
-                onIndexChanged: (v) => frameIndex.value = v,
-                body: _Nowcast(location: latLng, animation: anim),
-              );
-            },
-            err: (_) => _MapShell(
-              center: latLng,
-              animation: null,
-              frameIndex: 0,
-              onIndexChanged: (_) {},
-              body: _ErrorView(message: l10n.radarError),
-            ),
-          ),
+        data: (latLng) => _RadarBody(
+          location: latLng,
+          frameIndex: frameIndex,
+        ),
+      ),
+    );
+  }
+}
+
+class _RadarBody extends ConsumerWidget {
+  const _RadarBody({required this.location, required this.frameIndex});
+
+  final LatLng location;
+  final ValueNotifier<int?> frameIndex;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final state = ref.watch(radarAnimationProvider(location));
+
+    return state.when(
+      loading: () => _MapShell(
+        center: location,
+        animation: null,
+        frameIndex: 0,
+        onIndexChanged: (_) {},
+        body: const _LoadingHint(),
+      ),
+      error: (_, __) => _MapShell(
+        center: location,
+        animation: null,
+        frameIndex: 0,
+        onIndexChanged: (_) {},
+        body: _ErrorView(message: l10n.radarError),
+      ),
+      data: (result) => result.when(
+        ok: (anim) {
+          final idx = frameIndex.value ?? anim.currentIndex;
+          return _MapShell(
+            center: location,
+            animation: anim,
+            frameIndex: idx,
+            onIndexChanged: (v) => frameIndex.value = v,
+            body: _NowcastSummary(animation: anim),
+          );
+        },
+        err: (_) => _MapShell(
+          center: location,
+          animation: null,
+          frameIndex: 0,
+          onIndexChanged: (_) {},
+          body: _ErrorView(message: l10n.radarError),
         ),
       ),
     );
@@ -121,52 +140,34 @@ class _MapShell extends StatelessWidget {
   }
 }
 
-class _Nowcast extends ConsumerWidget {
-  const _Nowcast({required this.location, required this.animation});
+class _NowcastSummary extends StatelessWidget {
+  const _NowcastSummary({required this.animation});
 
-  final LatLng location;
   final RadarAnimation animation;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context);
-    final state = ref.watch(nowcastProvider(location));
-
-    return state.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => _ErrorView(message: l10n.nowcastError),
-      data: (result) => result.when(
-        ok: (nowcast) => _NowcastBody(nowcast: nowcast),
-        err: (_) => _ErrorView(message: l10n.nowcastError),
-      ),
-    );
-  }
-}
-
-class _NowcastBody extends StatelessWidget {
-  const _NowcastBody({required this.nowcast});
-
-  final Nowcast nowcast;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final headline = _headline(l10n, nowcast);
+    final headline = _headline(l10n, animation);
+    final futureFrames =
+        animation.frames.where((f) => !f.timestamp.isBefore(animation.referenceTime)).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(headline, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        Expanded(child: _Bars(nowcast: nowcast)),
+        Expanded(child: _Bars(frames: futureFrames)),
         const SizedBox(height: 8),
         const PrecipitationLegend(),
-      ].map((c) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: c)).toList(),
+      ]
+          .map((c) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: c))
+          .toList(),
     );
   }
 
-  String _headline(AppLocalizations l10n, Nowcast nowcast) {
-    final minutes = nowcast.minutesUntilRain;
+  String _headline(AppLocalizations l10n, RadarAnimation animation) {
+    final minutes = animation.minutesUntilRain;
     if (minutes == null) return l10n.nowcastDry;
     if (minutes == 0) return l10n.nowcastRaining;
     return l10n.nowcastRainInMinutes(minutes);
@@ -174,33 +175,32 @@ class _NowcastBody extends StatelessWidget {
 }
 
 class _Bars extends StatelessWidget {
-  const _Bars({required this.nowcast});
+  const _Bars({required this.frames});
 
-  final Nowcast nowcast;
+  final List<RadarFrame> frames;
 
   @override
   Widget build(BuildContext context) {
+    if (frames.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final maxRate = nowcast.points
-        .map((p) => p.precipitationMmPerHour)
+    final maxRate = frames
+        .map((f) => f.valueMmPerHour)
         .fold<double>(0, (m, v) => v > m ? v : m)
         .clamp(0.5, double.infinity);
 
     return LayoutBuilder(
       builder: (_, constraints) {
-        final barWidth =
-            (constraints.maxWidth / nowcast.points.length).clamp(2.0, 10.0);
+        final barWidth = (constraints.maxWidth / frames.length).clamp(2.0, 16.0);
         return Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            for (final p in nowcast.points)
+            for (final f in frames)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 child: Container(
                   width: barWidth - 2,
-                  height: (p.precipitationMmPerHour / maxRate) *
-                      constraints.maxHeight,
-                  color: PrecipitationPalette.of(p.level, scheme),
+                  height: (f.valueMmPerHour / maxRate) * constraints.maxHeight,
+                  color: PrecipitationPalette.of(f.level, scheme),
                 ),
               ),
           ],

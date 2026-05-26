@@ -32,9 +32,7 @@ platform :android do
     Dir.chdir('../..') do
       sh(
         "#{FLUTTER} build appbundle --release " \
-        '--dart-define=PLUVIO_KMI_BASE_URL=https://app.meteo.be/services/appviewer ' \
-        '--dart-define=PLUVIO_KMI_RADAR_WMS_URL=https://opendata.meteo.be/service/radar/wms ' \
-        '--dart-define=PLUVIO_KMI_RADAR_LAYER=RADAR.BE_COMPOSITE'
+        '--dart-define=PLUVIO_KMI_APP_API_BASE_URL=https://app.meteo.be/services/appv4/'
       )
     end
     UI.success('AAB written to build/app/outputs/bundle/release/app-release.aab')

@@ -60,14 +60,21 @@ All runtime knobs come in through `--dart-define` — there is **never** a secre
 
 | Key | Default | Purpose |
 |---|---|---|
-| `PLUVIO_KMI_BASE_URL` | `https://app.meteo.be/services/appviewer` | KMI per-location nowcast |
-| `PLUVIO_KMI_OPENDATA_BASE_URL` | `https://opendata.meteo.be/service` | Root of the KMI open-data services |
-| `PLUVIO_KMI_RADAR_WMS_URL` | `https://opendata.meteo.be/service/radar/wms` | WMS endpoint serving radar tiles |
-| `PLUVIO_KMI_RADAR_LAYER` | `RADAR.BE_COMPOSITE` | Layer name within the WMS service |
-| `PLUVIO_KNMI_API_KEY` | _(empty)_ | Required only if KNMI Dutch nowcast is enabled |
-| `PLUVIO_SENTRY_DSN` | _(empty)_ | Optional crash reporting |
+| `PLUVIO_KMI_APP_API_BASE_URL` | `https://app.meteo.be/services/appv4/` | Unofficial KMI mobile-app API used to fetch the animated radar + per-location nowcast in one call. |
+| `PLUVIO_RADAR_BOUNDS_WEST`  | `1.5`  | Geographic west bound of the radar PNG, in decimal degrees. |
+| `PLUVIO_RADAR_BOUNDS_EAST`  | `7.5`  | East bound. |
+| `PLUVIO_RADAR_BOUNDS_SOUTH` | `48.9` | South bound. |
+| `PLUVIO_RADAR_BOUNDS_NORTH` | `52.5` | North bound. |
+| `PLUVIO_SENTRY_DSN` | _(empty)_ | Optional crash reporting. |
 
-Verify the KMI endpoints against the canonical docs at <https://opendata.meteo.be> before the first release.
+### Why the unofficial app API
+
+KMI exposes radar and forecast data through two surfaces:
+
+1. **`opendata.meteo.be`** (official, CC BY 4.0) — exposes a WMS at `/service/radar/wms` with layer `belgian_rainfall_composite` (styles: `rainfall`). Slippy-tile capable, but **observation-only** — no nowcast forecast. Confirmed by GetCapabilities: `Dimension name="time"` runs ~13 hours back and stops ~10 minutes before now.
+2. **`app.meteo.be/services/appv4/`** (unofficial, the same endpoint KMI's own mobile app uses) — returns animation frames *and* per-location precipitation values for both the past hour and the **2-hour forecast** in a single signed `getForecasts` call. This is what powers Pluvio. The signing recipe is `md5("r9EnW374jkJ9acc;<method>;DD/MM/YYYY")`, lifted from the Apache-2.0 [`irm-kmi-api`](https://github.com/jdejaegh/irm-kmi-api) Python package that pioneered access to this API.
+
+The opendata WMS remains a candidate for a future "high-zoom slippy radar" mode, since the app API ships a single 640×490 composite PNG per timestep rather than tile pyramids.
 
 ## Testing strategy
 
@@ -122,9 +129,13 @@ bundle exec fastlane ios deploy_production
 
 ## Data sources & attribution
 
-- **KMI / IRM (Belgium)** — radar composites and nowcast via `opendata.meteo.be`. Licensed CC BY 4.0; the app surfaces a "Radar © KMI / IRM" credit on every map tile.
-- **KNMI (Netherlands)** — used for the cross-border nowcast extension. Requires an API key from the [KNMI Developer Portal](https://developer.dataplatform.knmi.nl/). Licensed CC BY 4.0.
+- **KMI / IRM (Belgium)** — radar composites + 2-hour nowcast from the official KMI mobile-app endpoint (`app.meteo.be/services/appv4`). The endpoint is unofficial and reverse-engineered for the open-source `irm-kmi-api` Python package; Pluvio uses the same signing recipe and follows the same conventions. The app surfaces "Radar © KMI / IRM" on every frame.
+- **KNMI (Netherlands)** — planned for the cross-border extension; would require a free API key from the [KNMI Developer Portal](https://developer.dataplatform.knmi.nl/).
 - **OpenStreetMap** — base map tiles. Attributed in-app.
+
+### Endpoint risk
+
+The KMI app API is **unofficial**. If KMI changes the signing salt, query parameter shape, or response schema, `KmiAppApiSource` and `KmiGetForecastsDto` will need to be updated to match. The DTO parser tolerates missing/extra fields, but a salt rotation would break authentication entirely. Mitigation: keep `[irm-kmi-api](https://github.com/jdejaegh/irm-kmi-api)` on a watchlist — the upstream maintainer ships fixes promptly when the API drifts.
 
 ## Licence
 
@@ -132,4 +143,4 @@ Released under the **GNU General Public License v3.0**. See [LICENSE](./LICENSE)
 
 ## Status
 
-Foundational scaffold — not yet on the stores. Endpoints in `core/config/env.dart` need to be validated against current KMI documentation before the first public build.
+Foundational scaffold, data layer validated against live KMI endpoints (see commit log). Not yet on the stores. The radar PNG bounds (`PLUVIO_RADAR_BOUNDS_*`) are best-effort defaults — calibrate them against the rendered overlay on a real device before first release.

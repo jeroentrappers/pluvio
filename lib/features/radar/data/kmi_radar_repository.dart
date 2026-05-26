@@ -2,63 +2,50 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/networking/api_failure.dart';
 import '../../../core/result/result.dart';
-import '../domain/nowcast.dart';
 import '../domain/radar_animation.dart';
 import '../domain/radar_repository.dart';
-import 'sources/kmi_nowcast_source.dart';
-import 'sources/kmi_radar_source.dart';
+import 'sources/kmi_app_api_source.dart';
 
-/// Production radar repository: orchestrates the two KMI data sources and
-/// maps wire-format DTOs to domain models.
+/// Production radar repository. One call to the KMI mobile-app endpoint
+/// returns both the animation frames *and* the per-location precipitation
+/// rate per frame, so we don't need a separate nowcast call.
 class KmiRadarRepository implements RadarRepository {
   KmiRadarRepository({
-    required this.nowcastSource,
-    required this.radarSource,
+    required this.source,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
-  final KmiNowcastSource nowcastSource;
-  final KmiRadarSource radarSource;
+  final KmiAppApiSource source;
   final DateTime Function() _clock;
 
+  /// Converts the wire-format mm/10min into the mm/h used throughout the
+  /// domain so [PrecipitationLevel] thresholds stay in their canonical units.
+  static const _mmPer10MinToMmPerHour = 6.0;
+
   @override
-  Future<Result<Nowcast, ApiFailure>> fetchNowcast(LatLng location) async {
-    final res = await nowcastSource.fetch(
+  Future<Result<RadarAnimation, ApiFailure>> fetchAnimation(LatLng location) async {
+    final res = await source.fetch(
       latitude: location.latitude,
       longitude: location.longitude,
     );
 
     return res.when(
       ok: (dto) {
-        final step = Duration(minutes: dto.intervalMinutes);
-        final points = <NowcastPoint>[];
-        for (var i = 0; i < dto.precipitationMmPerHour.length; i++) {
-          points.add(NowcastPoint(
-            timestamp: dto.issuedAt.add(step * i),
-            precipitationMmPerHour: dto.precipitationMmPerHour[i],
-          ));
-        }
-        return Result.ok(
-          Nowcast(location: location, issuedAt: dto.issuedAt, points: points),
-        );
-      },
-      err: Result.err,
-    );
-  }
+        final frames = [
+          for (final f in dto.animation.sequence)
+            RadarFrame(
+              timestamp: f.time,
+              imageUrl: f.imageUrl,
+              valueMmPerHour: f.valueMmPer10Min * _mmPer10MinToMmPerHour,
+            ),
+        ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
-  @override
-  Future<Result<RadarAnimation, ApiFailure>> fetchRadarAnimation() async {
-    final res = await radarSource.fetchCapabilities();
-    return res.when(
-      ok: (caps) {
-        final frames = caps.timeSteps
-            .map((t) => RadarFrame(
-                  timestamp: t,
-                  tileUrlTemplate: radarSource.tileTemplateForFrame(t).toString(),
-                ))
-            .toList(growable: false);
         return Result.ok(
-          RadarAnimation(frames: frames, referenceTime: _clock().toUtc()),
+          RadarAnimation(
+            frames: frames,
+            referenceTime: _clock().toUtc(),
+            location: location,
+          ),
         );
       },
       err: Result.err,

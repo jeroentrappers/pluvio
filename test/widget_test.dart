@@ -2,7 +2,7 @@
 // `flutter test` entry point still asserts something useful.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pluvio/features/radar/domain/nowcast.dart';
+import 'package:pluvio/features/radar/domain/radar_animation.dart';
 
 void main() {
   test('PrecipitationLevel.fromMmPerHour matches the WMO classification', () {

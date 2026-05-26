@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../domain/nowcast.dart';
+import '../../domain/radar_animation.dart';
 
 /// Color ramp used for both the legend and the nowcast bar chart. Keeping it
 /// in one place avoids drift between the two views of the same data.
