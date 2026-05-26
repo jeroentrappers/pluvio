@@ -1,0 +1,11 @@
+.venv/
+.env
+data/
+*.parquet
+*.h5
+*.tif
+*.tiff
+*.npz
+.ipynb_checkpoints/
+__pycache__/
+*.egg-info/
