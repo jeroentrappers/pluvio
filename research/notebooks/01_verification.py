@@ -96,7 +96,7 @@ args.output.mkdir(parents=True, exist_ok=True)
 if args.data and args.data.exists():
     LOG.info("Reading KNMI HDF5 from %s", args.data)
     fc_paths = _lib.discover_runs(args.data / "radar_forecast" / "2.0")
-    obs_paths = _lib.discover_observations(args.data / "nl-rdr-data-rtcor-5m" / "1.0")
+    obs_paths = _lib.discover_observations(args.data / "nl_rdr_data_rtcor_5m" / "1.0")
     if not fc_paths or not obs_paths:
         LOG.warning("No HDF5 files found under %s — falling back to synthetic.", args.data)
         forecasts, observations = _lib.synthesise_dataset()

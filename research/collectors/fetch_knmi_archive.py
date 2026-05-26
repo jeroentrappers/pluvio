@@ -1,19 +1,18 @@
-"""Option B — pair KNMI's archived 2-hour radar nowcast with the observation-
-corrected ground truth, retrospectively. The whole pipeline lives in one file
-so it's auditable.
+"""Option B — pull KNMI's archived radar nowcast + observation-corrected
+ground truth, retrospectively.
 
-Datasets (both CC BY 4.0):
-  radar_forecast / 2.0           — 5-min nowcast up to 2 h ahead, HDF5 per run
-  nl-rdr-data-rtcor-5m / 1.0     — 5-min observation-corrected radar, HDF5
+Datasets (both CC BY 4.0, dataset names verified live on 2026-05-26):
+  radar_forecast / 2.0          → RAD_NL25_RAC_FM_<YYYYMMDDHHMM>.h5
+                                  one issue time per file, 25 lead steps inside.
+  nl_rdr_data_rtcor_5m / 1.0    → RAD_NL25_RAC_RT_<YYYYMMDDHHMM>.h5
+                                  one observation per file (5-min accumulation).
 
-The forecast files are stamped at the *issue* time; each file contains a
-single run (`forecast` group with 25 timesteps from +0 to +120 min). The
-observation files are stamped at the *observation* time, one per 5-min slot.
+The KNMI listing API returns files alphabetically, so without a hint it
+starts at the oldest file in the archive. We use ``startAfterFilename`` to
+jump straight to the requested date window — turns a multi-thousand-page
+walk into a single page.
 
-After download we'll convert each lead-time → observation pair into a tidy
-parquet that the verification notebook can ingest.
-
-Requires a free API key in the env: KNMI_API_KEY.
+Requires a free API key in the env: ``KNMI_API_KEY``.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ import argparse
 import logging
 import os
 import pathlib
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -35,64 +35,72 @@ LOG = logging.getLogger("pluvio.fetch_knmi")
 API_ROOT = "https://api.dataplatform.knmi.nl/open-data/v1/datasets"
 USER_AGENT = "pluvio-research/0.1 (+https://github.com/appmire/pluvio)"
 
+DATASETS = {
+    # alias        → (dataset_id, version, filename_prefix)
+    "radar_forecast": ("radar_forecast", "2.0", "RAD_NL25_RAC_FM_"),
+    "rtcor": ("nl_rdr_data_rtcor_5m", "1.0", "RAD_NL25_RAC_RT_"),
+    # also accept the canonical dataset IDs directly
+    "nl_rdr_data_rtcor_5m": ("nl_rdr_data_rtcor_5m", "1.0", "RAD_NL25_RAC_RT_"),
+}
+
 
 def _client(api_key: str) -> httpx.Client:
     return httpx.Client(
-        http2=True,
         headers={"Authorization": api_key, "User-Agent": USER_AGENT},
         timeout=httpx.Timeout(60.0, connect=10.0),
     )
 
 
-def list_files(
+def _start_after_filename(prefix: str, start: datetime) -> str:
+    """Build the alphabetically-just-before filename for the listing API."""
+    # The filename embeds the *end* of the 5-min window for RT files and the
+    # issue time for FM files. Subtracting one minute jumps us to the file
+    # immediately before the requested start, then pagination returns
+    # everything from `start` onwards.
+    one_min_before = start - timedelta(minutes=1)
+    stamp = one_min_before.strftime("%Y%m%d%H%M")
+    return f"{prefix}{stamp}.h5"
+
+
+def list_files_in_window(
     client: httpx.Client,
     dataset: str,
     version: str,
+    prefix: str,
     start: datetime,
     end: datetime,
 ) -> list[str]:
-    """Page through ``files`` and return the filenames falling within
-    [start, end]. The API supports ``begin``/``end`` filters but they apply to
-    upload time, not data time — so we filter ourselves on the filenames,
-    which are themselves timestamped (e.g. ``RAD_NL25_RAC_5M_202605260800.h5``).
-    """
-    files: list[str] = []
-    next_page: str | None = None
     base = f"{API_ROOT}/{dataset}/versions/{version}/files"
+    files: list[str] = []
+    next_token: str | None = None
+    after = _start_after_filename(prefix, start)
+    end_ts_str = end.strftime("%Y%m%d%H%M")
     while True:
-        params = {"maxKeys": 500}
-        if next_page is not None:
-            params["nextPageToken"] = next_page
+        params: dict[str, object] = {"maxKeys": 500, "startAfterFilename": after}
+        if next_token:
+            params["nextPageToken"] = next_token
         r = client.get(base, params=params)
         r.raise_for_status()
         body = r.json()
         for entry in body.get("files", []):
-            name: str = entry["filename"]
-            ts = _parse_ts_from_filename(name)
-            if ts is None:
+            name = entry["filename"]
+            if not name.startswith(prefix):
                 continue
-            if start <= ts <= end:
-                files.append(name)
-        next_page = body.get("nextPageToken")
-        if not next_page or not body.get("isTruncated"):
+            stamp = _stamp_from_filename(name)
+            if stamp is None:
+                continue
+            if stamp > end_ts_str:
+                return files
+            files.append(name)
+        next_token = body.get("nextPageToken")
+        if not next_token or not body.get("isTruncated"):
             break
     return files
 
 
-_FILENAME_STAMP_LEN = 12  # YYYYMMDDHHMM
-
-
-def _parse_ts_from_filename(name: str) -> datetime | None:
-    """Find the YYYYMMDDHHMM stamp KNMI embeds in file names."""
-    import re
-
+def _stamp_from_filename(name: str) -> str | None:
     m = re.search(r"(\d{12})", name)
-    if not m:
-        return None
-    try:
-        return datetime.strptime(m.group(1), "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
+    return m.group(1) if m else None
 
 
 def download(
@@ -102,7 +110,6 @@ def download(
     filename: str,
     out_dir: pathlib.Path,
 ) -> pathlib.Path:
-    """KNMI returns a short-lived signed URL; we follow it to a CDN bucket."""
     target = out_dir / filename
     if target.exists():
         return target
@@ -110,7 +117,7 @@ def download(
     r = client.get(url)
     r.raise_for_status()
     signed_url = r.json()["temporaryDownloadUrl"]
-    # Don't send the auth header to the CDN — it makes signed URLs reject.
+    # Don't send the API auth header to the CDN — signed URLs reject it.
     with httpx.stream("GET", signed_url, timeout=httpx.Timeout(120.0)) as resp:
         resp.raise_for_status()
         with target.open("wb") as fp:
@@ -123,13 +130,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", required=True, help="UTC ISO date or datetime")
     parser.add_argument("--end", required=True, help="UTC ISO date or datetime")
-    parser.add_argument("--out", default="data/knmi", help="Output directory")
     parser.add_argument(
         "--dataset",
-        choices=("radar_forecast", "nl-rdr-data-rtcor-5m"),
         default="radar_forecast",
+        choices=sorted(DATASETS),
+        help="Dataset alias; canonical IDs also accepted.",
     )
-    parser.add_argument("--version", default=None, help="Defaults to canonical version per dataset")
+    parser.add_argument("--out", default="data/knmi", help="Output directory root")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -147,21 +154,20 @@ def main(argv: list[str] | None = None) -> int:
         LOG.error("--end must be on/after --start")
         return 2
 
-    version = args.version or {"radar_forecast": "2.0", "nl-rdr-data-rtcor-5m": "1.0"}[args.dataset]
-    out_dir = pathlib.Path(args.out) / args.dataset / version
+    dataset_id, version, prefix = DATASETS[args.dataset]
+    out_dir = pathlib.Path(args.out) / dataset_id / version
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with _client(api_key) as client:
-        LOG.info("Listing %s v%s in [%s, %s]…", args.dataset, version, start, end)
-        names = list_files(client, args.dataset, version, start, end)
+        LOG.info("Listing %s v%s in [%s, %s]…", dataset_id, version, start, end)
+        names = list_files_in_window(client, dataset_id, version, prefix, start, end)
         LOG.info("Found %d files. Downloading to %s", len(names), out_dir)
         for name in tqdm(names, unit="file"):
             try:
-                download(client, args.dataset, version, name, out_dir)
+                download(client, dataset_id, version, name, out_dir)
             except httpx.HTTPError as exc:
                 LOG.warning("Failed %s: %s", name, exc)
-            # gentle pacing
-            time.sleep(0.05)
+            time.sleep(0.02)
     return 0
 
 

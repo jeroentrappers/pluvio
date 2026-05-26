@@ -3,18 +3,22 @@
 Two responsibilities:
 
 1. Parse the KNMI HDF5 products we care about into tidy DataFrames:
-   - `radar_forecast` v2.0  → one row per (issue_time, lead_min, y, x)
-   - `nl-rdr-data-rtcor-5m` → one row per (observation_time, y, x)
-2. Provide a deterministic synthetic dataset that mimics those shapes so
-   the analysis can run end-to-end without the multi-GB KNMI download.
-   The synthetic generator embeds the expected "skill decays with lead
-   time" structure so the resulting plots look like the real thing —
-   useful for code review.
+   - `radar_forecast` v2.0 ........ one file per *issue* time. Contains 25
+     prediction steps (image1 → image25, +0 → +120 min at 5-min cadence).
+     Each `imageN/image_data` is a uint16 grid (765×700) of *5-minute
+     accumulation in mm*, calibrated via `GEO = scale·PV + offset` on the
+     attribute `image_geo_parameter == "PRECIP_[MM]"`. Multiply by 12 to
+     get mm/h.
+   - `nl_rdr_data_rtcor_5m` v1.0 .. one file per *observation* time.
+     `image1` is the precipitation field (same calibration / units as the
+     forecast file), `image2` is quality, `image3` is the gauge-adjustment
+     factor — we ignore the latter two for now.
+2. Provide a deterministic synthetic dataset with the same shapes so the
+   notebook can run with zero network.
 
-The HDF5 schema is documented at
-https://dataplatform.knmi.nl/dataset/radar-forecast-2-0 — the field names
-below match what the dataset's README describes, but real files in the
-wild occasionally vary; the loaders are defensive about that.
+The HDF5 schema notes above are pinned from a live response on 2026-05-26;
+KNMI documents the calibration on `imageN/calibration/calibration_formulas`,
+the no-data sentinel as 65534 and the out-of-image sentinel as 65535.
 """
 
 from __future__ import annotations
@@ -31,12 +35,12 @@ import pandas as pd
 
 LOG = logging.getLogger("pluvio.research.lib")
 
-# KNMI radar grid is nominally 765×700 (NL composite). We downsample to a
-# 100×100 footprint for analysis to keep memory and plotting honest.
+# Native KNMI grid is 765×700. We block-mean down to 100×100 for analysis
+# so paired DataFrames stay small enough to plot without losing structure.
 ANALYSIS_GRID = (100, 100)
 
-# Lead times in minutes for the radar_forecast nowcast (PT5M cadence × 24 = 2h).
-FORECAST_LEAD_MINUTES: tuple[int, ...] = tuple(range(0, 125, 5))
+# 5-min accumulation → hourly rate factor.
+_MM_5MIN_TO_MM_PER_H = 12.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,7 +48,7 @@ class ForecastRun:
     """A single radar_forecast HDF5 file decoded into memory."""
 
     issue_time: datetime
-    # shape (n_leads, H, W) — precipitation rate in mm/h
+    # shape (n_leads, H, W) — precipitation **rate** in mm/h
     frames: np.ndarray
     # lead times in minutes, len == frames.shape[0]
     leads_min: np.ndarray
@@ -92,82 +96,117 @@ class Observation:
 # --------------------------------------------------------------------- HDF5
 
 _FILENAME_TS = re.compile(r"(\d{12})")
+_KNMI_VALID_TS = re.compile(r"^(\d{2})-([A-Z]{3})-(\d{4});(\d{2}):(\d{2}):(\d{2})")
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
 
 
-def _parse_ts(path: pathlib.Path) -> datetime:
+def _parse_ts_from_filename(path: pathlib.Path) -> datetime:
     m = _FILENAME_TS.search(path.name)
     if not m:
         raise ValueError(f"No YYYYMMDDHHMM stamp in {path.name}")
     return datetime.strptime(m.group(1), "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
 
 
+def _parse_knmi_valid_ts(raw: bytes | str) -> datetime:
+    """Decode KNMI's `dd-MON-yyyy;HH:MM:SS.fff` valid-time string."""
+    s = raw.decode() if isinstance(raw, bytes) else raw
+    m = _KNMI_VALID_TS.match(s)
+    if not m:
+        raise ValueError(f"Unrecognised valid time {s!r}")
+    day, mon, year, hh, mm, ss = m.groups()
+    return datetime(
+        int(year), _MONTHS[mon], int(day), int(hh), int(mm), int(ss), tzinfo=timezone.utc
+    )
+
+
+def _decode_precip_grid(image_group, image_ds) -> np.ndarray:
+    """Apply the calibration on a KNMI ``imageN`` group and return mm/h."""
+    raw = np.asarray(image_ds[()], dtype="float32")
+    # Calibration formula is on the *child* group `imageN/calibration`:
+    #   GEO = scale*PV + offset
+    cal = image_group["calibration"]
+    formula = cal.attrs.get("calibration_formulas", b"GEO=0.01*PV+0.0")
+    if isinstance(formula, bytes):
+        formula = formula.decode()
+    m = re.match(r"GEO\s*=\s*([0-9.+-]+)\s*\*\s*PV\s*\+\s*([0-9.+-]+)", formula)
+    if not m:
+        raise ValueError(f"Unparseable calibration {formula!r}")
+    scale, offset = float(m.group(1)), float(m.group(2))
+    mm_5min = raw * scale + offset
+    missing = int(cal.attrs.get("calibration_missing_data", [65534])[0])
+    out_of_img = int(cal.attrs.get("calibration_out_of_image", [65535])[0])
+    mm_5min[raw == missing] = np.nan
+    mm_5min[raw == out_of_img] = np.nan
+    return mm_5min * _MM_5MIN_TO_MM_PER_H
+
+
 def load_forecast_h5(path: pathlib.Path) -> ForecastRun:
     """Decode a KNMI radar_forecast v2.0 file.
 
-    Expected layout:
-      /forecast/forecast_0min  (uint16 dataset, scale via attrs)
-      /forecast/forecast_5min
-      ...
-      /forecast/forecast_120min
-    Each dataset has `calibration_formulas` / `calibration_out_scale_factor_gr`
-    style attributes; values are mm/h after applying the scale.
-
-    Real files vary slightly across vintages. We try the documented layout
-    first and fall back to scanning the HDF5 hierarchy.
+    Layout (verified against a live 2026-05-26 file):
+      image1 / image2 / … / image25 — each a group with:
+        @image_datetime_valid   "dd-MON-yyyy;HH:MM:SS.fff"
+        image_data              uint16 (765×700), raw pixel value
+        calibration             group with @calibration_formulas
+    image1 is the +0 forecast (= issue time); image25 is +120 min.
     """
-    import h5py  # local import — keeps `_lib.py` importable without h5py
+    import h5py
 
-    issue = _parse_ts(path)
+    issue_from_name = _parse_ts_from_filename(path)
     leads: list[int] = []
     frames: list[np.ndarray] = []
 
     with h5py.File(path, "r") as f:
-        for lead in FORECAST_LEAD_MINUTES:
-            key = f"/forecast/forecast_{lead}min"
-            if key not in f:
+        # Sort image-group names by their numeric suffix so we get +0, +5, … in order.
+        groups = sorted(
+            (n for n in f if n.startswith("image")),
+            key=lambda n: int(n.removeprefix("image")),
+        )
+        if not groups:
+            raise RuntimeError(f"No imageN groups in {path}")
+
+        issue_time = None
+        for name in groups:
+            grp = f[name]
+            valid_raw = grp.attrs.get("image_datetime_valid")
+            if valid_raw is None:
                 continue
-            ds = f[key]
-            raw = np.asarray(ds[()], dtype="float32")
-            scale = float(ds.attrs.get("calibration_out_scale_factor_gr", 1.0))
-            offset = float(ds.attrs.get("calibration_out_scale_offset_gr", 0.0))
-            field = raw * scale + offset
-            # No-data sentinels in KNMI files are commonly 65535 → mark as NaN.
-            field[raw >= 65535] = np.nan
+            valid = _parse_knmi_valid_ts(valid_raw)
+            if issue_time is None:
+                issue_time = valid
+            lead_min = int(round((valid - issue_time).total_seconds() / 60))
+            field = _decode_precip_grid(grp, grp["image_data"])
             frames.append(_resample(field, ANALYSIS_GRID))
-            leads.append(lead)
+            leads.append(lead_min)
 
     if not frames:
-        raise RuntimeError(f"No /forecast/forecast_*min datasets in {path}")
+        raise RuntimeError(f"No usable image groups in {path}")
     return ForecastRun(
-        issue_time=issue,
+        issue_time=issue_time or issue_from_name,
         frames=np.stack(frames, axis=0),
         leads_min=np.asarray(leads, dtype="int32"),
     )
 
 
 def load_observation_h5(path: pathlib.Path) -> Observation:
-    """Decode an `nl-rdr-data-rtcor-5m` file.
+    """Decode an `nl_rdr_data_rtcor_5m` file.
 
-    Layout: `/image1/image_data` is the radar+gauge composite, with
-    calibration attributes on the `image1` group.
+    The file holds three image groups; we only need image1 (precipitation).
+    The filename timestamp is the *end* of the 5-min accumulation window.
     """
     import h5py
 
-    valid = _parse_ts(path)
+    valid = _parse_ts_from_filename(path)
     with h5py.File(path, "r") as f:
-        ds = f["/image1/image_data"]
-        raw = np.asarray(ds[()], dtype="float32")
-        calib_group = f["/image1"]
-        scale = float(calib_group.attrs.get("calibration_out_scale_factor_gr", 1.0))
-        offset = float(calib_group.attrs.get("calibration_out_scale_offset_gr", 0.0))
-        field = raw * scale + offset
-        field[raw >= 65535] = np.nan
+        grp = f["image1"]
+        field = _decode_precip_grid(grp, grp["image_data"])
     return Observation(valid_time=valid, field=_resample(field, ANALYSIS_GRID))
 
 
 def _resample(field: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Block-mean downsample; falls through if the field is already the
-    requested shape or smaller."""
+    """Block-mean downsample; pass through if already at or below shape."""
     if field.shape == shape:
         return field
     h, w = field.shape
@@ -184,11 +223,14 @@ def _resample(field: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 
 def discover_runs(forecast_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Glob for forecast files in either the old (5M suffix) or new (FM)
+    naming. The current product is `RAD_NL25_RAC_FM_*.h5`."""
     return sorted(forecast_dir.glob("RAD_NL25_RAC_FM_*.h5"))
 
 
 def discover_observations(obs_dir: pathlib.Path) -> list[pathlib.Path]:
-    return sorted(obs_dir.glob("RAD_NL25_RAC_5M_*.h5"))
+    """Observation files are `RAD_NL25_RAC_RT_*.h5` (RT = real-time)."""
+    return sorted(obs_dir.glob("RAD_NL25_RAC_RT_*.h5"))
 
 
 # ---------------------------------------------------------- synthetic data
@@ -201,26 +243,20 @@ def synthesise_dataset(
 ) -> tuple[list[ForecastRun], list[Observation]]:
     """Build a deterministic toy dataset that mirrors the real shapes.
 
-    A single rain blob (2-D Gaussian) drifts diagonally across the grid at a
-    fixed velocity. The "ground truth" at time t is the blob's position at t.
-    The "forecast at lead h" is the blob's *advected* position at t+h, plus
-    Gaussian noise whose σ grows linearly with lead time — i.e. exactly the
-    skill-decays-with-lead behaviour radar nowcasts exhibit in real life.
-
-    Returns parallel lists of forecast runs and observations such that
-    `forecasts[k].issue_time + leads_min == observations[m].valid_time` for
-    many combinations of (k, m) — i.e. there's something to verify against.
+    A single rain blob (2-D Gaussian) drifts diagonally across the grid. The
+    "ground truth" at time t is the blob's true position at t. The "forecast
+    at lead h" advects the blob forward and then adds noise whose σ grows
+    linearly with lead time — exactly the skill-decays-with-lead behaviour
+    radar nowcasts show in practice.
     """
     rng = np.random.default_rng(rng_seed)
     h, w = shape
     issue0 = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
     issue_step = timedelta(minutes=5)
     velocity = np.array([0.6, 0.4])  # cells per minute
-    blob_intensity = 8.0  # mm/h peak
-    blob_sigma = 6.0  # cells
-
-    issue_times = [issue0 + i * issue_step for i in range(n_runs)]
-    leads_min = np.array(FORECAST_LEAD_MINUTES, dtype="int32")
+    blob_intensity = 8.0
+    blob_sigma = 6.0
+    leads_min = np.arange(0, 125, 5, dtype="int32")
 
     def _draw_blob(centre: np.ndarray, sigma_extra: float) -> np.ndarray:
         yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
@@ -232,7 +268,8 @@ def synthesise_dataset(
         delta_min = (t - issue0).total_seconds() / 60.0
         return np.array([15.0, 20.0]) + velocity * delta_min
 
-    # Observations span both the forecast issue times and their forecast tails.
+    issue_times = [issue0 + i * issue_step for i in range(n_runs)]
+
     obs_times: set[datetime] = set()
     for issue in issue_times:
         for lead in leads_min:
@@ -246,9 +283,7 @@ def synthesise_dataset(
     for issue in issue_times:
         frames = []
         for lead in leads_min:
-            # The forecast "knows" the blob's trajectory but its certainty
-            # decays with lead — bigger σ noise, plus a centre wobble.
-            extra_sigma = 0.04 * lead  # cells, ≈ 1 cell at +25 min
+            extra_sigma = 0.04 * lead
             wobble = rng.normal(scale=0.06 * lead, size=2)
             centre = _blob_centre_at(issue + timedelta(minutes=int(lead))) + wobble
             field = _draw_blob(centre, extra_sigma)
@@ -275,14 +310,11 @@ def pair_forecasts_to_observations(
     sample_cells: int | None = 5000,
     rng_seed: int = 0,
 ) -> pd.DataFrame:
-    """Build the tidy verification frame.
+    """Tidy verification frame.
 
-    Returns one row per (issue_time, lead_min, cell) with both the forecast
-    rate and the corresponding observation rate at that grid cell at the
-    valid time `issue_time + lead_min`.
-
-    ``sample_cells`` keeps the frame small enough to plot — set to None for
-    the full grid.
+    One row per (issue_time, lead_min, cell) with both forecast and truth.
+    ``sample_cells`` keeps the frame small enough to plot — set to None to
+    use the full grid.
     """
     obs_by_time = {o.valid_time: o for o in observations}
     rng = np.random.default_rng(rng_seed)
@@ -366,7 +398,6 @@ def categorical_metrics(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFram
         pod = h / (h + m) if (h + m) else float("nan")
         far = fa / (h + fa) if (h + fa) else float("nan")
         csi = h / (h + m + fa) if (h + m + fa) else float("nan")
-        # HSS — handle zero denominator
         denom = (h + m) * (m + cn) + (h + fa) * (fa + cn)
         hss = (2 * (h * cn - m * fa) / denom) if denom else float("nan")
         rows.append(
@@ -387,9 +418,11 @@ def categorical_metrics(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFram
 
 
 def persistence_baseline(df: pd.DataFrame) -> pd.DataFrame:
-    """Persistence assumes the observation at lead=0 holds for all leads.
-    For each (issue_time, cell), pair the lead-0 observation against the
-    later observations to get a "do-nothing" baseline RMSE per lead.
+    """Persistence assumes the lead-0 observation holds at every lead.
+
+    For each (issue_time, cell), pair the lead-0 observation against later
+    observations. RMSE of that baseline lets us compute a skill score
+    that rewards beating "do nothing".
     """
     base = df[df["lead_min"] == 0][["issue_time", "y", "x", "observed_mm_per_h"]]
     base = base.rename(columns={"observed_mm_per_h": "persistence_mm_per_h"})
