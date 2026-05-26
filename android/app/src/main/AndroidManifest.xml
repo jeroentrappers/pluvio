@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Needed by geolocator. We only ever ask for foreground access -->
+    <!-- ACCESS_COARSE_LOCATION is enough for the radar; FINE upgrades -->
+    <!-- accuracy when the user has granted it. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="pluvio"
         android:name="${applicationName}"

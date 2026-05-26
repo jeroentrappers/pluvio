@@ -8,6 +8,10 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Pluvio</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Pluvio uses your location to centre the radar on you and tell you when rain is about to arrive at your spot.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Pluvio uses your location to centre the radar on you and tell you when rain is about to arrive at your spot.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
