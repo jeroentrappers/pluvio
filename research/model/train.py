@@ -132,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="Fraction of the time window (most recent) held out for validation.")
     parser.add_argument("--require-rain-fraction", type=float, default=None,
                         help="Drop training samples whose target wet-cell fraction is below this.")
+    parser.add_argument("--base-channels", type=int, default=32,
+                        help="UNet width. 16 is ~4x faster on CPU than 32.")
+    parser.add_argument("--max-train-samples", type=int, default=None,
+                        help="Randomly subsample the training index to this many per run (CPU speed).")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="Stop training after this many wall-clock minutes (CPU budget guard).")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -149,10 +153,19 @@ def main(argv: list[str] | None = None) -> int:
         require_rain_fraction=args.require_rain_fraction,
     )
     val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
-    LOG.info("Train: %d samples | Val: %d samples", len(train_set), len(val_set))
+
+    train_for_loader: torch.utils.data.Dataset = train_set
+    if args.max_train_samples is not None and len(train_set) > args.max_train_samples:
+        import torch.utils.data as tud
+
+        g = torch.Generator().manual_seed(0)
+        pick = torch.randperm(len(train_set), generator=g)[: args.max_train_samples].tolist()
+        train_for_loader = tud.Subset(train_set, pick)
+    LOG.info("Train: %d samples (using %d) | Val: %d samples",
+             len(train_set), len(train_for_loader), len(val_set))
 
     train_loader = DataLoader(
-        train_set,
+        train_for_loader,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
@@ -166,10 +179,11 @@ def main(argv: list[str] | None = None) -> int:
         pin_memory=device.type == "cuda",
     )
 
-    model = PluvioUNet(in_channels=train_set.n_channels).to(device)
+    model = PluvioUNet(in_channels=train_set.n_channels, base_channels=args.base_channels).to(device)
     LOG.info(
-        "Model: PluvioUNet (%d channels, %d parameters)",
+        "Model: PluvioUNet (%d channels, base=%d, %d parameters)",
         train_set.n_channels,
+        args.base_channels,
         num_params(model),
     )
 
@@ -199,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                     "model": model.state_dict(),
                     "val_rmse": best_val,
                     "in_channels": train_set.n_channels,
+                    "base_channels": args.base_channels,
                     "arch": "PluvioUNet",
                     "epoch": epoch,
                 },

@@ -98,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device(args.device)
     ckpt = torch.load(args.checkpoint, map_location=device)
     in_channels = ckpt.get("in_channels", 10)
-    model = PluvioUNet(in_channels=in_channels).to(device)
+    base_channels = ckpt.get("base_channels", 32)
+    model = PluvioUNet(in_channels=in_channels, base_channels=base_channels).to(device)
     model.load_state_dict(ckpt["model"])
     LOG.info("Loaded %s (val_rmse=%.4f, epoch=%s)",
              args.checkpoint, ckpt.get("val_rmse", float("nan")), ckpt.get("epoch"))
