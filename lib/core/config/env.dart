@@ -3,9 +3,18 @@
 /// Secrets and tunables never live in code. The CI workflows / fastlane lanes
 /// inject these at build time; see the README for the full set of supported keys.
 abstract final class Env {
+  /// Pluvio backend — the cache + API that serves model-corrected (or, for
+  /// now, raw-KMI stub) forecasts. This is the app's primary data source.
+  /// Override to a local instance during development:
+  ///   --dart-define=PLUVIO_API_BASE_URL=http://10.0.2.2:8000  (Android emu)
+  static const String pluvioApiBaseUrl = String.fromEnvironment(
+    'PLUVIO_API_BASE_URL',
+    defaultValue: 'https://pluvio.appmire.be',
+  );
+
   /// Unofficial KMI mobile-app API. Used by the upstream Apache-2.0
-  /// `irm-kmi-api` package; gives per-location nowcast values + 2-hour
-  /// radar animation frames in one call.
+  /// `irm-kmi-api` package; kept as a direct fallback path. Not the primary
+  /// source now that the backend is wired.
   static const String kmiAppApiBaseUrl = String.fromEnvironment(
     'PLUVIO_KMI_APP_API_BASE_URL',
     defaultValue: 'https://app.meteo.be/services/appv4/',
@@ -32,7 +41,7 @@ abstract final class Env {
   static const bool isProduction = bool.fromEnvironment('dart.vm.product');
 
   static void assertValid() {
-    assert(kmiAppApiBaseUrl.isNotEmpty, 'PLUVIO_KMI_APP_API_BASE_URL must not be empty');
+    assert(pluvioApiBaseUrl.isNotEmpty, 'PLUVIO_API_BASE_URL must not be empty');
     assert(radarBoundsEast > radarBoundsWest, 'radar bounds: east must be > west');
     assert(radarBoundsNorth > radarBoundsSouth,
         'radar bounds: north must be > south');
