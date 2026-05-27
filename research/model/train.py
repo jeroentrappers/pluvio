@@ -83,16 +83,23 @@ def train_one_epoch(
 ) -> float:
     model.train()
     losses: list[float] = []
-    for x, y, _meta in loader:
+    use_amp = device.type == "cuda"
+    for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
+        if use_amp:
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                pred = model(x)
+                loss = weighted_huber(pred, y)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
             pred = model(x)
             loss = weighted_huber(pred, y)
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+            loss.backward()
+            optimizer.step()
         losses.append(float(loss.detach().cpu()))
     return float(sum(losses) / max(len(losses), 1))
 
@@ -103,7 +110,7 @@ def validate(
 ) -> dict[str, float]:
     model.eval()
     rmses: list[float] = []
-    for x, y, _meta in loader:
+    for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         pred = model(x)
