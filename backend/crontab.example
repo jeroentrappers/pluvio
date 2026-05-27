@@ -1,0 +1,22 @@
+# Pluvio backend — example crontab for the inference worker.
+#
+# Install (assuming the virtualenv is at /opt/pluvio-backend/.venv):
+#   sudo crontab -u pluvio -e
+#
+# Replace the path below with where you actually installed the package.
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PLUVIO_HOME=/opt/pluvio-backend
+PLUVIO_BIN=$PLUVIO_HOME/.venv/bin/pluvio-worker
+
+# Nowcast band — every 5 minutes (matches the radar cadence).
+*/5 * * * *  cd $PLUVIO_HOME && $PLUVIO_BIN tick --band nowcast >> /var/log/pluvio/nowcast.log 2>&1
+
+# Short-range — every hour, on the minute.
+0 * * * *    cd $PLUVIO_HOME && $PLUVIO_BIN tick --band short   >> /var/log/pluvio/short.log 2>&1
+
+# Medium-range — every three hours.
+0 */3 * * *  cd $PLUVIO_HOME && $PLUVIO_BIN tick --band medium  >> /var/log/pluvio/medium.log 2>&1
+
+# Long-range — twice daily, aligned to the AIFS 00z / 12z runs.
+0 0,12 * * * cd $PLUVIO_HOME && $PLUVIO_BIN tick --band long    >> /var/log/pluvio/long.log 2>&1
