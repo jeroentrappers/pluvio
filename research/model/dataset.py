@@ -1,22 +1,34 @@
-"""PyTorch Dataset that joins the four data sources onto a common grid.
+"""PyTorch Dataset for the residual-correction model.
 
-For each training sample, we need a 100×100 input tensor with all the
-feature channels described in ``docs/model_architecture.md`` plus a target
-(the verified observation at the requested lead time).
+**Radar-only v1.** This deliberately uses only the inputs that need no
+GeoTIFF reprojection — radar observation history + the operational nowcast
+frame — so we can train an end-to-end model *today* on the KNMI HDF5 we
+already know how to parse. The auxiliary channels (Meteosat, ALARO, AWS)
+slot in later by extending ``_assemble_input`` and bumping ``n_channels``;
+the rest of the pipeline (train loop, eval) is unchanged.
 
-This module focuses on the *assembly* step. The collectors land raw files
-on disk; we read them lazily here, regrid them to the common grid, and
-yield ``(input_tensor, target_tensor)`` pairs.
+Channel layout (radar-only): 10 channels on a 100×100 grid
 
-It's deliberately conservative about caching: every transformation is done
-on-the-fly so the Dataset stays under ~200 lines and is easy to audit. For
-production training you'd pre-bake into a zarr store via ``build_zarr.py``
-(see the TODO at the bottom of this file).
+    0-5  radar observation history at issue-25 … issue-0 min (6 frames)
+    6    operational nowcast frame at the target lead
+    7    lead plane: lead_min / 120, broadcast (lead-conditioning)
+    8    sin(2π·hour/24)  broadcast
+    9    cos(2π·hour/24)  broadcast
+
+Target: the verifying observation at issue_time + lead, 100×100, mm/h.
+
+One sample = one (issue_time, lead_min) pair. The operational forecast file
+holds all 25 lead steps, so we cache it (LRU) to avoid re-reading the HDF5
+for every lead of the same issue time.
 """
 
 from __future__ import annotations
 
+import functools
+import logging
 import pathlib
+import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -24,173 +36,173 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-# These imports come from the verification notebook helpers. Keep the
-# Dataset module dependency-light — we re-use the existing HDF5 parsers
-# rather than duplicate them.
-import sys
-
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "notebooks"))
-import _lib as kpi  # noqa: E402  KNMI parser library
+import _lib as kpi  # noqa: E402
 
-GRID = kpi.ANALYSIS_GRID  # 100 × 100, the common analysis grid
+LOG = logging.getLogger("pluvio.dataset")
+
+GRID = kpi.ANALYSIS_GRID  # (100, 100)
+RADAR_HISTORY_STEPS = 6  # 30 min of 5-min observations
+HISTORY_STEP_MIN = 5
+TRAIN_LEADS_MIN: tuple[int, ...] = tuple(range(5, 125, 5))  # skip lead 0 (degenerate)
+N_CHANNELS = RADAR_HISTORY_STEPS + 1 + 1 + 2  # history + nowcast + lead + 2×time
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_forecast(path_str: str) -> kpi.ForecastRun:
+    return kpi.load_forecast_h5(pathlib.Path(path_str))
+
+
+@functools.lru_cache(maxsize=512)
+def _cached_observation(path_str: str) -> np.ndarray:
+    return kpi.load_observation_h5(pathlib.Path(path_str)).field
 
 
 @dataclass(frozen=True)
-class SamplePaths:
-    """File paths needed to assemble one training sample."""
-
-    radar_history: list[pathlib.Path]  # 6 most recent observations before issue_time
-    operational_forecast: pathlib.Path  # the radar_forecast HDF5 we're correcting
-    observation_at_lead: pathlib.Path  # the verifying observation file
-    msg_ir108: pathlib.Path | None  # nearest Meteosat IR 10.8 GeoTIFF
-    msg_wv062: pathlib.Path | None
-    msg_kindex: pathlib.Path | None
-    msg_li: pathlib.Path | None
-    msg_cth: pathlib.Path | None
-    msg_rdt: pathlib.Path | None
-    aws_pressure_grid: np.ndarray | None  # interpolated AWS field, 100×100
-    alaro_tp: pathlib.Path | None  # ALARO total precipitation
-    alaro_cc: pathlib.Path | None  # cloud cover
-    alaro_wind: pathlib.Path | None  # 10-m wind speed
+class Sample:
+    issue_time: datetime
+    lead_min: int
+    forecast_path: pathlib.Path
+    history_paths: tuple[pathlib.Path, ...]  # oldest → newest, len RADAR_HISTORY_STEPS
+    target_path: pathlib.Path
 
 
 class PluvioCorrectionDataset(Dataset):
-    """One sample = one (issue_time, lead_min) pair across all sources.
-
-    Construction is two-phase:
-      1. ``index_paths()`` scans the data directories and builds a list of
-         valid ``(issue_time, lead_min, SamplePaths)`` tuples. Slow but
-         only done once per epoch.
-      2. ``__getitem__`` reads the actual arrays and stacks them into a
-         (29, 100, 100) input tensor and a (1, 100, 100) target.
-    """
-
     def __init__(
         self,
         data_root: pathlib.Path,
-        leads_min: tuple[int, ...] = tuple(range(5, 125, 5)),
-        radar_history_steps: int = 6,
+        *,
+        time_range: tuple[datetime, datetime] | None = None,
+        leads_min: tuple[int, ...] = TRAIN_LEADS_MIN,
+        require_rain_fraction: float | None = None,
     ):
+        """
+        Args:
+            data_root: directory holding ``radar_forecast/2.0`` and
+                ``nl_rdr_data_rtcor_5m/1.0`` subdirs (the collector layout).
+            time_range: optional (start, end) UTC filter on issue times —
+                used to make disjoint train / val splits.
+            leads_min: which forecast lead steps to emit samples for.
+            require_rain_fraction: if set, drop samples whose target has a
+                wet-cell fraction below this threshold. Cheap way to focus
+                CPU training on the ~5% of timesteps that actually have rain.
+        """
         self.data_root = pathlib.Path(data_root)
         self.leads_min = leads_min
-        self.radar_history_steps = radar_history_steps
-        self.index: list[tuple[datetime, int, SamplePaths]] = []
+        self.time_range = time_range
+        self.require_rain_fraction = require_rain_fraction
+        self.index: list[Sample] = []
         self._build_index()
+
+    @property
+    def n_channels(self) -> int:
+        return N_CHANNELS
 
     def __len__(self) -> int:
         return len(self.index)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, dict]:
-        issue_time, lead_min, paths = self.index[idx]
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        s = self.index[idx]
+        x = self._assemble_input(s)
+        target = _cached_observation(str(s.target_path))
+        y = np.nan_to_num(target, nan=0.0).astype("float32")[None, ...]
+        return torch.from_numpy(x), torch.from_numpy(y)
+
+    # ──────────────────────────────────────────────────────────── assembly
+
+    def _assemble_input(self, s: Sample) -> np.ndarray:
         channels: list[np.ndarray] = []
 
-        # 1. Radar history (6 channels)
-        for p in paths.radar_history:
-            channels.append(kpi.load_observation_h5(p).field)
-        while len(channels) < self.radar_history_steps:
-            channels.append(np.zeros(GRID, dtype="float32"))
+        # 0-5: radar history, oldest → newest.
+        for p in s.history_paths:
+            channels.append(np.nan_to_num(_cached_observation(str(p)), nan=0.0))
 
-        # 2. Operational forecast at this lead (1 channel)
-        run = kpi.load_forecast_h5(paths.operational_forecast)
-        lead_idx = int(np.argmin(np.abs(run.leads_min - lead_min)))
-        channels.append(run.frames[lead_idx])
+        # 6: operational nowcast frame at this lead.
+        run = _cached_forecast(str(s.forecast_path))
+        lead_idx = int(np.argmin(np.abs(run.leads_min - s.lead_min)))
+        channels.append(np.nan_to_num(run.frames[lead_idx], nan=0.0))
 
-        # 3. Meteosat channels (6 channels — IR108, ΔIR108, WV062, K, LI, CTH, RDT)
-        ir108 = _load_geotiff(paths.msg_ir108, GRID)
-        ir108_prev = _load_geotiff_offset(paths.msg_ir108, GRID, minutes=-30)
-        channels.append(ir108)
-        channels.append(ir108 - ir108_prev)  # cooling trend
-        channels.append(_load_geotiff(paths.msg_wv062, GRID))
-        channels.append(_load_geotiff(paths.msg_kindex, GRID))
-        channels.append(_load_geotiff(paths.msg_li, GRID))
-        channels.append(_load_geotiff(paths.msg_cth, GRID))
-        channels.append(_load_geotiff(paths.msg_rdt, GRID))
+        # 7: lead plane (conditioning).
+        channels.append(np.full(GRID, s.lead_min / 120.0, dtype="float32"))
 
-        # 4. AWS interpolated fields (5 channels)
-        if paths.aws_pressure_grid is not None:
-            channels.append(paths.aws_pressure_grid)
-        else:
-            channels.append(np.zeros(GRID, dtype="float32"))
-        # TODO: same for pressure_tendency_3h, temp, humidity, wind_speed
-        for _ in range(4):
-            channels.append(np.zeros(GRID, dtype="float32"))
-
-        # 5. ALARO context (4 channels) at the lead's valid time
-        channels.append(_load_geotiff(paths.alaro_tp, GRID))
-        channels.append(_load_geotiff(paths.alaro_cc, GRID))
-        channels.append(_load_geotiff(paths.alaro_wind, GRID))
-        channels.append(np.zeros(GRID, dtype="float32"))  # placeholder for ALARO humidity
-
-        # 6. Static features (3 channels) — loaded from packaged assets
-        terrain = _static_field("terrain", GRID)
-        landmask = _static_field("landmask", GRID)
-        coastdist = _static_field("coast_distance", GRID)
-        channels.extend([terrain, landmask, coastdist])
-
-        # 7. Time encoding (4 channels)
-        valid = issue_time + timedelta(minutes=lead_min)
-        hour = valid.hour + valid.minute / 60
-        doy = valid.timetuple().tm_yday
+        # 8-9: time-of-day encoding.
+        valid = s.issue_time + timedelta(minutes=s.lead_min)
+        hour = valid.hour + valid.minute / 60.0
         channels.append(np.full(GRID, np.sin(2 * np.pi * hour / 24), dtype="float32"))
         channels.append(np.full(GRID, np.cos(2 * np.pi * hour / 24), dtype="float32"))
-        channels.append(np.full(GRID, np.sin(2 * np.pi * doy / 365.25), dtype="float32"))
-        channels.append(np.full(GRID, np.cos(2 * np.pi * doy / 365.25), dtype="float32"))
 
-        x = np.stack([_ensure(c) for c in channels], axis=0).astype("float32")
-        y = _ensure(kpi.load_observation_h5(paths.observation_at_lead).field).astype("float32")
+        return np.stack(channels, axis=0).astype("float32")
 
-        meta = {"issue_time": issue_time.isoformat(), "lead_min": int(lead_min)}
-        return torch.from_numpy(x), torch.from_numpy(y).unsqueeze(0), meta
-
-    # ------------------------------------------------------------------ private
+    # ──────────────────────────────────────────────────────────── indexing
 
     def _build_index(self) -> None:
-        # Look at every available forecast file and every lead step we care
-        # about. Validate that the matching observation exists. Resolve the
-        # nearest Meteosat / ALARO / AWS files (15-min and 1-h cadences).
-        # TODO(pluvio): implement against the actual on-disk layout once
-        # the collectors have run for at least a week.
-        raise NotImplementedError(
-            "PluvioCorrectionDataset._build_index — implement once the "
-            "collectors have produced a contiguous training window. "
-            "See docs/model_architecture.md for the source layout."
+        fc_dir = self.data_root / "radar_forecast" / "2.0"
+        obs_dir = self.data_root / "nl_rdr_data_rtcor_5m" / "1.0"
+        if not fc_dir.exists() or not obs_dir.exists():
+            raise FileNotFoundError(
+                f"expected {fc_dir} and {obs_dir}; run the KNMI collectors first."
+            )
+
+        obs_by_ts: dict[datetime, pathlib.Path] = {
+            _ts_from_name(p): p for p in kpi.discover_observations(obs_dir)
+        }
+
+        forecasts = kpi.discover_runs(fc_dir)
+        n_considered = n_missing = n_dry = 0
+
+        for fc_path in forecasts:
+            issue = _ts_from_name(fc_path)
+            if self.time_range is not None:
+                start, end = self.time_range
+                if issue < start or issue >= end:
+                    continue
+
+            history: list[pathlib.Path] = []
+            ok = True
+            for k in range(RADAR_HISTORY_STEPS - 1, -1, -1):
+                ts = issue - timedelta(minutes=k * HISTORY_STEP_MIN)
+                if ts not in obs_by_ts:
+                    ok = False
+                    break
+                history.append(obs_by_ts[ts])
+            if not ok:
+                continue
+
+            for lead in self.leads_min:
+                n_considered += 1
+                target_path = obs_by_ts.get(issue + timedelta(minutes=lead))
+                if target_path is None:
+                    n_missing += 1
+                    continue
+                if self.require_rain_fraction is not None:
+                    field = _cached_observation(str(target_path))
+                    if float(np.mean(np.nan_to_num(field) >= 0.1)) < self.require_rain_fraction:
+                        n_dry += 1
+                        continue
+                self.index.append(
+                    Sample(
+                        issue_time=issue,
+                        lead_min=lead,
+                        forecast_path=fc_path,
+                        history_paths=tuple(history),
+                        target_path=target_path,
+                    )
+                )
+
+        LOG.info(
+            "indexed %d samples from %d forecast files "
+            "(considered %d lead-pairs, dropped %d missing-obs, %d too-dry)",
+            len(self.index), len(forecasts), n_considered, n_missing, n_dry,
         )
+        if not self.index:
+            raise RuntimeError(
+                "empty training index — check the window covers enough contiguous "
+                "5-min observations around each forecast issue time."
+            )
 
 
-# ---------------------------------------------------------------- helpers
-
-
-def _load_geotiff(path: pathlib.Path | None, shape: tuple[int, int]) -> np.ndarray:
-    if path is None or not path.exists():
-        return np.zeros(shape, dtype="float32")
-    # TODO(pluvio): use rasterio to decode + reproject to the KNMI grid.
-    # For now, return zeros so the rest of the pipeline can be exercised
-    # without a rasterio dependency.
-    return np.zeros(shape, dtype="float32")
-
-
-def _load_geotiff_offset(
-    path: pathlib.Path | None, shape: tuple[int, int], minutes: int
-) -> np.ndarray:
-    # Sister to _load_geotiff but resolves the file `minutes` ago/ahead.
-    return _load_geotiff(path, shape)
-
-
-def _static_field(kind: str, shape: tuple[int, int]) -> np.ndarray:
-    # TODO(pluvio): ship pre-computed terrain / landmask / coast-distance
-    # numpy arrays under `assets/static/` and load them here.
-    return np.zeros(shape, dtype="float32")
-
-
-def _ensure(x: np.ndarray) -> np.ndarray:
-    """Coerce NaN → 0 and guarantee dtype float32 + correct shape."""
-    x = np.asarray(x, dtype="float32")
-    if x.shape != GRID:
-        # Crude resize; the collectors should already deliver the right shape.
-        from PIL import Image
-
-        x = np.asarray(
-            Image.fromarray(x).resize(GRID[::-1], Image.BILINEAR), dtype="float32"
-        )
-    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-    return x
+def _ts_from_name(path: pathlib.Path) -> datetime:
+    m = re.search(r"(\d{12})", path.name)
+    if not m:
+        raise ValueError(f"no YYYYMMDDHHMM in {path.name}")
+    return datetime.strptime(m.group(1), "%Y%m%d%H%M").replace(tzinfo=timezone.utc)

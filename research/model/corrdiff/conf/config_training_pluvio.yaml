@@ -1,0 +1,51 @@
+# Starting Hydra config for training CorrDiff on Pluvio data.
+# Copy into physicsnemo/examples/generative/corrdiff/conf/ and tune on GPU.
+# Values marked TUNE are the ones most likely to need iteration.
+
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: ./outputs/pluvio
+
+# ─────────────────────────────────────────────────────────────── dataset
+dataset:
+  type: pluvio_zarr            # custom loader — see build_zarr.py output
+  data_path: /data/corrdiff.zarr
+  # Conditioning inputs on the common 1-km grid (radar history + AIFS +
+  # Meteosat + AWS). Match build_zarr.py's channel order exactly.
+  in_channels: 24              # TUNE — final count once aux channels land
+  out_channels: 1              # precipitation rate, mm/h
+  img_resolution: 128          # pad 100×100 → 128 for power-of-two UNet
+  # Normalisation: precipitation is heavy-tailed; CorrDiff expects roughly
+  # zero-mean/unit-var inputs. build_zarr.py writes per-channel mean/std.
+  normalize: true
+
+# ─────────────────────────────────────────────────────────────── model
+model:
+  name: corrdiff
+  # CorrDiff = a deterministic regression UNet + a diffusion residual.
+  regression:
+    model_channels: 64         # TUNE
+  diffusion:
+    model_channels: 64         # TUNE
+    sigma_min: 0.002
+    sigma_max: 800.0
+    sigma_data: 0.5
+
+# ─────────────────────────────────────────────────────────────── training
+training:
+  batch_size: 16               # TUNE per GPU VRAM (A100 80GB → 32+)
+  lr: 2.0e-4
+  lr_rampup_steps: 1000
+  total_steps: 200000          # TUNE — ~2 GPU-days on A100
+  loss: edm                    # EDM diffusion loss (Karras et al. 2022)
+  # Weighted toward heavy rain, mirroring the UNet's weighted-Huber rationale.
+  precip_weighted_loss: true
+  checkpoint_every: 5000
+  validate_every: 5000
+
+# ─────────────────────────────────────────────────────────────── io
+io:
+  print_progress_freq: 100
+  save_dir: ./outputs/pluvio/checkpoints

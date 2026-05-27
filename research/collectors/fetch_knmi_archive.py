@@ -76,9 +76,14 @@ def list_files_in_window(
     after = _start_after_filename(prefix, start)
     end_ts_str = end.strftime("%Y%m%d%H%M")
     while True:
-        params: dict[str, object] = {"maxKeys": 500, "startAfterFilename": after}
+        # The API rejects startAfterFilename + nextPageToken together (400).
+        # Use startAfterFilename only to seed the first page; once the server
+        # hands us a nextPageToken, page with that alone.
+        params: dict[str, object] = {"maxKeys": 500}
         if next_token:
             params["nextPageToken"] = next_token
+        else:
+            params["startAfterFilename"] = after
         r = client.get(base, params=params)
         r.raise_for_status()
         body = r.json()
