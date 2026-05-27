@@ -59,15 +59,33 @@ def _time_split(data_root: pathlib.Path, val_frac: float) -> datetime:
 
 
 def weighted_huber(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Huber loss weighted by ``(1 + obs)²`` so heavy rain matters."""
+    """Huber loss weighted by ``(1 + obs)`` so heavy rain matters.
+
+    Softened from the original ``(1 + obs)²``: the squared weight made the
+    optimizer hedge precipitation upward everywhere, producing a persistent
+    wet bias. Linear weighting keeps the heavy-rain emphasis without the
+    systematic over-prediction.
+    """
     delta = 1.0
     diff = pred - target
     abs_diff = diff.abs()
     quad = torch.minimum(abs_diff, torch.tensor(delta, device=pred.device))
     lin = abs_diff - quad
     per_pixel = 0.5 * quad**2 + delta * lin
-    weight = (1.0 + target) ** 2
+    weight = 1.0 + target
     return (per_pixel * weight).mean()
+
+
+def total_loss(pred: torch.Tensor, target: torch.Tensor, bias_penalty: float) -> torch.Tensor:
+    """Weighted Huber + a penalty on the systematic (batch-mean) bias.
+
+    The bias term directly punishes ``mean(pred) - mean(target)``, which is
+    the exact quantity we saw drift to +0.14 mm/h. Keeps the model honest
+    about *how much* rain, not just *where*.
+    """
+    base = weighted_huber(pred, target)
+    bias = (pred.mean() - target.mean()).pow(2)
+    return base + bias_penalty * bias
 
 
 def rmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -80,6 +98,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.GradScaler,
     device: torch.device,
+    bias_penalty: float,
 ) -> float:
     model.train()
     losses: list[float] = []
@@ -91,13 +110,13 @@ def train_one_epoch(
         if use_amp:
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 pred = model(x)
-                loss = weighted_huber(pred, y)
+                loss = total_loss(pred, y, bias_penalty)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
             pred = model(x)
-            loss = weighted_huber(pred, y)
+            loss = total_loss(pred, y, bias_penalty)
             loss.backward()
             optimizer.step()
         losses.append(float(loss.detach().cpu()))
@@ -136,6 +155,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="UNet width. 16 is ~4x faster on CPU than 32.")
     parser.add_argument("--max-train-samples", type=int, default=None,
                         help="Randomly subsample the training index to this many per run (CPU speed).")
+    parser.add_argument("--max-val-samples", type=int, default=2500,
+                        help="Subsample validation for the per-epoch metric (CPU speed).")
+    parser.add_argument("--bias-penalty", type=float, default=0.5,
+                        help="Weight on the mean-bias penalty term (fixes wet over-prediction).")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="Stop training after this many wall-clock minutes (CPU budget guard).")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -154,15 +177,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
 
-    train_for_loader: torch.utils.data.Dataset = train_set
-    if args.max_train_samples is not None and len(train_set) > args.max_train_samples:
-        import torch.utils.data as tud
+    import torch.utils.data as tud
 
-        g = torch.Generator().manual_seed(0)
-        pick = torch.randperm(len(train_set), generator=g)[: args.max_train_samples].tolist()
-        train_for_loader = tud.Subset(train_set, pick)
-    LOG.info("Train: %d samples (using %d) | Val: %d samples",
-             len(train_set), len(train_for_loader), len(val_set))
+    def _subsample(ds, n, seed):
+        if n is None or len(ds) <= n:
+            return ds
+        g = torch.Generator().manual_seed(seed)
+        pick = torch.randperm(len(ds), generator=g)[:n].tolist()
+        return tud.Subset(ds, pick)
+
+    train_for_loader = _subsample(train_set, args.max_train_samples, 0)
+    val_for_loader = _subsample(val_set, args.max_val_samples, 1)
+    LOG.info("Train: %d (using %d) | Val: %d (using %d)",
+             len(train_set), len(train_for_loader), len(val_set), len(val_for_loader))
 
     train_loader = DataLoader(
         train_for_loader,
@@ -172,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         pin_memory=device.type == "cuda",
     )
     val_loader = DataLoader(
-        val_set,
+        val_for_loader,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -198,7 +225,9 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, scaler, device)
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, scaler, device, args.bias_penalty
+        )
         metrics = validate(model, val_loader, device)
         elapsed_min = (time.monotonic() - started) / 60
         LOG.info(
