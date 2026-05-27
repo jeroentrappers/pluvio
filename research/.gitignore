@@ -6,6 +6,9 @@ data/
 *.tif
 *.tiff
 *.npz
+*.pt
+checkpoints/
+output/
 .ipynb_checkpoints/
 __pycache__/
 *.egg-info/
