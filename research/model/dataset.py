@@ -49,19 +49,38 @@ GRID = kpi.ANALYSIS_GRID  # (100, 100)
 RADAR_HISTORY_STEPS = 6
 HISTORY_STEP_MIN = 5
 TRAIN_LEADS_MIN: tuple[int, ...] = tuple(range(5, 125, 5))  # skip lead 0 (= the analysis)
-N_CHANNELS = RADAR_HISTORY_STEPS + 1 + 1 + 2
+N_BASE_CHANNELS = RADAR_HISTORY_STEPS + 1 + 1 + 2  # history + nowcast + lead + 2×time = 10
 
 
 @dataclass(frozen=True)
 class ForecastStore:
-    """All forecast frames for a window, resident in RAM."""
+    """All forecast frames for a window, resident in RAM.
+
+    ``aux`` holds optional auxiliary channels aligned 1:1 with the forecast
+    timestamps (same index space as ``frames``), built by ``build_aux.py``:
+    e.g. AWS pressure/temp/humidity/wind, normalised to ~O(1).
+    """
 
     frames: np.ndarray  # (n_files, n_leads, H, W) float32, NaNs zeroed
     leads_min: np.ndarray  # (n_leads,) int — typically [0, 5, …, 120]
     ts_to_idx: dict[datetime, int]
+    aux: dict[str, np.ndarray]  # name → (n_files, H, W), aligned to frames index
+    aux_order: tuple[str, ...]
 
     def analysis_idx(self, ts: datetime) -> int | None:
         return self.ts_to_idx.get(ts)
+
+
+def _load_aux(fc_dir: pathlib.Path) -> tuple[dict[str, np.ndarray], tuple[str, ...]]:
+    """Load aux_cache.npz (AWS etc.) if present, else return empty."""
+    aux_path = fc_dir / "aux_cache.npz"
+    if not aux_path.exists():
+        return {}, ()
+    d = np.load(aux_path, allow_pickle=True)
+    order = tuple(str(c) for c in d["channel_order"])
+    aux = {ch: d[ch] for ch in order}
+    LOG.info("loaded aux cache: %d channels %s", len(order), order)
+    return aux, order
 
 
 @functools.lru_cache(maxsize=4)
@@ -69,6 +88,7 @@ def load_store(fc_dir_str: str) -> ForecastStore:
     """Parse every forecast file into one RAM tensor, cached to npz."""
     fc_dir = pathlib.Path(fc_dir_str)
     cache = fc_dir.parent / "frames_cache.npz"
+    aux, aux_order = _load_aux(fc_dir.parent)
     if cache.exists():
         d = np.load(cache, allow_pickle=False)
         ts_list = [datetime.fromtimestamp(int(t), tz=timezone.utc) for t in d["ts_epoch"]]
@@ -77,6 +97,8 @@ def load_store(fc_dir_str: str) -> ForecastStore:
             frames=d["frames"],
             leads_min=d["leads_min"],
             ts_to_idx={ts: i for i, ts in enumerate(ts_list)},
+            aux=aux,
+            aux_order=aux_order,
         )
 
     paths = kpi.discover_runs(fc_dir)
@@ -99,6 +121,8 @@ def load_store(fc_dir_str: str) -> ForecastStore:
         frames=stacked,
         leads_min=leads_min,
         ts_to_idx={ts: i for i, ts in enumerate(ts_list)},
+        aux=aux,
+        aux_order=aux_order,
     )
 
 
@@ -131,7 +155,7 @@ class PluvioCorrectionDataset(Dataset):
 
     @property
     def n_channels(self) -> int:
-        return N_CHANNELS
+        return N_BASE_CHANNELS + len(self.store.aux_order)
 
     def __len__(self) -> int:
         return len(self.index)
@@ -139,7 +163,7 @@ class PluvioCorrectionDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         s = self.index[idx]
         f = self.store.frames
-        chans = np.empty((N_CHANNELS, *GRID), dtype="float32")
+        chans = np.empty((self.n_channels, *GRID), dtype="float32")
         for i, hidx in enumerate(s.history_idx):
             chans[i] = f[hidx, 0]
         chans[6] = f[s.issue_idx, s.lead_idx]
@@ -148,6 +172,9 @@ class PluvioCorrectionDataset(Dataset):
         hour = valid.hour + valid.minute / 60.0
         chans[8] = np.sin(2 * np.pi * hour / 24)
         chans[9] = np.cos(2 * np.pi * hour / 24)
+        # Aux channels: surface state at issue time, aligned to issue_idx.
+        for j, name in enumerate(self.store.aux_order):
+            chans[N_BASE_CHANNELS + j] = self.store.aux[name][s.issue_idx]
         y = f[s.target_idx, 0][None, ...]
         return torch.from_numpy(chans), torch.from_numpy(y.copy())
 
