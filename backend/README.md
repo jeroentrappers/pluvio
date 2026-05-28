@@ -42,6 +42,7 @@ uv run pytest -q                     # tests
 One image, two roles (API + scheduled worker) sharing a cache volume.
 
 ```bash
+# Local dev — rebuild from the checkout
 docker compose up -d --build
 curl http://localhost:8000/healthz
 docker compose logs -f worker        # see the band-tick schedule
@@ -53,8 +54,38 @@ lack cp314 wheels yet, so they compile from source), and a slim runtime
 just copies the resulting `/opt/pluvio` venv. Final image is small and
 runs as a non-root user.
 
-For production behind `pluvio.appmire.be`, put a TLS reverse proxy
-(Caddy / nginx / Traefik) in front of `api:8000`. Caddy is the simplest:
+## Continuous delivery (GHCR)
+
+`.github/workflows/backend.yml` runs the quality gate on every push / PR
+touching `backend/**`, and on pushes to `main` (or `v*` tags) builds and
+pushes the image to **GHCR**:
+
+```
+ghcr.io/jeroentrappers/pluvio-backend:latest    # main branch
+ghcr.io/jeroentrappers/pluvio-backend:sha-<7>   # immutable, per commit
+ghcr.io/jeroentrappers/pluvio-backend:v1.2.3    # on v* tags
+```
+
+Auth uses the workflow's `GITHUB_TOKEN` — no manual secret. **One-time
+setup:** after the first publish, open the package settings on GitHub and
+either keep it private (the deploy host then needs a registry read-only
+PAT) or flip it public for a friction-free `docker pull`.
+
+## Production deploy
+
+DNS for `pluvio.appmire.be` points at a Docker host. Then on that host:
+
+```bash
+git clone git@github.com:jeroentrappers/pluvio.git
+cd pluvio/backend
+docker compose pull          # pulls ghcr.io/jeroentrappers/pluvio-backend:latest
+docker compose up -d
+```
+
+Redeploys are just `docker compose pull && docker compose up -d` — the
+worker resumes from the persisted cache volume.
+
+TLS in front of `api:8000`. Caddy is the simplest:
 
 ```caddyfile
 pluvio.appmire.be {

@@ -1,5 +1,9 @@
 # Pluvio backend — API + scheduled worker sharing one cache volume.
 #
+# Production (uses the image GitHub Actions pushes to GHCR on every push):
+#   docker compose pull && docker compose up -d
+#
+# Local dev (rebuild from the source tree in this checkout):
 #   docker compose up -d --build
 #
 # The worker runs APScheduler in-process (all four bands on their cron
@@ -11,7 +15,7 @@ name: pluvio
 services:
   api:
     build: .
-    image: pluvio-backend:latest
+    image: ghcr.io/jeroentrappers/pluvio-backend:latest
     environment:
       PLUVIO_CACHE_ROOT: /data/forecasts
       # Allow the app's origin(s); empty disables CORS. Set for web builds.
@@ -25,7 +29,7 @@ services:
 
   worker:
     build: .
-    image: pluvio-backend:latest
+    image: ghcr.io/jeroentrappers/pluvio-backend:latest
     command: ["pluvio-worker", "schedule"]
     environment:
       PLUVIO_CACHE_ROOT: /data/forecasts
