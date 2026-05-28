@@ -1,15 +1,15 @@
-# Pluvio backend — API + scheduled worker sharing one cache volume.
+# Pluvio backend — API + scheduled worker, optionally fronted by Traefik.
 #
-# Production (uses the image GitHub Actions pushes to GHCR on every push):
-#   docker compose pull && docker compose up -d
+#   Local dev (rebuild from this checkout; hit http://localhost:8000):
+#     docker compose up -d --build
 #
-# Local dev (rebuild from the source tree in this checkout):
-#   docker compose up -d --build
+#   Production (pulls the GHA-pushed image from GHCR; Traefik on :80/:443
+#   terminates TLS for $PLUVIO_DOMAIN and routes to the api service):
+#     docker compose --profile prod pull
+#     docker compose --profile prod up -d
 #
 # The worker runs APScheduler in-process (all four bands on their cron
 # cadences, see schedules.py); the API serves from the shared cache.
-# Put a TLS reverse proxy (Caddy/nginx/Traefik) in front for
-# pluvio.appmire.be — see README "Deploy".
 name: pluvio
 
 services:
@@ -23,9 +23,21 @@ services:
       PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-stub-0.1}
     volumes:
       - cache:/data/forecasts
+    # Bind to loopback only — Traefik (when in the `prod` profile) routes
+    # public traffic over the internal docker network. In dev this is the
+    # endpoint you curl directly.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
+    labels:
+      # Discovered by Traefik when the `prod` profile is active. Inert when
+      # Traefik isn't running.
+      - traefik.enable=true
+      - traefik.http.routers.pluvio.rule=Host(`${PLUVIO_DOMAIN:-pluvio.appmire.be}`)
+      - traefik.http.routers.pluvio.entrypoints=websecure
+      - traefik.http.routers.pluvio.tls=true
+      - traefik.http.routers.pluvio.tls.certresolver=le
+      - traefik.http.services.pluvio.loadbalancer.server.port=8000
 
   worker:
     build: .
@@ -36,7 +48,39 @@ services:
     volumes:
       - cache:/data/forecasts
     restart: unless-stopped
-    # The worker doesn't serve HTTP; no healthcheck/ports.
+    # The worker doesn't serve HTTP; no labels/healthcheck/ports.
+
+  # TLS-terminating reverse proxy. Production-only (profile = prod) so local
+  # dev doesn't need port 80/443 or DNS games.
+  traefik:
+    image: traefik:v3.5
+    profiles: [prod]
+    restart: unless-stopped
+    command:
+      # Static config via flags — no traefik.yml needed.
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      # All HTTP gets bounced to HTTPS.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      # ACME (Let's Encrypt) via TLS challenge — no extra ports needed.
+      # Empty default so the dev profile parses cleanly; Traefik will error
+      # at startup if the prod profile is launched without ACME_EMAIL set.
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      # Quiet by default; bump to DEBUG when issuance misbehaves.
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-acme:/letsencrypt
 
 volumes:
   cache:
+  traefik-acme:

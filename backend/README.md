@@ -73,25 +73,36 @@ PAT) or flip it public for a friction-free `docker pull`.
 
 ## Production deploy
 
-DNS for `pluvio.appmire.be` points at a Docker host. Then on that host:
+DNS for `PLUVIO_DOMAIN` points at a Docker host. The `prod` compose profile
+adds **Traefik** in front of the API: Traefik terminates TLS on `:443`
+(automatic Let's Encrypt via the ACME TLS-ALPN challenge — no extra ports
+required), redirects `:80` → `:443`, and routes by `Host(...)` label to the
+api container's internal `:8000`. The api itself only binds to
+`127.0.0.1:8000` so it's never directly reachable from the internet.
 
 ```bash
+# On the host (Docker installed, ports 80/443 free, DNS pointed here):
 git clone git@github.com:jeroentrappers/pluvio.git
 cd pluvio/backend
-docker compose pull          # pulls ghcr.io/jeroentrappers/pluvio-backend:latest
-docker compose up -d
+cp .env.example .env          # set PLUVIO_DOMAIN and ACME_EMAIL
+
+docker compose --profile prod pull
+docker compose --profile prod up -d
 ```
 
-Redeploys are just `docker compose pull && docker compose up -d` — the
-worker resumes from the persisted cache volume.
+Redeploys: `docker compose --profile prod pull && docker compose --profile prod up -d`.
+The worker resumes from the persistent cache volume, and the ACME cert
+lives in a Traefik volume so renewals survive container restarts.
 
-TLS in front of `api:8000`. Caddy is the simplest:
+To watch issuance + routing:
 
-```caddyfile
-pluvio.appmire.be {
-    reverse_proxy localhost:8000
-}
+```bash
+docker compose --profile prod logs -f traefik
 ```
+
+If you want to use a different reverse proxy instead (Caddy / nginx),
+remove the `traefik` service and the `traefik.*` labels on `api`, and put
+the proxy of your choice in front of `127.0.0.1:8000`.
 
 ## What lives where
 
