@@ -12,7 +12,11 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.2",
     "pyarrow>=17",
-    "zarr>=2.18,<3.0",
+    "zarr>=3.0,<4.0",
+    # Pinned directly (not just as zarr's transitive) because <0.16 has no
+    # cp314 aarch64 wheel — forcing a source build under QEMU that fails on
+    # x86 SIMD flags.
+    "numcodecs>=0.16,<0.17",
     "pillow>=10.4",
     "python-dotenv>=1.0",
     "apscheduler>=3.10,<4.0",

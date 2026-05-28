@@ -1,17 +1,13 @@
 # Pluvio backend — multi-stage so the runtime image stays small.
-# Builder has gcc (some deps lack cp314 wheels yet, e.g. numcodecs); runtime
-# gets just the installed venv.
+# Builder resolves the venv with uv; runtime ships just the installed tree.
+# With zarr 3 / numcodecs 0.16 there are cp314 wheels for both amd64 and
+# arm64, so no native compiler is needed on either arch.
 
 # ──────────────────────────────────────────────────────────────── builder
 FROM python:3.14-slim AS builder
 
 # Static uv binary from the official image — used for venv + install.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/
-
-# Build toolchain for any dep without a cp314 wheel today (numcodecs).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc python3-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
@@ -21,12 +17,7 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 
 # A dedicated venv at /opt/pluvio keeps the install relocatable and lets the
-# runtime stage copy a single tree. numcodecs's setup.py emits the x86 flags
-# -msse2/-mavx2 unconditionally, which gcc rejects on arm64; turn its SIMD
-# code paths off so it compiles cleanly on both archs. Marginal perf cost
-# on small zarr writes — fine for our use case.
-ENV DISABLE_NUMCODECS_AVX2=1 \
-    DISABLE_NUMCODECS_SSE2=1
+# runtime stage copy a single tree.
 RUN uv venv /opt/pluvio \
     && uv pip install --python /opt/pluvio/bin/python .
 
