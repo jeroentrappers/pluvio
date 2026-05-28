@@ -4,25 +4,62 @@ The forecast cache + HTTP API the Pluvio app talks to. Wraps the open KMI /
 KNMI feeds today; the trained CorrDiff model lands in as a one-function
 swap when it's ready.
 
-## Quick start
+Python 3.14, managed with **uv**. Quality gate: **ruff** (lint + format) and
+**mypy** must pass before commits.
+
+## Quick start (local dev)
 
 ```bash
 cd backend/
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync --extra dev          # creates .venv on 3.14, installs from uv.lock
 cp .env.example .env
 
 # Refresh one band once, by hand, to populate the cache.
-pluvio-worker tick --band nowcast
+uv run pluvio-worker tick --band nowcast
 
 # Run the HTTP API.
-pluvio-api --reload
+uv run pluvio-api --reload
 
 # Browse:
 curl 'http://localhost:8000/healthz'
 curl 'http://localhost:8000/v1/forecast?lat=50.85&lon=4.35'
 curl -o /tmp/overlay.png 'http://localhost:8000/v1/overlay/nowcast/30.png'
+```
+
+## Quality gate
+
+Run all four before committing:
+
+```bash
+uv run ruff check src tests          # lint
+uv run ruff format --check src tests # format (drop --check to apply)
+uv run mypy                          # type check
+uv run pytest -q                     # tests
+```
+
+## Docker
+
+One image, two roles (API + scheduled worker) sharing a cache volume.
+
+```bash
+docker compose up -d --build
+curl http://localhost:8000/healthz
+docker compose logs -f worker        # see the band-tick schedule
+docker compose down
+```
+
+The image is multi-stage: a builder with gcc installs the wheels (some deps
+lack cp314 wheels yet, so they compile from source), and a slim runtime
+just copies the resulting `/opt/pluvio` venv. Final image is small and
+runs as a non-root user.
+
+For production behind `pluvio.appmire.be`, put a TLS reverse proxy
+(Caddy / nginx / Traefik) in front of `api:8000`. Caddy is the simplest:
+
+```caddyfile
+pluvio.appmire.be {
+    reverse_proxy localhost:8000
+}
 ```
 
 ## What lives where

@@ -72,8 +72,12 @@ class GridSpec:
         if lat < self.bounds["south"] or lat > self.bounds["north"]:
             raise ValueError(f"lat={lat} outside [{self.bounds['south']}, {self.bounds['north']}]")
         # row 0 = north, row h-1 = south.
-        col = int((lon - self.bounds["west"]) / (self.bounds["east"] - self.bounds["west"]) * (w - 1))
-        row = int((self.bounds["north"] - lat) / (self.bounds["north"] - self.bounds["south"]) * (h - 1))
+        col = int(
+            (lon - self.bounds["west"]) / (self.bounds["east"] - self.bounds["west"]) * (w - 1)
+        )
+        row = int(
+            (self.bounds["north"] - lat) / (self.bounds["north"] - self.bounds["south"]) * (h - 1)
+        )
         return row, col
 
 
@@ -234,7 +238,8 @@ class ForecastCache:
 
         snapshots = sorted(
             (
-                p for p in self.root.iterdir()
+                p
+                for p in self.root.iterdir()
                 if p.is_dir() and (p / "status.json").exists() and p.name != "latest"
             ),
             key=lambda p: p.name,
@@ -292,9 +297,7 @@ class ForecastCache:
         out = df[(df["lat"] == nearest_lat) & (df["lon"] == nearest_lon)].copy()
         return out.sort_values(["band", "lead_min"]).reset_index(drop=True)
 
-    def overlay_url_path(
-        self, band_name: schedules.BandName, lead_min: int
-    ) -> pathlib.Path | None:
+    def overlay_url_path(self, band_name: schedules.BandName, lead_min: int) -> pathlib.Path | None:
         snap = self.latest_snapshot()
         if snap is None:
             return None

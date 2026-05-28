@@ -14,7 +14,7 @@ def cache(tmp_path) -> ForecastCache:
     return ForecastCache(tmp_path)
 
 
-def _make_band_array(band_name: str) -> np.ndarray:
+def _make_band_array(band_name: schedules.BandName) -> np.ndarray:
     band = schedules.band(band_name)
     return np.linspace(0, 5, band.n_leads * 100 * 100, dtype="float32").reshape(
         band.n_leads, 100, 100
@@ -76,7 +76,7 @@ def test_prune_keeps_only_n_complete(cache: ForecastCache) -> None:
 
 
 def test_point_shard_returns_per_band(cache: ForecastCache) -> None:
-    all_bands = {
+    all_bands: dict[schedules.BandName, np.ndarray] = {
         "nowcast": _make_band_array("nowcast"),
         "short": _make_band_array("short"),
     }

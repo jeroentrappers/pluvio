@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import pathlib
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 
 import httpx
+import numpy as np
 
 from . import schedules
 from .cache import ForecastCache, GridSpec
@@ -28,8 +30,10 @@ LOG = logging.getLogger("pluvio.worker")
 
 # A reference to the inference function for each band. Swap stub_band for
 # the trained CorrDiff model when it lands — same signature.
-BandInference = Callable[[httpx.Client, str, GridSpec, schedules.BandName],
-                        tuple["np.ndarray", datetime]]  # noqa: F821
+BandInference = Callable[
+    [httpx.Client, str, GridSpec, schedules.BandName],
+    tuple[np.ndarray, datetime],
+]
 
 
 def run_tick(band_name: schedules.BandName, infer: BandInference = stub_band) -> dict:
@@ -68,7 +72,7 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = stub_band) ->
 
 def _reuse_or_new_snapshot(
     cache: ForecastCache, issued_at: datetime, band_name: schedules.BandName
-) -> pathlib.Path:  # noqa: F821
+) -> pathlib.Path:
     """If a recent enough snapshot already exists, append our band to it.
 
     Each band runs on its own cadence, but they all live in the same
@@ -76,24 +80,21 @@ def _reuse_or_new_snapshot(
     current refresh window: bucket the issue time to the band's cadence.
     """
     # Bucket the issue time to the nowcast cadence — the smallest unit.
-    bucket = (issued_at.replace(second=0, microsecond=0).timestamp() //
-              schedules.band("nowcast").refresh_seconds)
-    bucket_dt = datetime.fromtimestamp(
-        bucket * schedules.band("nowcast").refresh_seconds, tz=UTC
+    bucket = (
+        issued_at.replace(second=0, microsecond=0).timestamp()
+        // schedules.band("nowcast").refresh_seconds
     )
+    bucket_dt = datetime.fromtimestamp(bucket * schedules.band("nowcast").refresh_seconds, tz=UTC)
     existing = cache.latest_snapshot()
-    if existing is not None and existing.name.startswith(
-        bucket_dt.strftime("%Y-%m-%dT%H-%M-")
-    ):
+    if existing is not None and existing.name.startswith(bucket_dt.strftime("%Y-%m-%dT%H-%M-")):
         return existing
     return cache.new_snapshot_dir(bucket_dt)
 
 
 def _collect_all_bands(
-    cache: ForecastCache, snap: pathlib.Path  # noqa: F821
-) -> dict[schedules.BandName, np.ndarray]:  # noqa: F821
+    cache: ForecastCache, snap: pathlib.Path
+) -> dict[schedules.BandName, np.ndarray]:
     """Read whichever band zarrs exist in `snap`. Missing bands are skipped."""
-    import numpy as np
     import zarr
 
     out: dict[schedules.BandName, np.ndarray] = {}
@@ -120,9 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     schedule.add_argument("--bands", default=",".join(schedules.BANDS.keys()))
 
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     if args.command == "tick":
         run_tick(args.band)

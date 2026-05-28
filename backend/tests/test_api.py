@@ -13,8 +13,9 @@ from pluvio_backend.config import Settings
 def _seed_cache(root) -> None:
     """Populate a cache with a nowcast + short band so the API has data."""
     cache = ForecastCache(root)
-    all_bands = {}
-    for name in ("nowcast", "short"):
+    all_bands: dict[schedules.BandName, np.ndarray] = {}
+    bands: tuple[schedules.BandName, ...] = ("nowcast", "short")
+    for name in bands:
         band = schedules.band(name)
         # Put a recognisable rain blob near Brussels so a point query is non-trivial.
         arr = np.zeros((band.n_leads, 100, 100), dtype="float32")

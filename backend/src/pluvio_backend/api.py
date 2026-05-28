@@ -78,13 +78,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         issued = meta.get("issued_at")
         try:
             issued_dt = datetime.fromisoformat(issued.replace("Z", "+00:00")) if issued else None
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             issued_dt = None
-        age = (
-            (datetime.now(UTC) - issued_dt).total_seconds()
-            if issued_dt is not None
-            else None
-        )
+        age = (datetime.now(UTC) - issued_dt).total_seconds() if issued_dt is not None else None
         degraded = age is not None and age > settings.cache_stale_after_seconds
         return HealthDto(
             status="degraded" if degraded else "ok",
@@ -209,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 def _minutes(n: int):
     from datetime import timedelta
+
     return timedelta(minutes=n)
 
 

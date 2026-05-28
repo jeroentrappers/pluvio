@@ -13,11 +13,11 @@ import numpy as np
 
 # (lower-bound mm/h, RGB tuple) — matches PrecipitationPalette in Dart.
 STOPS: list[tuple[float, tuple[int, int, int]]] = [
-    (0.0, (220, 220, 220)),    # "none" — light grey
+    (0.0, (220, 220, 220)),  # "none" — light grey
     (0.001, (158, 202, 225)),  # light
-    (2.5, (49, 130, 189)),     # moderate
-    (7.5, (253, 141, 60)),     # heavy
-    (50.0, (227, 26, 28)),     # violent
+    (2.5, (49, 130, 189)),  # moderate
+    (7.5, (253, 141, 60)),  # heavy
+    (50.0, (227, 26, 28)),  # violent
 ]
 
 

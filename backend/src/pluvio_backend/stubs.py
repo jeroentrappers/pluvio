@@ -54,7 +54,7 @@ def fetch_getforecasts(
     lat: float,
     lon: float,
 ) -> dict:
-    params = {
+    params: dict[str, str | float] = {
         "s": "getForecasts",
         "k": sign("getForecasts"),
         "lat": round(lat, 6),
@@ -121,9 +121,7 @@ def stub_nowcast(
         for name, resp in responses.items():
             seq = resp.get("animation", {}).get("sequence") or []
             issue_time = (
-                datetime.fromisoformat(seq[0]["time"]).astimezone(UTC)
-                if seq
-                else issued_at
+                datetime.fromisoformat(seq[0]["time"]).astimezone(UTC) if seq else issued_at
             )
             target = issue_time + timedelta(minutes=lead)
             nearest = min(
@@ -171,7 +169,7 @@ def stub_band(
         precip = hourly[idx].get("precipQuantity")
         try:
             value = float(precip) if precip is not None else 0.0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             value = 0.0
         frames[k] = value  # broadcast scalar — flat field
     return frames, issued_at
