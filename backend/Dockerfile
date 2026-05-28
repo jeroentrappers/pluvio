@@ -21,7 +21,12 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 
 # A dedicated venv at /opt/pluvio keeps the install relocatable and lets the
-# runtime stage copy a single tree.
+# runtime stage copy a single tree. numcodecs's setup.py emits the x86 flags
+# -msse2/-mavx2 unconditionally, which gcc rejects on arm64; turn its SIMD
+# code paths off so it compiles cleanly on both archs. Marginal perf cost
+# on small zarr writes — fine for our use case.
+ENV DISABLE_NUMCODECS_AVX2=1 \
+    DISABLE_NUMCODECS_SSE2=1
 RUN uv venv /opt/pluvio \
     && uv pip install --python /opt/pluvio/bin/python .
 
