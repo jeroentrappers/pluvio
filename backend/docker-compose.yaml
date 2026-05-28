@@ -1,0 +1,38 @@
+# Pluvio backend — API + scheduled worker sharing one cache volume.
+#
+#   docker compose up -d --build
+#
+# The worker runs APScheduler in-process (all four bands on their cron
+# cadences, see schedules.py); the API serves from the shared cache.
+# Put a TLS reverse proxy (Caddy/nginx/Traefik) in front for
+# pluvio.appmire.be — see README "Deploy".
+name: pluvio
+
+services:
+  api:
+    build: .
+    image: pluvio-backend:latest
+    environment:
+      PLUVIO_CACHE_ROOT: /data/forecasts
+      # Allow the app's origin(s); empty disables CORS. Set for web builds.
+      PLUVIO_CORS_ORIGINS: ${PLUVIO_CORS_ORIGINS:-}
+      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-stub-0.1}
+    volumes:
+      - cache:/data/forecasts
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    image: pluvio-backend:latest
+    command: ["pluvio-worker", "schedule"]
+    environment:
+      PLUVIO_CACHE_ROOT: /data/forecasts
+    volumes:
+      - cache:/data/forecasts
+    restart: unless-stopped
+    # The worker doesn't serve HTTP; no healthcheck/ports.
+
+volumes:
+  cache:

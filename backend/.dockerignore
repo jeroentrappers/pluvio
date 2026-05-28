@@ -1,0 +1,15 @@
+.venv/
+var/
+tests/
+.env
+.git/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+README.md
+crontab.example
