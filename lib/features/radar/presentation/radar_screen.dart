@@ -152,17 +152,16 @@ class _NowcastSummary extends StatelessWidget {
     final futureFrames =
         animation.frames.where((f) => !f.timestamp.isBefore(animation.referenceTime)).toList();
 
+    // Flex.spacing (Flutter 3.27+) avoids the .map(Padding) trick that
+    // illegally wraps an Expanded in Padding (ParentData mismatch).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 12,
       children: [
         Text(headline, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
         Expanded(child: _Bars(frames: futureFrames)),
-        const SizedBox(height: 8),
         const PrecipitationLegend(),
-      ]
-          .map((c) => Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: c))
-          .toList(),
+      ],
     );
   }
 
