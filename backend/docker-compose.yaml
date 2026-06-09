@@ -48,7 +48,12 @@ services:
     volumes:
       - cache:/data/forecasts
     restart: unless-stopped
-    # The worker doesn't serve HTTP; no labels/healthcheck/ports.
+    # The worker doesn't serve HTTP, but it inherits the image's HEALTHCHECK
+    # (which curls :8000/healthz) — turn that off so the container doesn't
+    # report unhealthy. `restart: unless-stopped` already handles crashes.
+    healthcheck:
+      disable: true
+    # No labels/ports either — the worker is internal only.
 
   # TLS-terminating reverse proxy. Production-only (profile = prod) so local
   # dev doesn't need port 80/443 or DNS games.
