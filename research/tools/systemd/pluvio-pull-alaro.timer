@@ -1,0 +1,11 @@
+[Unit]
+Description=Pluvio forward pull — ALARO (every 6 hours, just after the run)
+
+[Timer]
+# ALARO runs at 00/06/12/18 UTC; data ready ~25 min after issue.
+OnCalendar=*-*-* 00,06,12,18:30:00 UTC
+Persistent=true
+Unit=pluvio-pull@alaro.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Pluvio forward pull — KMI AWS (every 10 min)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=pluvio-pull@kmi-aws.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

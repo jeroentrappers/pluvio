@@ -1,0 +1,10 @@
+[Unit]
+Description=Pluvio rotate (daily at 03:30 UTC)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+Unit=pluvio-rotate.service
+
+[Install]
+WantedBy=timers.target

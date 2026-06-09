@@ -104,6 +104,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="minx,miny,maxx,maxy in EPSG:4326 (Benelux default).")
     parser.add_argument("--size", default="512x384")
     parser.add_argument("--out", default="data/msg")
+    parser.add_argument(
+        "--cadence-minutes",
+        type=int,
+        default=15,
+        help=(
+            "Subsample to one timestep every N minutes (default 15 = full WMS). "
+            "Use 30 or 60 to cut volume when the full Meteosat cadence isn't needed."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
@@ -129,7 +138,13 @@ def main(argv: list[str] | None = None) -> int:
                 LOG.warning("Skip %s: %s", layer, exc)
                 continue
             wanted = [t for t in timesteps if start <= t <= end]
-            LOG.info("  %d timesteps in window (%d total in WMS)", len(wanted), len(timesteps))
+            if args.cadence_minutes > 15:
+                # Filter to N-minute boundaries (15 is the WMS native rate).
+                wanted = [t for t in wanted if t.minute % args.cadence_minutes == 0]
+            LOG.info(
+                "  %d timesteps in window (%d total in WMS, cadence %d min)",
+                len(wanted), len(timesteps), args.cadence_minutes,
+            )
 
             layer_dir = out_root / layer.replace(":", "_")
             layer_dir.mkdir(parents=True, exist_ok=True)

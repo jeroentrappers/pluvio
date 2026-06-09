@@ -41,6 +41,12 @@ DATASETS = {
     "rtcor": ("nl_rdr_data_rtcor_5m", "1.0", "RAD_NL25_RAC_RT_"),
     # also accept the canonical dataset IDs directly
     "nl_rdr_data_rtcor_5m": ("nl_rdr_data_rtcor_5m", "1.0", "RAD_NL25_RAC_RT_"),
+    # Polarimetric volume scans (per-radar, polar coords) — these carry
+    # ZDR / RhoHV / KDP / Vrad in addition to reflectivity. Volume files
+    # are large (~5–20 MB each) and need wradlib/Pyart to read; only pull
+    # if you're going to wire dual-pol channels into the model.
+    "volume_herwijnen": ("radar_volume_full_herwijnen", "1.0", "RAD_NL62_VOL_NA_"),
+    "volume_denhelder": ("radar_volume_denhelder", "2.0", "RAD_NL61_VOL_NA_"),
 }
 
 
@@ -69,6 +75,7 @@ def list_files_in_window(
     prefix: str,
     start: datetime,
     end: datetime,
+    cadence_minutes: int = 5,
 ) -> list[str]:
     base = f"{API_ROOT}/{dataset}/versions/{version}/files"
     files: list[str] = []
@@ -96,6 +103,12 @@ def list_files_in_window(
                 continue
             if stamp > end_ts_str:
                 return files
+            # Cadence filter: only keep files whose minute-of-hour is divisible
+            # by the requested step. The KNMI archive is at 5-min cadence, so
+            # this lets a caller subsample to 10/15/30/60 min without code change.
+            minute = int(stamp[10:12])
+            if cadence_minutes > 5 and minute % cadence_minutes != 0:
+                continue
             files.append(name)
         next_token = body.get("nextPageToken")
         if not next_token or not body.get("isTruncated"):
@@ -142,6 +155,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Dataset alias; canonical IDs also accepted.",
     )
     parser.add_argument("--out", default="data/knmi", help="Output directory root")
+    parser.add_argument(
+        "--cadence-minutes",
+        type=int,
+        default=5,
+        help=(
+            "Subsample to one file every N minutes (default 5 = full archive). "
+            "Use 30 to cut volume ~6× when the full 5-min cadence isn't needed for training."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -165,7 +187,10 @@ def main(argv: list[str] | None = None) -> int:
 
     with _client(api_key) as client:
         LOG.info("Listing %s v%s in [%s, %s]…", dataset_id, version, start, end)
-        names = list_files_in_window(client, dataset_id, version, prefix, start, end)
+        names = list_files_in_window(
+            client, dataset_id, version, prefix, start, end,
+            cadence_minutes=args.cadence_minutes,
+        )
         LOG.info("Found %d files. Downloading to %s", len(names), out_dir)
         for name in tqdm(names, unit="file"):
             try:

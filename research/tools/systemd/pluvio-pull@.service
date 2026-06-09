@@ -1,0 +1,16 @@
+[Unit]
+Description=Pluvio forward pull (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Developer/appmire/pluvio/research
+ExecStart=%h/Developer/appmire/pluvio/research/tools/pull_forward.sh %i
+# Don't fail the unit on a transient API error — the next timer fires the
+# overlapping window so a miss is self-healing.
+SuccessExitStatus=0 1 2
+TimeoutStartSec=20m
+
+[Install]
+WantedBy=default.target

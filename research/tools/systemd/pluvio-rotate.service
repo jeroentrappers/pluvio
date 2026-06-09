@@ -1,0 +1,13 @@
+[Unit]
+Description=Pluvio rotate stage/ → NAS archive (tar per-month chunks)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Developer/appmire/pluvio/research
+ExecStart=%h/Developer/appmire/pluvio/research/.venv/bin/python -m tools.rotate_to_nas
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=default.target
