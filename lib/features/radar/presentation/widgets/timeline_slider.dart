@@ -3,20 +3,24 @@ import 'package:intl/intl.dart';
 
 import '../../domain/radar_animation.dart';
 
-/// Horizontal scrubber over the frames of a [RadarAnimation]. Designed to
-/// stay legible at small sizes — the labels show only the active frame and
-/// the boundary between observation/forecast.
+/// Horizontal scrubber over the frames of a [RadarAnimation] with a play
+/// button that loops the animation. The label row keeps it legible at small
+/// sizes — only the active frame's time + observation/forecast pill.
 class TimelineSlider extends StatelessWidget {
   const TimelineSlider({
     super.key,
     required this.animation,
     required this.currentIndex,
     required this.onChanged,
+    required this.isPlaying,
+    required this.onPlayPause,
   });
 
   final RadarAnimation animation;
   final int currentIndex;
   final ValueChanged<int> onChanged;
+  final bool isPlaying;
+  final VoidCallback onPlayPause;
 
   @override
   Widget build(BuildContext context) {
@@ -47,12 +51,23 @@ class TimelineSlider extends StatelessWidget {
             ],
           ),
         ),
-        Slider(
-          value: currentIndex.toDouble(),
-          min: 0,
-          max: (animation.frames.length - 1).toDouble(),
-          divisions: animation.frames.length - 1,
-          onChanged: (v) => onChanged(v.round()),
+        Row(
+          children: [
+            IconButton(
+              tooltip: isPlaying ? 'Pause' : 'Play',
+              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+              onPressed: onPlayPause,
+            ),
+            Expanded(
+              child: Slider(
+                value: currentIndex.toDouble(),
+                min: 0,
+                max: (animation.frames.length - 1).toDouble(),
+                divisions: animation.frames.length - 1,
+                onChanged: (v) => onChanged(v.round()),
+              ),
+            ),
+          ],
         ),
       ],
     );

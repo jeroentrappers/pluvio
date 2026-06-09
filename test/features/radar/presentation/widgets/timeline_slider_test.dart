@@ -36,7 +36,13 @@ void main() {
     );
 
     await tester.pumpWidget(host(
-      TimelineSlider(animation: anim, currentIndex: 0, onChanged: (_) {}),
+      TimelineSlider(
+        animation: anim,
+        currentIndex: 0,
+        onChanged: (_) {},
+        isPlaying: false,
+        onPlayPause: () {},
+      ),
     ));
 
     expect(find.text('observation'), findsOneWidget);
@@ -56,7 +62,13 @@ void main() {
     );
 
     await tester.pumpWidget(host(
-      TimelineSlider(animation: anim, currentIndex: 1, onChanged: (_) {}),
+      TimelineSlider(
+        animation: anim,
+        currentIndex: 1,
+        onChanged: (_) {},
+        isPlaying: false,
+        onPlayPause: () {},
+      ),
     ));
 
     expect(find.text('forecast'), findsOneWidget);
@@ -79,6 +91,8 @@ void main() {
         animation: anim,
         currentIndex: 0,
         onChanged: (v) => captured = v,
+        isPlaying: false,
+        onPlayPause: () {},
       ),
     ));
 

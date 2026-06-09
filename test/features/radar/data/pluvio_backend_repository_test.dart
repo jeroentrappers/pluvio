@@ -29,7 +29,8 @@ Map<String, dynamic> _sampleResponse() => {
           'overlay_url': '/v1/overlay/nowcast/10.png?t=2026-05-27T07-00-00Z',
         },
         {
-          // A non-nowcast band frame — must be filtered out of the animation.
+          // Non-nowcast band — also kept, so the UI can render the extended
+          // horizon when the short/medium/long caches start populating.
           'band': 'short',
           'lead_min': 180,
           'valid_time': '2026-05-27T10:00:00Z',
@@ -51,7 +52,7 @@ void main() {
     );
   });
 
-  test('maps nowcast frames to RadarAnimation with absolute overlay URLs', () async {
+  test('maps every band frame to RadarAnimation with absolute overlay URLs', () async {
     when(() => dio.get<Map<String, dynamic>>(
           any(),
           queryParameters: any(named: 'queryParameters'),
@@ -65,14 +66,19 @@ void main() {
 
     expect(res.isOk, isTrue);
     final anim = res.valueOrNull!;
-    // The 'short' band frame is filtered out — only the two nowcast frames remain.
-    expect(anim.frames.length, 2);
+    // Both nowcast frames AND the short-band frame survive — we keep the
+    // full horizon so the UI can render whatever's cached.
+    expect(anim.frames.length, 3);
     expect(anim.location, const LatLng(50.85, 4.35));
     expect(
       anim.frames.first.imageUrl,
       'https://pluvio.appmire.be/v1/overlay/nowcast/0.png?t=2026-05-27T07-00-00Z',
     );
     expect(anim.frames[1].valueMmPerHour, 1.5);
+    expect(
+      anim.frames.last.imageUrl,
+      'https://pluvio.appmire.be/v1/overlay/short/180.png?t=2026-05-27T07-00-00Z',
+    );
     expect(anim.minutesUntilRain, 10);
   });
 

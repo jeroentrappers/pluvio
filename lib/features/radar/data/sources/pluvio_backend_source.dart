@@ -14,7 +14,10 @@ class PluvioBackendSource {
   Future<Result<PluvioForecastDto, ApiFailure>> fetchForecast({
     required double latitude,
     required double longitude,
-    int horizonMin = 120,
+    // 24h: pulls every band the backend has — nowcast (2h), short (2-11h),
+    // medium (12-23h). Long (>24h) is also fetched when it lands. The UI
+    // renders whatever frames come back.
+    int horizonMin = 1440,
   }) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(

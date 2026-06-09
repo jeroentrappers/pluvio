@@ -7,8 +7,9 @@ import '../domain/radar_repository.dart';
 import 'sources/pluvio_backend_source.dart';
 
 /// Repository backed by the Pluvio backend. Maps the backend's `/v1/forecast`
-/// response onto the domain [RadarAnimation], using only the nowcast-band
-/// frames (0–2 h) for the radar animation + per-location rates.
+/// response onto the domain [RadarAnimation]. Keeps every band the backend
+/// returns (nowcast / short / medium / long) so the UI can render whatever
+/// horizon is currently cached.
 class PluvioBackendRepository implements RadarRepository {
   PluvioBackendRepository({
     required this.source,
@@ -29,12 +30,11 @@ class PluvioBackendRepository implements RadarRepository {
       ok: (dto) {
         final frames = [
           for (final f in dto.frames)
-            if (f.band == 'nowcast')
-              RadarFrame(
-                timestamp: f.validTime,
-                imageUrl: source.absoluteUrl(f.overlayUrl),
-                valueMmPerHour: f.rateMmPerHour,
-              ),
+            RadarFrame(
+              timestamp: f.validTime,
+              imageUrl: source.absoluteUrl(f.overlayUrl),
+              valueMmPerHour: f.rateMmPerHour,
+            ),
         ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
         return Result.ok(
