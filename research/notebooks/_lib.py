@@ -121,12 +121,19 @@ def _parse_knmi_valid_ts(raw: bytes | str) -> datetime:
     )
 
 
-def _decode_precip_grid(image_group, image_ds) -> np.ndarray:
-    """Apply the calibration on a KNMI ``imageN`` group and return mm/h."""
+def _decode_precip_grid(image_group, image_ds, fallback_cal=None) -> np.ndarray:
+    """Apply the calibration on a KNMI ``imageN`` group and return mm/h.
+
+    In the radar_forecast v2.0 archive only image1 carries a `calibration`
+    subgroup; image2..25 share it implicitly. Callers pass image1's
+    calibration as `fallback_cal` so the same loader works on both layouts.
+    """
     raw = np.asarray(image_ds[()], dtype="float32")
     # Calibration formula is on the *child* group `imageN/calibration`:
     #   GEO = scale*PV + offset
-    cal = image_group["calibration"]
+    cal = image_group["calibration"] if "calibration" in image_group else fallback_cal
+    if cal is None:
+        raise KeyError("no calibration on this image group and no fallback supplied")
     formula = cal.attrs.get("calibration_formulas", b"GEO=0.01*PV+0.0")
     if isinstance(formula, bytes):
         formula = formula.decode()
@@ -168,6 +175,8 @@ def load_forecast_h5(path: pathlib.Path) -> ForecastRun:
             raise RuntimeError(f"No imageN groups in {path}")
 
         issue_time = None
+        # Newer schema only carries the calibration on image1; share it.
+        fallback_cal = f["image1"].get("calibration") if "image1" in f else None
         for name in groups:
             grp = f[name]
             valid_raw = grp.attrs.get("image_datetime_valid")
@@ -177,7 +186,7 @@ def load_forecast_h5(path: pathlib.Path) -> ForecastRun:
             if issue_time is None:
                 issue_time = valid
             lead_min = int(round((valid - issue_time).total_seconds() / 60))
-            field = _decode_precip_grid(grp, grp["image_data"])
+            field = _decode_precip_grid(grp, grp["image_data"], fallback_cal=fallback_cal)
             frames.append(_resample(field, ANALYSIS_GRID))
             leads.append(lead_min)
 
