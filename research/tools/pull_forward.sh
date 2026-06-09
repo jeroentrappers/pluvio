@@ -62,12 +62,30 @@ case "$SOURCE" in
         ;;
     alaro)
         # ALARO publishes a new ~60h forward run every 6 hours. We grab the
-        # next 24h of forecast steps from whatever is current. The collector
-        # is forward-only (WMS has no history), so this is how we build the
-        # archive — by polling.
-        python -m collectors.fetch_alaro_24h \
-            --hours 24 \
-            --out "$STAGE_DIR/alaro"
+        # next 24h of forecast steps for each layer the model uses. The
+        # collector is forward-only (WMS has no history), so this is how we
+        # build the archive — by polling. Each layer call is idempotent and
+        # skips on-disk files.
+        #
+        # Layer names verified against opendata.meteo.be ALARO WMS
+        # GetCapabilities. The architecture doc's four channels map to:
+        #   precip → Total_precipitation
+        #   cloud  → Inst_flx_Tot_Cld_cover  (instantaneous-flux total)
+        #   wind   → 10_m_u__wind_component + 10_m_v__wind_component
+        #   RH     → 2m_Relative_humidity
+        # Plus three high-value extras: CAPE (convective potential, better
+        # than the originally-planned K-index), MSLP (pressure → tendency
+        # via successive runs), and dewpoint (with T gives stability).
+        for layer in Total_precipitation Inst_flx_Tot_Cld_cover \
+                     10_m_u__wind_component 10_m_v__wind_component \
+                     2m_Relative_humidity Surface_CAPE \
+                     Mean_sea_level_pressure 2_m_temperature \
+                     2_m_dewpoint_temperature; do
+            python -m collectors.fetch_alaro_24h \
+                --layer "$layer" --hours 24 \
+                --out "$STAGE_DIR/alaro" \
+            || echo "  alaro $layer skipped (error)"
+        done
         ;;
     *)
         echo "unknown source: $SOURCE" >&2

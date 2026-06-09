@@ -92,6 +92,7 @@ def list_files_in_window(
         else:
             params["startAfterFilename"] = after
         r = client.get(base, params=params)
+        _respect_rate_limit(r)
         r.raise_for_status()
         body = r.json()
         for entry in body.get("files", []):
@@ -121,6 +122,34 @@ def _stamp_from_filename(name: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _respect_rate_limit(resp: httpx.Response) -> None:
+    """If we're about to exhaust the 1000-req/hour quota, sleep to the reset.
+
+    KNMI returns `x-ratelimit-{limit,remaining,reset}` on every API response.
+    Without backoff a 30k-file pull blasts past 1000 and gets 403'd on the
+    remaining ~62k requests with no recovery.
+    """
+    remaining = resp.headers.get("x-ratelimit-remaining")
+    reset = resp.headers.get("x-ratelimit-reset")
+    if remaining is None or reset is None:
+        return
+    try:
+        n = int(remaining)
+        reset_ts = int(reset)
+    except ValueError:
+        return
+    if n > 5:
+        return
+    # Leave a 5-call buffer for retries / listing pages.
+    now = int(time.time())
+    wait = max(5, reset_ts - now + 2)
+    LOG.warning(
+        "KNMI rate-limit nearly exhausted (remaining=%d); sleeping %ds until reset",
+        n, wait,
+    )
+    time.sleep(wait)
+
+
 def download(
     client: httpx.Client,
     dataset: str,
@@ -133,6 +162,7 @@ def download(
         return target
     url = f"{API_ROOT}/{dataset}/versions/{version}/files/{filename}/url"
     r = client.get(url)
+    _respect_rate_limit(r)
     r.raise_for_status()
     signed_url = r.json()["temporaryDownloadUrl"]
     # Don't send the API auth header to the CDN — signed URLs reject it.

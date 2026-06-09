@@ -4,6 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment="PLUVIO_STAGE_DIR=%h/Developer/appmire/pluvio/research/data"
 Type=oneshot
 WorkingDirectory=%h/Developer/appmire/pluvio/research
 ExecStart=%h/Developer/appmire/pluvio/research/tools/pull_forward.sh %i
