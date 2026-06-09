@@ -82,10 +82,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="data/alaro")
     parser.add_argument(
         "--bbox",
-        default="2.0,49.0,7.5,52.0",
-        help="minx,miny,maxx,maxy in EPSG:4326 (default: Belgium-ish).",
+        default="0.0,48.5,11.0,56.0",
+        help=(
+            "minx,miny,maxx,maxy in EPSG:4326. Default matches the model's "
+            "analysis grid (model/geo.py:bbox()) so reprojection onto the "
+            "100x100 KNMI grid has full coverage."
+        ),
     )
-    parser.add_argument("--size", default="1024x768")
+    parser.add_argument("--size", default="512x384")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 

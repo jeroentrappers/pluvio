@@ -100,9 +100,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", default=None,
                         help="ISO UTC start; if given, overrides --hours.")
     parser.add_argument("--end", default=None, help="ISO UTC end.")
-    parser.add_argument("--bbox", default="2.0,49.0,7.5,52.0",
-                        help="minx,miny,maxx,maxy in EPSG:4326 (Benelux default).")
-    parser.add_argument("--size", default="512x384")
+    parser.add_argument(
+        "--bbox",
+        default="0.0,48.5,11.0,56.0",
+        help=(
+            "minx,miny,maxx,maxy in EPSG:4326. Default is a small superset "
+            "of the model's analysis grid (model/geo.py:bbox() ≈ "
+            "(0,48.9,10.9,55.97)) so every grid cell gets MSG coverage. "
+            "Pulled-narrower data won't backfill — delete and re-pull."
+        ),
+    )
+    parser.add_argument(
+        "--size",
+        default="256x192",
+        help=(
+            "Pixel WxH. 256x192 across the wider bbox is close to MSG's "
+            "native ~3 km sampling; we downsample to 100x100 in the zarr "
+            "builder anyway, so going bigger just wastes disk."
+        ),
+    )
     parser.add_argument("--out", default="data/msg")
     parser.add_argument(
         "--cadence-minutes",
