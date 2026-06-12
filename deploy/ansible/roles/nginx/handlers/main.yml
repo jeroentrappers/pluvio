@@ -1,0 +1,8 @@
+---
+# Single handler (test + reload atomically). A chained "test then notify
+# reload" handler can fail to re-fire after a mid-play flush_handlers, leaving
+# nginx running stale config (e.g. not listening on :443 after the TLS
+# re-render). nginx -t failing aborts loudly, which is what we want.
+- name: reload nginx
+  ansible.builtin.shell: nginx -t && systemctl reload nginx
+  changed_when: true

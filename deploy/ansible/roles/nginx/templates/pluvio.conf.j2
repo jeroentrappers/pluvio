@@ -1,0 +1,49 @@
+# Managed by Ansible. Reverse-proxies {{ pluvio_domain }} to the pluvio API
+# container on 127.0.0.1:{{ api_loopback_port }}.
+{% if have_cert | default(false) %}
+server {
+    server_name {{ pluvio_domain }};
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ api_loopback_port }};
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    listen [::]:443 ssl;
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/{{ pluvio_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ pluvio_domain }}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}
+
+server {
+    if ($host = {{ pluvio_domain }}) {
+        return 301 https://$host$request_uri;
+    }
+    server_name {{ pluvio_domain }};
+    listen 80;
+    listen [::]:80;
+    return 404;
+}
+{% else %}
+# HTTP-only until certbot issues a cert (first deploy).
+server {
+    server_name {{ pluvio_domain }};
+    listen 80;
+    listen [::]:80;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ api_loopback_port }};
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+}
+{% endif %}

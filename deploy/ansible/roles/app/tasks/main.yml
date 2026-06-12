@@ -1,0 +1,55 @@
+# Ship the backend source, render .env, build + run api+worker. Runs as the
+# unprivileged ansible user (in the docker group, owns app_dir). Idempotent.
+---
+- name: Ensure app dir (owned by deploy user)
+  become: true
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Push backend source (rsync)
+  delegate_to: localhost
+  ansible.builtin.command:
+    chdir: "{{ playbook_dir }}/../../backend"
+    argv:
+      - rsync
+      - -az
+      - --delete
+      - --exclude=.git
+      - --exclude=.env
+      - --exclude=var          # local forecast cache; the box has its own volume
+      - --exclude=.venv
+      - --exclude=__pycache__
+      - -e
+      - "ssh -p {{ ansible_port | default(22) }} -i {{ ansible_ssh_private_key_file }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+      - "./"
+      - "{{ ansible_user }}@{{ ansible_host }}:{{ app_dir }}/"
+  register: rsync_out
+  changed_when: "rsync_out.stdout | length > 0"
+
+- name: Render .env
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    mode: "0640"
+
+# Default compose profile = api + worker only (Traefik is `prod`-profile and is
+# intentionally left out — nginx on the host is the public entry).
+- name: Build + start api + worker
+  ansible.builtin.command:
+    chdir: "{{ app_dir }}"
+    cmd: docker compose up -d --build
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr or 'Recreate' in compose_up.stderr or 'Building' in compose_up.stderr"
+
+- name: Wait for the API to answer on loopback
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ api_loopback_port }}/healthz"
+    status_code: [200, 503]   # 503 = healthy app, cache still warming on first boot
+  register: health
+  retries: 20
+  delay: 6
+  until: health.status in [200, 503]

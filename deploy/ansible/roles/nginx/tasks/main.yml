@@ -1,0 +1,61 @@
+# Public reverse proxy + TLS for pluvio. Coexists with other vhosts on the
+# shared box: manages only pluvio's site file and obtains its own cert.
+---
+- name: Ensure nginx + certbot present
+  ansible.builtin.apt:
+    name: [nginx, certbot, python3-certbot-nginx]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Does a TLS cert already exist?
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ pluvio_domain }}/fullchain.pem"
+  register: tls_cert
+
+# Pass 1: HTTP-only until a cert exists (so certbot --nginx can validate);
+# full TLS once the cert is present.
+- name: Render pluvio vhost
+  ansible.builtin.template:
+    src: pluvio.conf.j2
+    dest: "/etc/nginx/sites-available/{{ pluvio_domain }}"
+    mode: "0644"
+  vars:
+    have_cert: "{{ tls_cert.stat.exists }}"
+  notify: reload nginx
+
+- name: Enable pluvio vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ pluvio_domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ pluvio_domain }}"
+    state: link
+  notify: reload nginx
+
+- name: Apply nginx changes now (needed before certbot)
+  ansible.builtin.meta: flush_handlers
+
+- name: Obtain TLS cert
+  when: enable_tls and not tls_cert.stat.exists
+  ansible.builtin.command:
+    argv:
+      - certbot
+      - certonly
+      - --nginx
+      - --non-interactive
+      - --agree-tos
+      - -m
+      - "{{ certbot_email }}"
+      - -d
+      - "{{ pluvio_domain }}"
+  register: certbot_run
+  changed_when: "'Congratulations' in certbot_run.stdout or 'Successfully received' in certbot_run.stdout"
+
+- name: Re-render pluvio vhost with TLS
+  when: enable_tls
+  ansible.builtin.template:
+    src: pluvio.conf.j2
+    dest: "/etc/nginx/sites-available/{{ pluvio_domain }}"
+    mode: "0644"
+  vars:
+    have_cert: true
+  notify: reload nginx

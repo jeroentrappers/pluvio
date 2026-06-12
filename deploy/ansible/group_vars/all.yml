@@ -1,0 +1,23 @@
+# pluvio backend deploy vars. No secrets — all PLUVIO_* config is public
+# (KMI is an open endpoint), so no vault is needed.
+---
+app_dir: /opt/pluvio-backend
+# Validate-first: deploy under a temp host, verify, then move pluvio.appmire.be
+# DNS here and re-run `site.yml --tags nginx`.
+pluvio_domain: pluvio-hetz1.appmire.be
+certbot_email: jeroen.trappers@secutec.com
+enable_tls: true
+
+# api binds 127.0.0.1:8000 (compose default profile); nginx is the public entry.
+# Traefik (compose `prod` profile) is intentionally NOT used here.
+api_loopback_port: 8000
+
+# .env contents rendered onto the box (see roles/app/templates/env.j2).
+pluvio_env:
+  PLUVIO_CACHE_ROOT: /data/forecasts
+  PLUVIO_KMI_BASE_URL: https://app.meteo.be/services/appv4/
+  PLUVIO_CACHE_STALE_AFTER_SECONDS: "900"
+  PLUVIO_API_HOST: 0.0.0.0
+  PLUVIO_API_PORT: "8000"
+  PLUVIO_MODEL_VERSION: stub-0.1
+  PLUVIO_CORS_ORIGINS: ""

@@ -1,0 +1,16 @@
+# Deploy the pluvio backend (api + worker) to appmire-hetz1. The box is already
+# bootstrapped by the charging deploy, so this is just app + nginx vhost.
+#
+#   cd deploy/ansible
+#   ansible-playbook site.yml                 # ship the backend + vhost
+#   ansible-playbook site.yml --tags app      # rebuild/redeploy containers only
+#   ansible-playbook site.yml --tags nginx    # vhost + TLS only (after DNS move)
+---
+- name: pluvio backend
+  hosts: pluvio
+  roles:
+    - role: app      # rsync source, render .env, compose up (api + worker)
+      tags: [app]
+    - role: nginx    # reverse proxy + certbot TLS
+      become: true
+      tags: [nginx]
