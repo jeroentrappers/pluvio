@@ -4,7 +4,7 @@
 app_dir: /opt/pluvio-backend
 # Validate-first: deploy under a temp host, verify, then move pluvio.appmire.be
 # DNS here and re-run `site.yml --tags nginx`.
-pluvio_domain: pluvio.hetz1.appmire.be
+pluvio_domain: pluvio.appmire.be
 certbot_email: jeroen.trappers@secutec.com
 enable_tls: true
 
