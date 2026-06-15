@@ -1,0 +1,13 @@
+[Unit]
+Description=Pluvio forward pull — KNMI NL automatic weather stations (every 15 min)
+
+[Timer]
+# 10-min native cadence; poll every 15 min with a 1h overlap window so a missed
+# slot is self-healing. Shares the KNMI 1000-req/h quota with the radar pull.
+OnBootSec=6min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=pluvio-pull@knmi-aws.service
+
+[Install]
+WantedBy=timers.target

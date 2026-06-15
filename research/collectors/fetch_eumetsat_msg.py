@@ -88,7 +88,26 @@ def fetch_geotiff(
     }
     r = client.get(WMS_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=60)
     r.raise_for_status()
+    # The WMS returns ServiceException errors as XML *with HTTP 200*, so
+    # raise_for_status() won't catch them. Refuse to persist a non-image body
+    # — otherwise an error report lands on disk as a .tif (the build later
+    # fails to decode it; that's where the 1900+ corrupt files came from).
+    ctype = r.headers.get("content-type", "").lower()
+    if "image" not in ctype or r.content[:5] == b"<?xml":
+        raise WMSError(_service_exception(r.content) or f"non-image response ({ctype})")
     out_path.write_bytes(r.content)
+
+
+class WMSError(RuntimeError):
+    """WMS returned an error body (often HTTP 200 with a ServiceException)."""
+
+
+def _service_exception(body: bytes) -> str | None:
+    """Pull the message out of a WMS ServiceExceptionReport, if present."""
+    m = re.search(rb"<ServiceException[^>]*>([\s\S]*?)</ServiceException>", body)
+    if not m:
+        return None
+    return " ".join(m.group(1).decode("utf-8", "replace").split())[:200]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 try:
                     fetch_geotiff(client, layer, when, bbox, (width, height), target)
-                except httpx.HTTPError as exc:
+                except (httpx.HTTPError, WMSError) as exc:
                     LOG.warning("  %s: %s", stamp, exc)
     return 0
 

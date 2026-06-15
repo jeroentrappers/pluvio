@@ -1,0 +1,17 @@
+[Unit]
+Description=Pluvio append new issue-times into the unified timeseries zarr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Developer/appmire/pluvio/research
+# --append only writes radar issue-times not already in the store, so this is
+# cheap (re-indexes the source dirs, then fills the day's new slots). A full
+# rebuild (drop --append) is only needed to fold in aux frames that were
+# backfilled at issue-times the store already covers.
+ExecStart=%h/Developer/appmire/pluvio/research/.venv/bin/python -m tools.build_zarr --append
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=default.target

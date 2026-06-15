@@ -33,6 +33,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
+from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
 
 LOG = logging.getLogger("pluvio.train")
@@ -139,7 +140,11 @@ def validate(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=pathlib.Path, required=True,
+    parser.add_argument("--zarr", type=pathlib.Path, default=None,
+                        help="Path to timeseries.zarr. If set, trains on the full "
+                             "multi-source store (ZarrCorrectionDataset) instead of "
+                             "the legacy radar-HDF5 dataset under --data.")
+    parser.add_argument("--data", type=pathlib.Path, required=False,
                         help="KNMI data root (holds radar_forecast/ and nl_rdr_data_rtcor_5m/).")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -168,14 +173,26 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device(args.device)
     LOG.info("Training on %s", device)
 
-    split = _time_split(args.data, args.val_frac)
-    LOG.info("Time split: train < %s ≤ val", split.isoformat())
-    train_set = PluvioCorrectionDataset(
-        args.data,
-        time_range=(_DT_MIN, split),
-        require_rain_fraction=args.require_rain_fraction,
-    )
-    val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
+    if not args.zarr and not args.data:
+        raise SystemExit("provide --zarr <timeseries.zarr> (multi-source) or --data <radar dir> (legacy)")
+
+    if args.zarr:
+        split = issue_time_split(args.zarr, args.val_frac)
+        LOG.info("Time split (zarr): train < %s ≤ val", split.isoformat())
+        train_set = ZarrCorrectionDataset(
+            args.zarr, time_range=(_DT_MIN, split),
+            require_rain_fraction=args.require_rain_fraction,
+        )
+        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX))
+    else:
+        split = _time_split(args.data, args.val_frac)
+        LOG.info("Time split: train < %s ≤ val", split.isoformat())
+        train_set = PluvioCorrectionDataset(
+            args.data,
+            time_range=(_DT_MIN, split),
+            require_rain_fraction=args.require_rain_fraction,
+        )
+        val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
 
     import torch.utils.data as tud
 

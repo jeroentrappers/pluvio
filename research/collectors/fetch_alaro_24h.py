@@ -6,6 +6,18 @@ roughly 60 hours forward of the latest run at 1-hour cadence. We pull
 input to the 24h extension story.
 
 Output: one GeoTIFF per requested timestep, named `alaro_TP_<YYYYmmddTHHMMZ>.tif`.
+
+── Why ``--style raster`` is the default ─────────────────────────────────
+GeoServer renders these coverages through a *style*. Each layer's own style
+(``CAPE``, ``pressure``, ``precipitation`` …) drives the GeoTIFF "fast path",
+which for some layers (Surface_CAPE, Mean_sea_level_pressure) throws
+``IllegalArgumentException: Argument "quantityString" should not be null`` and
+returns a ``ServiceExceptionReport`` XML body — *with HTTP 200*. The generic
+``raster`` style sidesteps the fast path and renders a plain grayscale band
+for every layer, so it both fixes those two layers and gives a consistent
+monotonic single-channel render across all of them (no colour-ramp to invert
+downstream). ``fetch_geotiff`` also now refuses to write a non-image response,
+so a WMS error can never again land on disk as a ``.tif``.
 """
 
 from __future__ import annotations
@@ -49,6 +61,7 @@ def fetch_geotiff(
     bbox: tuple[float, float, float, float],
     size: tuple[int, int],
     out_path: pathlib.Path,
+    style: str = "raster",
 ) -> None:
     minx, miny, maxx, maxy = bbox
     params = {
@@ -56,7 +69,7 @@ def fetch_geotiff(
         "version": "1.3.0",
         "request": "GetMap",
         "layers": layer,
-        "styles": "",
+        "styles": style,
         "format": "image/geotiff",
         "transparent": "true",
         "crs": "EPSG:4326",
@@ -67,7 +80,25 @@ def fetch_geotiff(
     }
     r = client.get(WMS_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=60)
     r.raise_for_status()
+    # The WMS returns ServiceException errors as XML *with HTTP 200*, so
+    # raise_for_status() won't catch them. Refuse to persist a non-image body
+    # — otherwise an error report lands on disk as a .tif (see module docstring).
+    ctype = r.headers.get("content-type", "").lower()
+    if "image" not in ctype or r.content[:5] == b"<?xml":
+        raise WMSError(_service_exception(r.content) or f"non-image response ({ctype})")
     out_path.write_bytes(r.content)
+
+
+class WMSError(RuntimeError):
+    """WMS returned an error body (often HTTP 200 with a ServiceException)."""
+
+
+def _service_exception(body: bytes) -> str | None:
+    """Pull the message out of a WMS ServiceExceptionReport, if present."""
+    m = re.search(rb"<ServiceException[^>]*>([\s\S]*?)</ServiceException>", body)
+    if not m:
+        return None
+    return " ".join(m.group(1).decode("utf-8", "replace").split())[:200]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,6 +121,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--size", default="512x384")
+    parser.add_argument(
+        "--style",
+        default="raster",
+        help=(
+            "WMS style. Default 'raster' renders a plain grayscale band and "
+            "works for every ALARO layer; the per-layer default styles break "
+            "the GeoTIFF fast path for some (CAPE, MSLP). See module docstring."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -125,9 +165,10 @@ def main(argv: list[str] | None = None) -> int:
             if target.exists():
                 continue
             try:
-                fetch_geotiff(client, args.layer, when, bbox, (width, height), target)
+                fetch_geotiff(client, args.layer, when, bbox, (width, height),
+                              target, style=args.style)
                 LOG.info("Wrote %s", target.name)
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, WMSError) as exc:
                 LOG.warning("Failed %s: %s", stamp, exc)
     return 0
 

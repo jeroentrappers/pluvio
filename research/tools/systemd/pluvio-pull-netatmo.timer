@@ -1,0 +1,13 @@
+[Unit]
+Description=Pluvio forward pull — Netatmo crowdsourced stations (every 30 min)
+
+[Timer]
+# Forward-only public-data poll. 30-min cadence × ~30 tiles ≈ 60 req/h, well
+# under Netatmo's 500 req/h app limit. Overlap-safe (latest-per-station upsert).
+OnBootSec=4min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=pluvio-pull@netatmo.service
+
+[Install]
+WantedBy=timers.target

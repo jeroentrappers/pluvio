@@ -91,8 +91,7 @@ def list_files_in_window(
             params["nextPageToken"] = next_token
         else:
             params["startAfterFilename"] = after
-        r = client.get(base, params=params)
-        _respect_rate_limit(r)
+        r = rl_get(client, base, params=params)
         r.raise_for_status()
         body = r.json()
         for entry in body.get("files", []):
@@ -122,32 +121,59 @@ def _stamp_from_filename(name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _respect_rate_limit(resp: httpx.Response) -> None:
+def _respect_rate_limit(resp: httpx.Response) -> bool:
     """If we're about to exhaust the 1000-req/hour quota, sleep to the reset.
+    Returns True if it slept (so the caller can retry a rate-limited request).
 
     KNMI returns `x-ratelimit-{limit,remaining,reset}` on every API response.
     Without backoff a 30k-file pull blasts past 1000 and gets 403'd on the
     remaining ~62k requests with no recovery.
+
+    The backoff threshold is configurable via ``KNMI_RATELIMIT_RESERVE`` (default
+    5). A long backfill that shares the key with the real-time radar pull sets a
+    high reserve (e.g. 200) so it stops early and *leaves headroom* for the
+    radar/forward pulls — those run with the default 5 and use the full quota.
     """
     remaining = resp.headers.get("x-ratelimit-remaining")
     reset = resp.headers.get("x-ratelimit-reset")
     if remaining is None or reset is None:
-        return
+        return False
     try:
         n = int(remaining)
         reset_ts = int(reset)
     except ValueError:
-        return
-    if n > 5:
-        return
-    # Leave a 5-call buffer for retries / listing pages.
+        return False
+    reserve = 5
+    try:
+        reserve = max(5, int(os.environ.get("KNMI_RATELIMIT_RESERVE", "5")))
+    except ValueError:
+        pass
+    if n > reserve:
+        return False
     now = int(time.time())
     wait = max(5, reset_ts - now + 2)
     LOG.warning(
-        "KNMI rate-limit nearly exhausted (remaining=%d); sleeping %ds until reset",
-        n, wait,
+        "KNMI rate-limit hit reserve (remaining=%d ≤ %d); sleeping %ds until reset",
+        n, reserve, wait,
     )
     time.sleep(wait)
+    return True
+
+
+def rl_get(client: httpx.Client, url: str, params: dict | None = None,
+           retries: int = 4) -> httpx.Response:
+    """GET with rate-limit awareness: back off when near the reserve, and retry
+    a 403/429 (quota already exhausted, e.g. at cold start) after sleeping to the
+    reset. Returns the final response (caller still does raise_for_status)."""
+    for attempt in range(retries + 1):
+        r = client.get(url, params=params)
+        slept = _respect_rate_limit(r)
+        if r.status_code in (403, 429) and attempt < retries:
+            if not slept:                      # 403 without rate headers — fixed backoff
+                time.sleep(60)
+            continue
+        return r
+    return r
 
 
 def download(
@@ -161,8 +187,7 @@ def download(
     if target.exists():
         return target
     url = f"{API_ROOT}/{dataset}/versions/{version}/files/{filename}/url"
-    r = client.get(url)
-    _respect_rate_limit(r)
+    r = rl_get(client, url)
     r.raise_for_status()
     signed_url = r.json()["temporaryDownloadUrl"]
     # Don't send the API auth header to the CDN — signed URLs reject it.

@@ -27,8 +27,13 @@ UNITS=(
     "pluvio-pull-kmi-aws.timer"
     "pluvio-pull-meteosat.timer"
     "pluvio-pull-alaro.timer"
+    "pluvio-pull-netatmo.timer"
+    "pluvio-pull-knmi-aws.timer"
+    "pluvio-pull-sst.timer"
     "pluvio-rotate.service"
     "pluvio-rotate.timer"
+    "pluvio-build-zarr.service"
+    "pluvio-build-zarr.timer"
 )
 
 TIMERS=(
@@ -36,7 +41,11 @@ TIMERS=(
     "pluvio-pull-kmi-aws.timer"
     "pluvio-pull-meteosat.timer"
     "pluvio-pull-alaro.timer"
+    "pluvio-pull-netatmo.timer"
+    "pluvio-pull-knmi-aws.timer"
+    "pluvio-pull-sst.timer"
     "pluvio-rotate.timer"
+    "pluvio-build-zarr.timer"
 )
 
 case "${1:-install}" in

@@ -1,0 +1,308 @@
+"""PyTorch Dataset that reads the unified ``timeseries.zarr`` (tools/build_zarr.py).
+
+This is the multi-source successor to ``dataset.py`` (which read radar HDF5 +
+an old aux cache and only ever saw radar+AWS). It feeds the residual-correction
+UNet the full channel set the architecture was designed for:
+
+    radar history (lead-0 analyses, K steps)        K
+    operational nowcast at the target lead           1
+    lead plane (lead/120)                            1
+    time-of-day sin / cos                            2
+    aux per-issue 2-D channels (MSG, ALARO, SST,     n_aux
+        AWS — auto-detected from the store)
+    static channels (elevation, landmask, dist)      n_static
+  ──────────────────────────────────────────────────────
+    in_channels = K + 4 + n_aux + n_static     (≈ 33 with the current store)
+
+Target: the radar analysis (lead-0) at ``issue_time + lead``.
+
+── Cadence note ──────────────────────────────────────────────────────────
+The store is keyed by radar issue-time. With the current 30-min cadence:
+  * history steps are 30 min apart (auto-detected from the store), and
+  * a target only exists when ``issue+lead`` is itself an issue-time, so the
+    trainable leads are the cadence multiples ≤ 120 → {30, 60, 90, 120}.
+Re-collecting radar at 5-min cadence (and rebuilding) would unlock 5-min
+history and the full 5…120-min lead set; everything here adapts automatically.
+
+Reads are lazy/chunked straight from the zarr (the store is ~12 GB, too big for
+RAM); build_zarr writes one chunk per issue-time, so a sample is a handful of
+small chunk reads — fine with a few DataLoader workers.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+LOG = logging.getLogger("pluvio.zarr_dataset")
+
+GRID = (100, 100)
+RADAR_HISTORY_STEPS = 6
+DEFAULT_LEADS: tuple[int, ...] = (30, 60, 90, 120)
+RAIN_THRESHOLD = 0.1  # mm/h, for the optional dry-sample filter
+
+# Channels NOT treated as per-issue aux (handled explicitly or as static).
+_NON_AUX = {"radar", "issue_time", "leads_min"}
+
+
+def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
+    """Bring each channel family to ~O(1). aws_* are already normalised in the
+    builder; the rendered MSG/ALARO bytes go to [0,1]; SST/static get sensible
+    scales; radar stays in mm/h (the model predicts mm/h)."""
+    if name.startswith("aws_"):
+        return arr
+    if name == "msg_rdt":
+        return arr                      # already a 0..1 coverage fraction
+    if name.startswith(("msg_", "alaro_")):
+        return arr / 255.0              # rendered grayscale byte → [0,1]
+    if name == "sst":
+        return (arr - 10.0) / 10.0      # °C → ~O(1)
+    if name == "static_elevation_m":
+        return arr / 500.0
+    if name == "static_distance_km":
+        return arr / 100.0
+    if name == "static_landmask":
+        return arr                      # already 0/1
+    return arr
+
+
+@dataclass(frozen=True)
+class _Sample:
+    issue_idx: int
+    lead_min: int
+    lead_idx: int
+    history_idx: tuple[int, ...]
+    target_idx: int
+    issue_epoch: int
+
+
+class ZarrCorrectionDataset(Dataset):
+    def __init__(
+        self,
+        zarr_path: str | pathlib.Path,
+        *,
+        time_range: tuple[datetime, datetime] | None = None,
+        leads_min: tuple[int, ...] = DEFAULT_LEADS,
+        history_steps: int = RADAR_HISTORY_STEPS,
+        history_step_min: int | None = None,   # None → auto-detect cadence
+        aux_channels: list[str] | None = None,  # None → auto-detect
+        include_static: bool = True,
+        require_rain_fraction: float | None = None,
+        history_tolerance_s: int = 150,
+        build_index: bool = True,   # False → inference mode (helpers only, no sample index)
+    ):
+        self.zarr_path = str(zarr_path)
+        self.time_range = time_range
+        self.leads_min = tuple(leads_min)
+        self.history_steps = history_steps
+        self.require_rain_fraction = require_rain_fraction
+        self.history_tolerance_s = history_tolerance_s
+        self._store = None  # opened lazily per worker process
+        self._pid = None
+
+        root = self._open()
+        self._issue_epoch = np.asarray(root["issue_time"][:], dtype="int64")
+        self._zarr_leads = [int(x) for x in np.asarray(root["leads_min"][:])]
+        self._lead_to_idx = {l: i for i, l in enumerate(self._zarr_leads)}
+
+        # Cadence (modal gap) → default history step.
+        order = np.argsort(self._issue_epoch)
+        self._sorted_epoch = self._issue_epoch[order]
+        gaps = np.diff(self._sorted_epoch)
+        cadence_s = int(np.median(gaps)) if len(gaps) else 1800
+        self.history_step_min = history_step_min or max(1, round(cadence_s / 60))
+        self._epoch_to_idx = {int(e): i for i, e in enumerate(self._issue_epoch)}
+
+        # Aux + static channels (auto-detect from the store unless given).
+        self.aux_channels = (aux_channels if aux_channels is not None
+                             else self._discover(root, per_issue=True))
+        self.static_channels = (self._discover(root, per_issue=False)
+                                if include_static else [])
+        self._static_cache: dict[str, np.ndarray] | None = None
+
+        self.index: list[_Sample] = []
+        if build_index:
+            self._build_index(root)
+
+    # ───────────────────────────────────────────────── store / discovery
+
+    def _open(self):
+        """Open the zarr group, re-opening in each worker process (zarr handles
+        don't survive a fork)."""
+        pid = os.getpid()
+        if self._store is None or self._pid != pid:
+            import zarr
+            self._store = zarr.open_group(self.zarr_path, mode="r")
+            self._pid = pid
+        return self._store
+
+    def _discover(self, root, *, per_issue: bool) -> list[str]:
+        n = len(self._issue_epoch)
+        out = []
+        for name in root.array_keys():
+            if name in _NON_AUX:
+                continue
+            shape = root[name].shape
+            is_per_issue = (len(shape) == 3 and shape[0] == n)
+            is_static = (len(shape) == 2 and tuple(shape) == GRID)
+            if per_issue and is_per_issue and not name.startswith("static_"):
+                out.append(name)
+            elif (not per_issue) and is_static:
+                out.append(name)
+        return sorted(out)
+
+    @property
+    def n_channels(self) -> int:
+        # history (K) + nowcast(1) + lead(1) + sin(1) + cos(1) + aux + static
+        return (self.history_steps + 4 + len(self.aux_channels)
+                + len(self.static_channels))
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    # ───────────────────────────────────────────────────────── indexing
+
+    def _lookup(self, epoch: int) -> int | None:
+        """Index of the issue-time at ``epoch`` (exact, else nearest within
+        history_tolerance_s)."""
+        hit = self._epoch_to_idx.get(epoch)
+        if hit is not None:
+            return hit
+        pos = int(np.searchsorted(self._sorted_epoch, epoch))
+        for cand in (pos, pos - 1):
+            if 0 <= cand < len(self._sorted_epoch):
+                if abs(int(self._sorted_epoch[cand]) - epoch) <= self.history_tolerance_s:
+                    return self._epoch_to_idx[int(self._sorted_epoch[cand])]
+        return None
+
+    def _build_index(self, root) -> None:
+        step = self.history_step_min * 60
+        radar = root["radar"]
+        rng = None
+        if self.time_range is not None:
+            rng = (int(self.time_range[0].timestamp()),
+                   int(self.time_range[1].timestamp()))
+        n_missing_hist = n_missing_tgt = n_dry = 0
+
+        for issue_idx in range(len(self._issue_epoch)):
+            issue_e = int(self._issue_epoch[issue_idx])
+            if rng and not (rng[0] <= issue_e < rng[1]):
+                continue
+            # history: K lead-0 analyses stepping back, newest = issue itself
+            hist = []
+            ok = True
+            for k in range(self.history_steps - 1, -1, -1):
+                hi = self._lookup(issue_e - k * step)
+                if hi is None:
+                    ok = False
+                    break
+                hist.append(hi)
+            if not ok:
+                n_missing_hist += 1
+                continue
+            for lead in self.leads_min:
+                if lead not in self._lead_to_idx:
+                    continue
+                tgt = self._lookup(issue_e + lead * 60)
+                if tgt is None:
+                    n_missing_tgt += 1
+                    continue
+                if self.require_rain_fraction is not None:
+                    frac = float(np.mean(radar[tgt, 0] >= RAIN_THRESHOLD))
+                    if frac < self.require_rain_fraction:
+                        n_dry += 1
+                        continue
+                self.index.append(_Sample(
+                    issue_idx=issue_idx, lead_min=lead,
+                    lead_idx=self._lead_to_idx[lead],
+                    history_idx=tuple(hist), target_idx=tgt, issue_epoch=issue_e))
+
+        LOG.info(
+            "indexed %d samples | history step=%dmin leads=%s | dropped "
+            "%d no-history, %d no-target, %d too-dry | aux=%d static=%d → %d channels",
+            len(self.index), self.history_step_min, self.leads_min,
+            n_missing_hist, n_missing_tgt, n_dry,
+            len(self.aux_channels), len(self.static_channels), self.n_channels,
+        )
+        if not self.index:
+            raise RuntimeError("empty index — check time_range / leads / cadence.")
+
+    # ───────────────────────────────────────────────── input assembly (shared)
+
+    def build_input(self, issue_idx: int, lead_min: int,
+                    history_idx: tuple[int, ...]) -> np.ndarray:
+        """Assemble the (n_channels, H, W) model input for one (issue, lead).
+        Shared by training (__getitem__) and live inference (infer_latest)."""
+        root = self._open()
+        radar = root["radar"]
+        H = self.history_steps
+        lead_idx = self._lead_to_idx[lead_min]
+        chans = np.empty((self.n_channels, *GRID), dtype="float32")
+
+        issue_block = np.asarray(radar[issue_idx])             # (n_lead, H, W)
+        for i, hidx in enumerate(history_idx):
+            chans[i] = (issue_block[0] if hidx == issue_idx
+                        else np.asarray(radar[hidx, 0]))
+        chans[H] = issue_block[lead_idx]                       # operational nowcast @ lead
+        chans[H + 1] = lead_min / 120.0
+        valid = (datetime.fromtimestamp(int(self._issue_epoch[issue_idx]), tz=timezone.utc)
+                 + timedelta(minutes=lead_min))
+        hour = valid.hour + valid.minute / 60.0
+        chans[H + 2] = np.sin(2 * np.pi * hour / 24)
+        chans[H + 3] = np.cos(2 * np.pi * hour / 24)
+
+        c = H + 4
+        for name in self.aux_channels:
+            chans[c] = _normalise(name, np.asarray(root[name][issue_idx]))
+            c += 1
+        if self.static_channels:
+            if self._static_cache is None:
+                self._static_cache = {n: _normalise(n, np.asarray(root[n][:]))
+                                      for n in self.static_channels}
+            for name in self.static_channels:
+                chans[c] = self._static_cache[name]
+                c += 1
+        np.nan_to_num(chans, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        return chans
+
+    def latest_issue_idx(self) -> int:
+        """Index of the most recent issue-time (for live inference)."""
+        return int(np.argmax(self._issue_epoch))
+
+    def history_for(self, issue_idx: int) -> tuple[int, ...] | None:
+        """Compute the radar-history indices for an arbitrary issue, or None if
+        a required past frame is missing (same logic as the training indexer)."""
+        step = self.history_step_min * 60
+        issue_e = int(self._issue_epoch[issue_idx])
+        hist: list[int] = []
+        for k in range(self.history_steps - 1, -1, -1):
+            hi = self._lookup(issue_e - k * step)
+            if hi is None:
+                return None
+            hist.append(hi)
+        return tuple(hist)
+
+    # ───────────────────────────────────────────────────────── __getitem__
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        s = self.index[idx]
+        chans = self.build_input(s.issue_idx, s.lead_min, s.history_idx)
+        y = np.asarray(self._open()["radar"][s.target_idx, 0])[None, ...].astype("float32")
+        np.nan_to_num(y, copy=False, nan=0.0)
+        return torch.from_numpy(chans), torch.from_numpy(y)
+
+
+def issue_time_split(zarr_path: str | pathlib.Path, val_frac: float) -> datetime:
+    """Time boundary with the most-recent ``val_frac`` of issue-times held out."""
+    import zarr
+    root = zarr.open_group(str(zarr_path), mode="r")
+    epochs = np.sort(np.asarray(root["issue_time"][:], dtype="int64"))
+    cut = epochs[int(len(epochs) * (1.0 - val_frac))]
+    return datetime.fromtimestamp(int(cut), tz=timezone.utc)

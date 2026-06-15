@@ -1,0 +1,12 @@
+[Unit]
+Description=Pluvio forward pull — Copernicus OSTIA SST (daily 06:00 UTC)
+
+[Timer]
+# OSTIA L4 NRT publishes once per day (day D available ~D+1). Pull each morning;
+# the collector grabs the last 3 days and skips files already on disk.
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+Unit=pluvio-pull@sst.service
+
+[Install]
+WantedBy=timers.target

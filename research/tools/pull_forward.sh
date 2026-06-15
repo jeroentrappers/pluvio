@@ -25,6 +25,17 @@ cd "$REPO_ROOT"
 # shellcheck disable=SC1091
 . .venv/bin/activate
 
+# Export the creds that collectors read via os.environ (radar uses KNMI_API_KEY).
+# We can't `source .env` — Netatmo tokens contain '|' — so pull simple keys out
+# individually. The python collectors that need '|'-bearing values parse .env
+# themselves.
+if [ -f "$REPO_ROOT/.env" ]; then
+    for k in KNMI_API_KEY KNMI_RATELIMIT_RESERVE; do
+        v="$(grep -E "^${k}=" "$REPO_ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+        [ -n "$v" ] && export "$k=$v" || true
+    done
+fi
+
 STAGE_DIR="${PLUVIO_STAGE_DIR:-$REPO_ROOT/stage}"
 
 # end = now, rounded down to the source's native cadence so consecutive
@@ -86,6 +97,28 @@ case "$SOURCE" in
                 --out "$STAGE_DIR/alaro" \
             || echo "  alaro $layer skipped (error)"
         done
+        ;;
+    sst)
+        # Copernicus OSTIA SST, daily L4. NRT lags ~1 day; pull the last 3 days
+        # so a late-published field is picked up. Idempotent (skips existing).
+        python -m collectors.fetch_sst \
+            --start "$(ago_utc '3 days')" \
+            --end "$(now_utc)" \
+            --out "$STAGE_DIR/sst"
+        ;;
+    knmi-aws)
+        # KNMI NL automatic weather stations (~50). 10-min native; overlap 1h.
+        python -m collectors.fetch_knmi_aws \
+            --start "$(ago_utc '1 hour')" \
+            --end "$(now_utc)" \
+            --out "$STAGE_DIR/aws/knmi_aws_10min.parquet"
+        ;;
+    netatmo)
+        # Crowdsourced public weather stations over the Benelux core. Forward-
+        # only (no archive); polls a tiled bbox and appends the latest reading
+        # per station. Densifies the same aws_* surface channels as KMI/KNMI.
+        python -m collectors.fetch_netatmo \
+            --out "$STAGE_DIR/aws/netatmo_10min.parquet"
         ;;
     *)
         echo "unknown source: $SOURCE" >&2

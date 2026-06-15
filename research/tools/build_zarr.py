@@ -15,24 +15,46 @@ Layout (all variables share `issue_time` as the first axis where applicable):
         aws_temp                (n, 100, 100)   float32
         aws_humidity            (n, 100, 100)   float32
         aws_wind                (n, 100, 100)   float32
-        msg_ir108               (n, 100, 100)   float32  (NaN where missing)
-        # … more MSG / ALARO channels added in subsequent versions …
+        msg_ir108 …  msg_rdt    (n, 100, 100)   float32  (NaN where missing)
+        alaro_precip … alaro_*  (n, 100, 100)   float32  (NaN where missing)
         static_elevation_m      (100, 100)      float32  (broadcast)
         static_landmask         (100, 100)      float32
         static_distance_km      (100, 100)      float32
 
-The build is **idempotent**: re-running with a wider window appends new
-issue times to the existing zarr without rewriting what's there. Each
-issue-time slot writes either real data or NaN (for missing aux).
+The build supports two modes:
+  * full rebuild (default) — wipe and re-create from scratch.
+  * ``--append`` — read the existing store's ``issue_time``, and write only
+    radar issue-times not already present (extending every per-issue array
+    along axis 0). Channels added since the last build are back-filled with
+    NaN for the pre-existing slots. Lets a daily cron grow the store cheaply.
 
-v1 channels: radar (image1..25) + AWS surface (4 channels) + MSG IR 10.8
-+ static. Plenty to test the wiring; the remaining MSG layers and the
-forward-only ALARO bands land in v2 once their pulls finish.
+── On the raster channels (MSG + ALARO) ──────────────────────────────────
+Both come from WMS ``GetMap`` as *rendered* GeoTIFFs, not physical values:
+
+  * Grayscale renders (msg ir108/wv062, all ALARO scalar fields): bands 1-3
+    are identical luminance → we take **band 1** as the (monotonic) signal.
+  * Colour-mapped renders (msg gii_kindex/gii_liftedindex/cth): RGB encodes
+    the value through a colour ramp, so band 1 alone is NOT monotonic. We
+    still take band 1 as a usable proxy for now; proper colour-map inversion
+    (or feeding R,G,B as three channels and letting the convnet decode it) is
+    a documented follow-up — see CHANNELS notes.
+  * msg rdt: the signal lives in the **alpha** band (0/255 cell mask), read
+    as a 0/1 field. Bilinear resampling onto the analysis grid then turns it
+    into a [0,1] cell-*coverage* fraction (soft edges) — which is the
+    "proximity field" the aux design wanted, not a hard mask.
+
+Undecodable files (a broken/empty raster, or — historically — a WMS
+``ServiceExceptionReport`` XML body saved with a ``.tif`` extension) are
+tolerated: the slot becomes NaN. The collector no longer writes such bodies
+(it pulls with the ``raster`` style and verifies content-type), so all 9
+ALARO layers including Surface_CAPE / Mean_sea_level_pressure are in the
+registry below.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import pathlib
 import sys
@@ -45,7 +67,7 @@ import pandas as pd
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from model.build_aux import AWS_CHANNELS, _idw  # noqa: E402
+from model.build_aux import AWS_CHANNELS  # noqa: E402
 from model.geo import grid_latlon  # noqa: E402
 from notebooks._lib import ANALYSIS_GRID, load_forecast_h5  # noqa: E402
 
@@ -53,17 +75,80 @@ LOG = logging.getLogger("pluvio.build_zarr")
 
 # Sources expected on disk (relative to research/data).
 RADAR_GLOB = "knmi/radar_forecast/2.0/RAD_NL25_RAC_FM_*.h5"
-AWS_PARQUET = "aws/kmi_aws_10min.parquet"
-MSG_IR108_DIR = "msg/msg_fes_ir108"
+# All surface-obs parquets share one schema (timestamp, lat, lon, + AWS_CHANNELS
+# fields); they're concatenated into one station pool so KMI(BE) + KNMI(NL) +
+# Netatmo(crowd) densify the same aws_* channels rather than adding new ones.
+AWS_GLOB = "aws/*.parquet"
 STATIC_NPZ = "static.npz"
 
-# Meteosat WMS bbox used by the collector (matches default in
-# collectors/fetch_eumetsat_msg.py).
-MSG_BBOX = (2.0, 49.0, 7.5, 52.0)  # minx, miny, maxx, maxy in EPSG:4326
+# WMS bbox the collectors request, EPSG:4326 (minx, miny, maxx, maxy).
+# Must match collectors/fetch_eumetsat_msg.py and tools/pull_forward.sh (alaro).
+# NB: v1 hard-coded the *old narrow* MSG bbox (2.0,49.0,7.5,52.0); that
+# mis-georeferenced every MSG sample. The current pulls use the wide bbox.
+MSG_BBOX = (0.0, 48.5, 11.0, 56.0)
+ALARO_BBOX = (0.0, 48.5, 11.0, 56.0)
+# Copernicus OSTIA SST GeoTIFFs (collectors/fetch_sst.py) — real °C, not rendered.
+SST_BBOX = (-1.0, 48.0, 11.0, 57.0)
 
 # Hard upper bound — radar files older than this aren't expected (KNMI
 # radar_forecast v2.0 starts 2024-08-14). Used as a sanity check.
 EARLIEST_RADAR = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+
+# ──────────────────────────────────────────────────────── channel registry
+
+@dataclasses.dataclass(frozen=True)
+class RasterChannel:
+    """One reprojected raster aux channel sourced from WMS GeoTIFFs."""
+    var: str            # zarr variable name (and the loader's channel name)
+    kind: str           # "msg" | "alaro" — selects the on-disk dir layout
+    layer: str          # source layer id as it appears in the filename
+    bbox: tuple[float, float, float, float]
+    max_age_min: int    # reject samples staler than this vs the issue time
+    mode: str = "lum"   # "lum" → band 1 raw; "alpha" → last band > 0 as 0/1
+
+    def dir_and_pattern(self, data_root: pathlib.Path) -> tuple[pathlib.Path, str]:
+        if self.kind == "msg":
+            return data_root / "msg" / f"msg_fes_{self.layer}", "*.tif"
+        if self.kind == "sst":
+            return data_root / "sst", "sst_*.tif"
+        # ALARO is a flat dir; files are alaro_<layer>_<stamp>.tif
+        return data_root / "alaro", f"alaro_{self.layer}_*.tif"
+
+
+# MSG: 60-min max-age ≈ 2 satellite slots (15-min native).
+MSG_CHANNELS = [
+    RasterChannel("msg_ir108", "msg", "ir108", MSG_BBOX, 60, "lum"),
+    RasterChannel("msg_wv062", "msg", "wv062", MSG_BBOX, 60, "lum"),
+    RasterChannel("msg_gii_kindex", "msg", "gii_kindex", MSG_BBOX, 60, "lum"),
+    RasterChannel("msg_gii_liftedindex", "msg", "gii_liftedindex", MSG_BBOX, 60, "lum"),
+    RasterChannel("msg_cth", "msg", "cth", MSG_BBOX, 60, "lum"),
+    RasterChannel("msg_rdt", "msg", "rdt", MSG_BBOX, 60, "alpha"),
+]
+
+# ALARO: hourly NWP, forward-only. 90-min max-age covers the worst-case gap
+# between an issue time and the nearest hourly valid step. All 9 layers are
+# pulled with the WMS `raster` style (grayscale), so band-1 luminance is a
+# clean monotonic render — see collectors/fetch_alaro_24h.py for why.
+ALARO_CHANNELS = [
+    RasterChannel("alaro_precip", "alaro", "Total_precipitation", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_cloud", "alaro", "Inst_flx_Tot_Cld_cover", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_wind_u", "alaro", "10_m_u__wind_component", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_wind_v", "alaro", "10_m_v__wind_component", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_rh", "alaro", "2m_Relative_humidity", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_t2m", "alaro", "2_m_temperature", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_td2m", "alaro", "2_m_dewpoint_temperature", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_cape", "alaro", "Surface_CAPE", ALARO_BBOX, 90, "lum"),
+    RasterChannel("alaro_mslp", "alaro", "Mean_sea_level_pressure", ALARO_BBOX, 90, "lum"),
+]
+
+# SST: daily, gap-free L4; 36h max-age so every issue time finds that day's (or
+# the previous day's) field. Real-valued °C GeoTIFF → "lum" reads band 1 as-is.
+SST_CHANNELS = [
+    RasterChannel("sst", "sst", "ostia", SST_BBOX, 2160, "lum"),
+]
+
+RASTER_CHANNELS = MSG_CHANNELS + ALARO_CHANNELS + SST_CHANNELS
 
 
 # ──────────────────────────────────────────────────────────── helpers
@@ -75,9 +160,13 @@ def _parse_radar_ts(path: pathlib.Path) -> datetime:
     return datetime.strptime(stem, "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
 
 
-def _parse_msg_ts(path: pathlib.Path) -> datetime:
-    """Meteosat tif filename → UTC datetime."""
-    # …_YYYYMMDDTHHMMSSZ.tif
+def _parse_tif_ts(path: pathlib.Path) -> datetime:
+    """WMS GeoTIFF filename → UTC datetime.
+
+    Works for both MSG (…_YYYYMMDDTHHMMSSZ.tif) and ALARO
+    (alaro_<layer>_YYYYMMDDTHHMMSSZ.tif): the timestamp is always the last
+    underscore-separated token.
+    """
     stem = path.stem.split("_")[-1].rstrip("Z")
     return datetime.strptime(stem, "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
 
@@ -86,33 +175,43 @@ def _epoch(dt: datetime) -> int:
     return int(dt.timestamp())
 
 
-# ──────────────────────────────────────────────────────────── Meteosat reproj
+# ──────────────────────────────────────────────── raster decode + reproj
 
-def _read_msg_tif(path: pathlib.Path) -> np.ndarray | None:
-    """Load a Meteosat WMS GeoTIFF as a 2-D float32 array (H, W).
+def _read_raster_bands(path: pathlib.Path) -> np.ndarray | None:
+    """Load a WMS GeoTIFF as a (bands, H, W) float32 array.
 
-    Returns ``None`` if rasterio can't decode it (rare; broken/empty file).
+    Returns ``None`` if the file can't be decoded (broken/empty file, or a
+    WMS XML error body saved with a .tif extension).
     """
     try:
         import rasterio
+        try:
+            with rasterio.open(path) as src:
+                return src.read().astype("float32")  # (bands, H, W)
+        except Exception as exc:
+            LOG.debug("rasterio failed on %s: %s", path.name, exc)
+            return None
     except ImportError:
-        # Fallback: PIL for raster decode. Loses GeoTIFF georeferencing but
-        # the WMS request fixed the bbox, so it's fine.
+        # Fallback: PIL. Loses georeferencing but the WMS request fixed the
+        # bbox, so it's fine. PIL gives (H, W) or (H, W, bands).
         from PIL import Image
         try:
-            arr = np.array(Image.open(path)).astype("float32")
-            return arr
-        except Exception as exc:  # pragma: no cover
-            LOG.warning("PIL failed to read %s: %s", path, exc)
+            arr = np.asarray(Image.open(path)).astype("float32")
+        except Exception as exc:
+            LOG.debug("PIL failed on %s: %s", path.name, exc)
             return None
+        if arr.ndim == 2:
+            return arr[None, ...]
+        return np.moveaxis(arr, -1, 0)  # (bands, H, W)
 
-    try:
-        with rasterio.open(path) as src:
-            band = src.read(1).astype("float32")
-            return band
-    except Exception as exc:  # pragma: no cover
-        LOG.warning("rasterio failed to read %s: %s", path, exc)
-        return None
+
+def _extract_channel(bands: np.ndarray, mode: str) -> np.ndarray:
+    """Reduce a (bands, H, W) rendered raster to a single (H, W) signal."""
+    if mode == "alpha":
+        # Signal is the alpha (last) band: >0 where a feature is drawn.
+        return (bands[-1] > 0).astype("float32")
+    # "lum": band 1 of the rendered image (luminance / colour-ramp proxy).
+    return bands[0].astype("float32")
 
 
 def _bilinear_sample(arr: np.ndarray, bbox: tuple[float, float, float, float],
@@ -120,8 +219,8 @@ def _bilinear_sample(arr: np.ndarray, bbox: tuple[float, float, float, float],
     """Bilinear sample a regular EPSG:4326 raster at irregular lat/lon points.
 
     `arr` is (rows, cols); row 0 = north (maxy), col 0 = west (minx) — the
-    standard "image" orientation that EUMETView returns. `lat`/`lon` are
-    the target grid in the same CRS.
+    standard "image" orientation that WMS returns. `lat`/`lon` are the target
+    grid in the same CRS.
     """
     minx, miny, maxx, maxy = bbox
     rows, cols = arr.shape
@@ -146,6 +245,28 @@ def _bilinear_sample(arr: np.ndarray, bbox: tuple[float, float, float, float],
 
 # ──────────────────────────────────────────────────────────── AWS
 
+def _idw_knn(lats: np.ndarray, lons: np.ndarray, vals: np.ndarray,
+             glat: np.ndarray, glon: np.ndarray, k: int = 8,
+             power: float = 2.0) -> np.ndarray:
+    """Inverse-distance weighting via a KD-tree over the k nearest stations.
+
+    The dense Netatmo pool (~10k stations) makes the naive all-pairs IDW
+    (O(H·W·N)) ~140 s per issue time; k-NN brings it to milliseconds. Distances
+    are in degrees — fine for IDW over this small mid-latitude domain.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.column_stack([lats, lons])
+    tree = cKDTree(pts)
+    grid = np.column_stack([glat.ravel(), glon.ravel()])
+    kk = min(k, len(vals))
+    dist, idx = tree.query(grid, k=kk)
+    if kk == 1:
+        dist, idx = dist[:, None], idx[:, None]
+    w = 1.0 / (dist ** power + 1e-12)
+    g = (w * vals[idx]).sum(axis=1) / w.sum(axis=1)
+    return g.reshape(glat.shape)
+
+
 def _build_aws_idw(aws_df: pd.DataFrame, ts: datetime, lat: np.ndarray,
                    lon: np.ndarray, max_age_min: int = 30,
                   ) -> dict[str, np.ndarray] | None:
@@ -156,9 +277,11 @@ def _build_aws_idw(aws_df: pd.DataFrame, ts: datetime, lat: np.ndarray,
     frame = aws_df[(aws_df["timestamp"] <= cutoff) & (aws_df["timestamp"] >= horizon)]
     if frame.empty:
         return None
-    # Latest timestamp within the window — keep all stations for that ts.
-    latest = frame["timestamp"].max()
-    frame = aws_df[aws_df["timestamp"] == latest]
+    # Latest reading PER STATION within the window (not just the single global
+    # max timestamp) — so multiple sources reporting at slightly different times
+    # all contribute, and each station counts once.
+    frame = (frame.sort_values("timestamp")
+                  .drop_duplicates(subset=["lat", "lon"], keep="last"))
     lats = frame["lat"].to_numpy(dtype="float64")
     lons = frame["lon"].to_numpy(dtype="float64")
     out: dict[str, np.ndarray] = {}
@@ -168,20 +291,22 @@ def _build_aws_idw(aws_df: pd.DataFrame, ts: datetime, lat: np.ndarray,
         if mask.sum() < 3:
             out[ch] = np.full(lat.shape, np.nan, dtype="float32")
             continue
-        g = _idw(lats[mask], lons[mask], vals[mask], lat, lon)
+        g = _idw_knn(lats[mask], lons[mask], vals[mask], lat, lon)
         out[ch] = ((g - centre) / scale).astype("float32")
     return out
 
 
-# ──────────────────────────────────────────────────────────── MSG join
+# ──────────────────────────────────────────────────────────── raster join
 
-def _index_msg_dir(d: pathlib.Path) -> list[tuple[datetime, pathlib.Path]]:
+def _index_raster_dir(d: pathlib.Path, pattern: str,
+                      ) -> list[tuple[datetime, pathlib.Path]]:
+    """Sorted (timestamp, path) index of GeoTIFFs matching `pattern` in `d`."""
     if not d.exists():
         return []
     out: list[tuple[datetime, pathlib.Path]] = []
-    for p in d.glob("*.tif"):
+    for p in d.glob(pattern):
         try:
-            out.append((_parse_msg_ts(p), p))
+            out.append((_parse_tif_ts(p), p))
         except ValueError:
             continue
     out.sort()
@@ -202,6 +327,30 @@ def _latest_le(index: list[tuple[datetime, pathlib.Path]], ts: datetime,
     return cand
 
 
+# ──────────────────────────────────────────────────────────── zarr arrays
+
+def _ensure_per_issue_array(root, name: str, per_issue_shape: tuple,
+                            n_total: int, existing_n: int):
+    """Return a (n_total, *per_issue_shape) float32 array, creating or
+    resizing as needed.
+
+    * fresh build  (existing_n == 0): create at n_total.
+    * append       (existing_n  > 0): if the var exists, resize to n_total;
+      if it's new (added to the registry since the last build), create it and
+      back-fill the pre-existing [:existing_n] slots with NaN.
+    """
+    shape = (n_total,) + per_issue_shape
+    chunks = (1,) + per_issue_shape
+    if name in root:
+        z = root[name]
+        z.resize(shape)
+        return z
+    z = root.create_array(name, shape=shape, chunks=chunks, dtype="float32")
+    if existing_n > 0:
+        z[:existing_n] = np.full((existing_n,) + per_issue_shape, np.nan, dtype="float32")
+    return z
+
+
 # ──────────────────────────────────────────────────────────── main build
 
 # Channel naming aligned with what the dataset loader expects.
@@ -215,7 +364,8 @@ AWS_VAR_NAMES = {
 
 def build(data_root: pathlib.Path, out_path: pathlib.Path,
           start: datetime | None, end: datetime | None,
-          msg_max_age_min: int, aws_max_age_min: int) -> int:
+          msg_max_age_min: int, aws_max_age_min: int,
+          append: bool) -> int:
     import zarr
 
     glat, glon = grid_latlon()
@@ -241,23 +391,62 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
     if not radar_files:
         LOG.error("no radar files found in window")
         return 2
+
+    # 1b. Append mode: open existing store and drop already-present issue times.
+    existing_n = 0
+    root = None
+    if append and out_path.exists():
+        root = zarr.open_group(str(out_path), mode="a")
+        existing_epochs = set(int(x) for x in root["issue_time"][:])
+        existing_n = len(existing_epochs)
+        before = len(radar_files)
+        radar_files = [(t, p) for (t, p) in radar_files
+                       if _epoch(t) not in existing_epochs]
+        LOG.info("append: store has %d issue times; %d/%d radar files are new",
+                 existing_n, len(radar_files), before)
+        if not radar_files:
+            LOG.info("nothing new to append — done")
+            return 0
+    elif append:
+        LOG.warning("--append but %s doesn't exist; doing a full build", out_path)
+        append = False
+
     issue_times = [t for t, _ in radar_files]
-    LOG.info("indexing %d radar issue times (%s … %s)",
+    LOG.info("indexing %d new radar issue times (%s … %s)",
              len(radar_files), issue_times[0], issue_times[-1])
 
-    # 2. Load aux indexes
+    # 2. Load aux indexes — concat every surface-obs parquet into one pool.
     aws_df: pd.DataFrame | None = None
-    aws_path = data_root / AWS_PARQUET
-    if aws_path.exists():
-        aws_df = pd.read_parquet(aws_path)
-        aws_df["timestamp"] = pd.to_datetime(aws_df["timestamp"], utc=True).dt.tz_convert(None)
-        aws_df = aws_df.dropna(subset=["timestamp"]).sort_values("timestamp")
-        LOG.info("AWS: %d rows", len(aws_df))
+    aws_paths = sorted(data_root.glob(AWS_GLOB))
+    if aws_paths:
+        parts = []
+        for p in aws_paths:
+            try:
+                d = pd.read_parquet(p)
+                d["timestamp"] = pd.to_datetime(d["timestamp"], utc=True).dt.tz_convert(None)
+            except Exception as exc:
+                # A collector may be mid-write (parquet writes aren't atomic);
+                # skip rather than abort the whole build.
+                LOG.warning("AWS source %-28s unreadable, skipping: %s", p.name, exc)
+                continue
+            parts.append(d)
+            LOG.info("AWS source %-28s %d rows", p.name, len(d))
+        if parts:
+            aws_df = pd.concat(parts, ignore_index=True).dropna(subset=["timestamp"])
+            aws_df = aws_df.sort_values("timestamp")
+            LOG.info("AWS pool: %d rows from %d source(s)", len(aws_df), len(parts))
+        else:
+            LOG.warning("no readable AWS parquet — aws_* will be NaN")
     else:
-        LOG.warning("AWS parquet missing — aws_* will be NaN")
+        LOG.warning("no AWS parquet found — aws_* will be NaN")
 
-    msg_index = _index_msg_dir(data_root / MSG_IR108_DIR)
-    LOG.info("MSG ir108: %d files indexed", len(msg_index))
+    # One on-disk index per raster channel.
+    raster_index: dict[str, list[tuple[datetime, pathlib.Path]]] = {}
+    for ch in RASTER_CHANNELS:
+        d, pattern = ch.dir_and_pattern(data_root)
+        idx = _index_raster_dir(d, pattern)
+        raster_index[ch.var] = idx
+        LOG.info("%-22s %6d files indexed (%s)", ch.var, len(idx), d)
 
     static_path = data_root / STATIC_NPZ
     static: dict[str, np.ndarray] | None = None
@@ -272,54 +461,63 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
     else:
         LOG.warning("static.npz missing — run model/build_static.py first")
 
-    # 3. Probe first radar file for n_lead (most files have 25; if KNMI ever
-    # truncates we just take whatever's in the first file).
+    # 3. Probe first radar file for n_lead.
     first = load_forecast_h5(radar_files[0][1])
     n_lead = first.frames.shape[0]
     leads = first.leads_min.astype("int16")
     LOG.info("radar layout: n_lead=%d leads_min=%s", n_lead,
              list(leads[: min(5, len(leads))]) + (["…"] if n_lead > 5 else []))
 
-    # 4. Open zarr — idempotent: if the store exists we read its existing
-    # issue_time array, and append only new issue_times. For v1 we keep it
-    # simple: rebuild from scratch each invocation. Append-mode lands in v2.
-    if out_path.exists():
-        import shutil
-        LOG.warning("overwriting existing %s", out_path)
-        shutil.rmtree(out_path)
-    root = zarr.open_group(str(out_path), mode="w", zarr_format=2)
+    # 4. Open / extend the zarr.
+    k = len(radar_files)            # new issue times to write
+    n_total = existing_n + k        # final length along axis 0
+    base = existing_n               # write new slots at [base : base+k]
 
-    n = len(radar_files)
-    root.create_array("issue_time", shape=(n,), dtype="int64", chunks=(min(n, 256),))
-    root.create_array("leads_min", shape=(n_lead,), dtype="int16", chunks=(n_lead,))
-    root["issue_time"][:] = np.asarray([_epoch(t) for t in issue_times], dtype="int64")
-    root["leads_min"][:] = leads
+    if not append:
+        if out_path.exists():
+            import shutil
+            LOG.warning("overwriting existing %s", out_path)
+            shutil.rmtree(out_path)
+        root = zarr.open_group(str(out_path), mode="w", zarr_format=2)
+        root.create_array("leads_min", shape=(n_lead,), dtype="int16", chunks=(n_lead,))
+        root["leads_min"][:] = leads
+        root.create_array("issue_time", shape=(n_total,), dtype="int64",
+                          chunks=(min(n_total, 256),))
+    else:
+        # issue_time grows; leads_min must match.
+        if int(root["leads_min"].shape[0]) != n_lead:
+            LOG.error("append: existing leads_min (%d) != current (%d) — aborting",
+                      int(root["leads_min"].shape[0]), n_lead)
+            return 2
+        root["issue_time"].resize((n_total,))
 
-    # Data arrays — chunks shaped one issue per slot for cheap append-of-1.
-    z_radar = root.create_array("radar", shape=(n, n_lead, H, W),
-                                chunks=(1, n_lead, H, W), dtype="float32")
-    z_aws = {
-        var: root.create_array(var, shape=(n, H, W), chunks=(1, H, W), dtype="float32")
-        for var in AWS_VAR_NAMES.values()
-    }
-    z_msg_ir108 = root.create_array("msg_ir108", shape=(n, H, W),
-                                    chunks=(1, H, W), dtype="float32")
+    root["issue_time"][base:n_total] = np.asarray(
+        [_epoch(t) for t in issue_times], dtype="int64")
 
-    if static is not None:
+    # Per-issue data arrays.
+    z_radar = _ensure_per_issue_array(root, "radar", (n_lead, H, W), n_total, base)
+    z_aws = {var: _ensure_per_issue_array(root, var, (H, W), n_total, base)
+             for var in AWS_VAR_NAMES.values()}
+    z_raster = {ch.var: _ensure_per_issue_array(root, ch.var, (H, W), n_total, base)
+                for ch in RASTER_CHANNELS}
+
+    # Static arrays — written once (never per-issue), only on a fresh build.
+    if static is not None and not append:
         for name, arr in static.items():
-            z = root.create_array(name, shape=arr.shape, dtype="float32",
-                                  chunks=arr.shape)
+            z = root.create_array(name, shape=arr.shape, dtype="float32", chunks=arr.shape)
             z[...] = arr
 
-    # 5. Fill per issue time.
-    n_radar_ok = n_aws_ok = n_msg_ok = 0
-    for i, (ts, path) in enumerate(radar_files):
+    # 5. Fill per (new) issue time.
+    n_radar_ok = n_aws_ok = 0
+    n_raster_ok = {ch.var: 0 for ch in RASTER_CHANNELS}
+    for j, (ts, path) in enumerate(radar_files):
+        i = base + j
         try:
             fc = load_forecast_h5(path)
             z_radar[i] = fc.frames.astype("float32")
             n_radar_ok += 1
         except Exception as exc:
-            LOG.warning("[%d/%d] %s: radar decode failed: %s", i, n, ts, exc)
+            LOG.warning("[%d/%d] %s: radar decode failed: %s", j + 1, k, ts, exc)
             z_radar[i] = np.full((n_lead, H, W), np.nan, dtype="float32")
 
         if aws_df is not None:
@@ -335,23 +533,32 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
             for var in AWS_VAR_NAMES.values():
                 z_aws[var][i] = np.full((H, W), np.nan, dtype="float32")
 
-        msg_path = _latest_le(msg_index, ts, msg_max_age_min)
-        if msg_path is not None:
-            arr = _read_msg_tif(msg_path)
-            if arr is not None:
-                z_msg_ir108[i] = _bilinear_sample(arr, MSG_BBOX, glat, glon)
-                n_msg_ok += 1
+        for ch in RASTER_CHANNELS:
+            max_age = msg_max_age_min if ch.kind == "msg" else ch.max_age_min
+            rpath = _latest_le(raster_index[ch.var], ts, max_age)
+            grid = None
+            if rpath is not None:
+                bands = _read_raster_bands(rpath)
+                if bands is not None:
+                    sig = _extract_channel(bands, ch.mode)
+                    grid = _bilinear_sample(sig, ch.bbox, glat, glon)
+            if grid is not None:
+                z_raster[ch.var][i] = grid
+                n_raster_ok[ch.var] += 1
             else:
-                z_msg_ir108[i] = np.full((H, W), np.nan, dtype="float32")
-        else:
-            z_msg_ir108[i] = np.full((H, W), np.nan, dtype="float32")
+                z_raster[ch.var][i] = np.full((H, W), np.nan, dtype="float32")
 
-        if (i + 1) % 100 == 0 or i == n - 1:
-            LOG.info("  [%d/%d] radar=%d aws=%d msg=%d",
-                     i + 1, n, n_radar_ok, n_aws_ok, n_msg_ok)
+        if (j + 1) % 100 == 0 or j == k - 1:
+            rsum = " ".join(f"{v.split('_', 1)[-1]}={n_raster_ok[v]}"
+                            for v in list(n_raster_ok)[:3])
+            LOG.info("  [%d/%d] radar=%d aws=%d %s …",
+                     j + 1, k, n_radar_ok, n_aws_ok, rsum)
 
-    LOG.info("done — radar=%d aws=%d msg=%d (of %d issue times) → %s",
-             n_radar_ok, n_aws_ok, n_msg_ok, n, out_path)
+    LOG.info("done — wrote %d issue times (total now %d): radar=%d aws=%d",
+             k, n_total, n_radar_ok, n_aws_ok)
+    for ch in RASTER_CHANNELS:
+        LOG.info("    %-22s %d/%d slots have data", ch.var, n_raster_ok[ch.var], k)
+    LOG.info("→ %s", out_path)
     return 0
 
 
@@ -364,6 +571,10 @@ def main(argv: list[str] | None = None) -> int:
                         default=REPO_ROOT / "data" / "timeseries.zarr")
     parser.add_argument("--start", help="UTC ISO start (inclusive). Default: all radar files on disk.")
     parser.add_argument("--end", help="UTC ISO end (inclusive). Default: all radar files on disk.")
+    parser.add_argument("--append", action="store_true",
+                        help="Append only radar issue-times not already in the "
+                             "store (extends every per-issue array). Falls back "
+                             "to a full build if the store doesn't exist yet.")
     parser.add_argument("--msg-max-age-min", type=int, default=60,
                         help="Reject MSG samples staler than this. 60 min ≈ 2 satellite slots.")
     parser.add_argument("--aws-max-age-min", type=int, default=30,
@@ -380,7 +591,7 @@ def main(argv: list[str] | None = None) -> int:
     end = _iso(args.end) if args.end else None
 
     return build(args.data, args.out, start, end,
-                 args.msg_max_age_min, args.aws_max_age_min)
+                 args.msg_max_age_min, args.aws_max_age_min, args.append)
 
 
 def _iso(s: str) -> datetime:

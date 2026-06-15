@@ -1,0 +1,12 @@
+[Unit]
+Description=Pluvio append into the zarr (daily 03:00 UTC, before the 03:30 rotate)
+
+[Timer]
+# Runs before pluvio-rotate (03:30) so the day's data is ingested before any
+# completed-month chunk is archived off local disk.
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=pluvio-build-zarr.service
+
+[Install]
+WantedBy=timers.target

@@ -12,3 +12,6 @@ output/
 .ipynb_checkpoints/
 __pycache__/
 *.egg-info/
+
+# staging bundle for hetz1 migration (large)
+pluvio_bundle.tar

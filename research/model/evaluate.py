@@ -28,6 +28,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "notebooks"))
 import _lib as kpi  # noqa: E402
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
+from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.train import _DT_MAX, _time_split  # noqa: E402
 from model.unet import PluvioUNet  # noqa: E402
 
@@ -85,7 +86,9 @@ def _metrics_for(df: pd.DataFrame, forecast_col: str, threshold: float) -> pd.Da
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=pathlib.Path, required=True)
+    parser.add_argument("--zarr", type=pathlib.Path, default=None,
+                        help="timeseries.zarr (multi-source). Overrides --data.")
+    parser.add_argument("--data", type=pathlib.Path, required=False)
     parser.add_argument("--checkpoint", type=pathlib.Path, required=True)
     parser.add_argument("--val-frac", type=float, default=0.2)
     parser.add_argument("--threshold", type=float, default=1.0, help="rain/no-rain mm/h")
@@ -104,8 +107,14 @@ def main(argv: list[str] | None = None) -> int:
     LOG.info("Loaded %s (val_rmse=%.4f, epoch=%s)",
              args.checkpoint, ckpt.get("val_rmse", float("nan")), ckpt.get("epoch"))
 
-    split = _time_split(args.data, args.val_frac)
-    val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
+    if args.zarr:
+        split = issue_time_split(args.zarr, args.val_frac)
+        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX))
+    elif args.data:
+        split = _time_split(args.data, args.val_frac)
+        val_set = PluvioCorrectionDataset(args.data, time_range=(split, _DT_MAX))
+    else:
+        raise SystemExit("provide --zarr or --data")
     LOG.info("Validation samples: %d", len(val_set))
 
     df = _tidy_from_samples(val_set, model, device, args.sample_cells)
