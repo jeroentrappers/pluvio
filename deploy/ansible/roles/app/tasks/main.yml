@@ -30,15 +30,45 @@
   register: rsync_out
   changed_when: "rsync_out.stdout | length > 0"
 
+# Web PWA source — built into an image by the same compose (build context
+# ../web). Shipped to the sibling of app_dir so compose's ../web resolves.
+- name: Ensure web dir (owned by deploy user)
+  become: true
+  ansible.builtin.file:
+    path: "{{ web_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Push web source (rsync)
+  delegate_to: localhost
+  ansible.builtin.command:
+    chdir: "{{ playbook_dir }}/../../web"
+    argv:
+      - rsync
+      - -az
+      - --delete
+      - --exclude=.git
+      - --exclude=.env
+      - --exclude=node_modules
+      - --exclude=dist
+      - -e
+      - "ssh -p {{ ansible_port | default(22) }} -i {{ ansible_ssh_private_key_file }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+      - "./"
+      - "{{ ansible_user }}@{{ ansible_host }}:{{ web_dir }}/"
+  register: rsync_web
+  changed_when: "rsync_web.stdout | length > 0"
+
 - name: Render .env
   ansible.builtin.template:
     src: env.j2
     dest: "{{ app_dir }}/.env"
     mode: "0640"
 
-# Default compose profile = api + worker only (Traefik is `prod`-profile and is
+# Default compose profile = api + worker + web (Traefik is `prod`-profile and is
 # intentionally left out — nginx on the host is the public entry).
-- name: Build + start api + worker
+- name: Build + start api + worker + web
   ansible.builtin.command:
     chdir: "{{ app_dir }}"
     cmd: docker compose up -d --build

@@ -8,8 +8,10 @@
 ---
 - name: pluvio backend
   hosts: pluvio
+  vars_files:
+    - secrets.yml   # gitignored; holds tiles_api_key (see secrets.yml.example)
   roles:
-    - role: app      # rsync source, render .env, compose up (api + worker)
+    - role: app      # rsync source, render .env, compose up (api + worker + web)
       tags: [app]
     - role: nginx    # reverse proxy + certbot TLS
       become: true

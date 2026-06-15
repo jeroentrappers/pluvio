@@ -1,0 +1,31 @@
+{
+  "appTitle": "Pluvio",
+  "tagline": "Radar de pluie pour la Belgique",
+  "refresh": "Actualiser",
+  "locating": "Localisation…",
+  "locate": "Me localiser",
+  "locationError": "Impossible de déterminer votre position.",
+  "locationDenied": "Localisation bloquée — la Belgique est affichée.",
+  "radarError": "Impossible de récupérer les données radar.",
+  "loading": "Chargement du radar…",
+  "nowcast": {
+    "dry": "Pas de pluie prévue dans les deux prochaines heures.",
+    "raining": "Il pleut actuellement.",
+    "rainInMinutes": "Pluie prévue dans {{minutes}} min."
+  },
+  "play": "Lire",
+  "pause": "Pause",
+  "now": "Maintenant",
+  "minutesShort": "+{{minutes}}m",
+  "rate": "{{value}} mm/h",
+  "chartTitle": "Intensité prévue (mm/h)",
+  "legend": {
+    "light": "Faible",
+    "moderate": "Modérée",
+    "heavy": "Forte",
+    "violent": "Violente"
+  },
+  "language": "Langue",
+  "install": "Installer l'app",
+  "updated": "Mis à jour {{time}}"
+}

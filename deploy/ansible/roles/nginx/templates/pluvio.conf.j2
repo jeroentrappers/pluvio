@@ -1,18 +1,30 @@
-# Managed by Ansible. Reverse-proxies {{ pluvio_domain }} to the pluvio API
-# container on 127.0.0.1:{{ api_loopback_port }}.
-{% if have_cert | default(false) %}
-server {
-    server_name {{ pluvio_domain }};
-
-    location / {
-        proxy_pass http://127.0.0.1:{{ api_loopback_port }};
+# Managed by Ansible. Serves {{ pluvio_domain }} from the loopback docker stack:
+# the PWA on :{{ web_loopback_port }} at /, with the API kept SAME-ORIGIN on
+# :{{ api_loopback_port }} under /v1, /healthz and the FastAPI docs (so the
+# browser needs no CORS).
+{% macro proxy(port) %}
+        proxy_pass http://127.0.0.1:{{ port }};
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 30s;
-    }
+{% endmacro %}
+{% macro vhost_body() %}
+    # ── API (same-origin) ──────────────────────────────────────────────
+    location /v1/            { {{ proxy(api_loopback_port) }} }
+    location = /healthz      { {{ proxy(api_loopback_port) }} }
+    location = /docs         { {{ proxy(api_loopback_port) }} }
+    location = /redoc        { {{ proxy(api_loopback_port) }} }
+    location = /openapi.json { {{ proxy(api_loopback_port) }} }
 
+    # ── PWA (everything else) ──────────────────────────────────────────
+    location / { {{ proxy(web_loopback_port) }} }
+{% endmacro %}
+{% if have_cert | default(false) %}
+server {
+    server_name {{ pluvio_domain }};
+{{ vhost_body() }}
     listen [::]:443 ssl;
     listen 443 ssl;
     ssl_certificate /etc/letsencrypt/live/{{ pluvio_domain }}/fullchain.pem;
@@ -36,14 +48,6 @@ server {
     server_name {{ pluvio_domain }};
     listen 80;
     listen [::]:80;
-
-    location / {
-        proxy_pass http://127.0.0.1:{{ api_loopback_port }};
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 30s;
-    }
+{{ vhost_body() }}
 }
 {% endif %}

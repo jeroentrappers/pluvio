@@ -55,6 +55,23 @@ services:
       disable: true
     # No labels/ports either — the worker is internal only.
 
+  # Installable PWA (../web). nginx serving the built bundle; VITE_* are injected
+  # at startup into config.js. The host nginx serves this at / and keeps the API
+  # same-origin under /v1, /healthz, /docs (see deploy/ansible nginx vhost), so
+  # no CORS is needed. Build context ../web assumes web_dir is app_dir's sibling
+  # named `web` on the box (/opt/web next to /opt/pluvio-backend).
+  web:
+    build:
+      context: ../web
+    image: pluvio-web:latest
+    environment:
+      VITE_API_BASE: ${VITE_API_BASE:-https://pluvio.appmire.be}
+      VITE_TILES_URL: ${VITE_TILES_URL:-https://tiles.appmire.be}
+      VITE_TILES_KEY: ${VITE_TILES_KEY:-}
+    ports:
+      - "127.0.0.1:8001:80"
+    restart: unless-stopped
+
   # TLS-terminating reverse proxy. Production-only (profile = prod) so local
   # dev doesn't need port 80/443 or DNS games.
   traefik:

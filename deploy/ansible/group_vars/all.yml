@@ -12,6 +12,18 @@ enable_tls: true
 # Traefik (compose `prod` profile) is intentionally NOT used here.
 api_loopback_port: 8000
 
+# PWA (web) container — built from ../web by the same compose. nginx serves it
+# at / while the API stays same-origin under /v1, /healthz, /docs (so no CORS).
+# web_dir must be app_dir's sibling named `web` so the compose build context
+# `../web` resolves both locally (backend/ ↔ web/) and on the box
+# (/opt/pluvio-backend → /opt/web).
+web_dir: /opt/web
+web_loopback_port: 8001
+pluvio_web_api_base: https://pluvio.appmire.be
+pluvio_web_tiles_url: https://tiles.appmire.be
+# tiles_api_key is NOT here: this repo is public. It lives in the gitignored
+# deploy/ansible/secrets.yml (see secrets.yml.example).
+
 # .env contents rendered onto the box (see roles/app/templates/env.j2).
 pluvio_env:
   PLUVIO_CACHE_ROOT: /data/forecasts

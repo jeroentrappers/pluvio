@@ -64,6 +64,8 @@ fastlane/README.md
 .env
 .env.*
 !.env.example
+# Ansible secrets (public repo): tiles_api_key lives here, not in group_vars.
+deploy/ansible/secrets.yml
 *.p8
 *.p12
 *.mobileprovision

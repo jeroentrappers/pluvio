@@ -1,0 +1,31 @@
+{
+  "appTitle": "Pluvio",
+  "tagline": "Rain radar for Belgium",
+  "refresh": "Refresh",
+  "locating": "Locating…",
+  "locate": "Locate me",
+  "locationError": "Couldn't determine your location.",
+  "locationDenied": "Location blocked — showing Belgium.",
+  "radarError": "Couldn't fetch radar data.",
+  "loading": "Loading radar…",
+  "nowcast": {
+    "dry": "No rain expected in the next two hours.",
+    "raining": "It's raining now.",
+    "rainInMinutes": "Rain expected in {{minutes}} min."
+  },
+  "play": "Play",
+  "pause": "Pause",
+  "now": "Now",
+  "minutesShort": "+{{minutes}}m",
+  "rate": "{{value}} mm/h",
+  "chartTitle": "Expected intensity (mm/h)",
+  "legend": {
+    "light": "Light",
+    "moderate": "Moderate",
+    "heavy": "Heavy",
+    "violent": "Violent"
+  },
+  "language": "Language",
+  "install": "Install app",
+  "updated": "Updated {{time}}"
+}
