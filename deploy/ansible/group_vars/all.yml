@@ -31,5 +31,8 @@ pluvio_env:
   PLUVIO_CACHE_STALE_AFTER_SECONDS: "900"
   PLUVIO_API_HOST: 0.0.0.0
   PLUVIO_API_PORT: "8000"
-  PLUVIO_MODEL_VERSION: stub-0.1
+  # The trained UNet is served via the precomputed field written by the hetz1
+  # inference step (research/model/infer_latest.py → /opt/pluvio/serve). The
+  # worker's model_band reads it and falls back to the KMI stub if missing/stale.
+  PLUVIO_MODEL_VERSION: unet-0.1
   PLUVIO_CORS_ORIGINS: ""

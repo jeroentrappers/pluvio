@@ -24,19 +24,21 @@ import numpy as np
 from . import schedules
 from .cache import ForecastCache, GridSpec
 from .config import get_settings
-from .stubs import stub_band
+from .model import model_band
+from .stubs import stub_band  # noqa: F401  (kept; model_band falls back to it)
 
 LOG = logging.getLogger("pluvio.worker")
 
-# A reference to the inference function for each band. Swap stub_band for
-# the trained CorrDiff model when it lands — same signature.
+# A reference to the inference function for each band. `model_band` serves the
+# trained UNet for the nowcast band and transparently falls back to the KMI stub
+# (for the longer bands, and whenever the model field is missing/stale).
 BandInference = Callable[
     [httpx.Client, str, GridSpec, schedules.BandName],
     tuple[np.ndarray, datetime],
 ]
 
 
-def run_tick(band_name: schedules.BandName, infer: BandInference = stub_band) -> dict:
+def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -> dict:
     """One refresh of one band. Returns a small summary dict."""
     settings = get_settings()
     cache = ForecastCache(settings.cache_root)

@@ -20,7 +20,7 @@ services:
       PLUVIO_CACHE_ROOT: /data/forecasts
       # Allow the app's origin(s); empty disables CORS. Set for web builds.
       PLUVIO_CORS_ORIGINS: ${PLUVIO_CORS_ORIGINS:-}
-      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-stub-0.1}
+      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-unet-0.1}
     volumes:
       - cache:/data/forecasts
     # Bind to loopback only — Traefik (when in the `prod` profile) routes
@@ -45,8 +45,14 @@ services:
     command: ["pluvio-worker", "schedule"]
     environment:
       PLUVIO_CACHE_ROOT: /data/forecasts
+      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-unet-0.1}
+      # The hetz1 inference step (research/model/infer_latest.py) writes the
+      # model's nowcast field here every cycle; mounted read-only below.
+      # model_band reads it and falls back to the KMI stub if missing/stale.
+      PLUVIO_MODEL_NOWCAST_NPZ: /opt/pluvio/serve/model_nowcast.npz
     volumes:
       - cache:/data/forecasts
+      - /opt/pluvio/serve:/opt/pluvio/serve:ro
     restart: unless-stopped
     # The worker doesn't serve HTTP, but it inherits the image's HEALTHCHECK
     # (which curls :8000/healthz) — turn that off so the container doesn't
