@@ -21,7 +21,10 @@ class Settings(BaseSettings):
 
     # Storage
     cache_root: pathlib.Path = Field(default=pathlib.Path("./var/forecasts"))
-    cache_stale_after_seconds: int = Field(default=900)
+    # 30 min: the forecast's issue time is the OPERA analysis time, which lags
+    # wall-clock by the radar cadence + collection + producer latency (~15–25
+    # min). A tighter threshold flaps "degraded" on fresh-but-normal data.
+    cache_stale_after_seconds: int = Field(default=1800)
 
     # Upstream
     kmi_base_url: str = Field(default="https://app.meteo.be/services/appv4/")
