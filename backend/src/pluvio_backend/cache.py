@@ -280,6 +280,38 @@ class ForecastCache:
             return None
         return np.asarray(zarr.open_array(store=str(path), mode="r")[:])
 
+    def complete_snapshots(self) -> list[pathlib.Path]:
+        """All complete snapshot dirs, newest first."""
+        return sorted(
+            (
+                p
+                for p in self.root.iterdir()
+                if p.is_dir() and p.name != "latest" and (p / "status.json").exists()
+            ),
+            key=lambda p: p.name,
+            reverse=True,
+        )
+
+    def read_band_any(self, band_name: schedules.BandName) -> np.ndarray | None:
+        """Freshest array for `band_name` across all complete snapshots.
+
+        Bands refresh on different cadences, so the long-range outlook may live
+        in an older snapshot than the latest nowcast. This lets the worker fold
+        every band's freshest data into the snapshot it's about to publish.
+        """
+        expected = (schedules.band(band_name).n_leads, *self.grid.shape)
+        for snap in self.complete_snapshots():
+            path = snap / "bands" / f"{band_name}.zarr"
+            if not path.exists():
+                continue
+            arr = np.asarray(zarr.open_array(store=str(path), mode="r")[:])
+            # Skip arrays written under an older band definition (different lead
+            # count) — folding them in would mislabel leads. They age out via
+            # prune as fresh ticks rewrite the band.
+            if arr.shape == expected:
+                return arr
+        return None
+
     def read_point(self, lat: float, lon: float, bucket_step: float = 0.1) -> pd.DataFrame | None:
         snap = self.latest_snapshot()
         if snap is None:
@@ -298,11 +330,20 @@ class ForecastCache:
         return out.sort_values(["band", "lead_min"]).reset_index(drop=True)
 
     def overlay_url_path(self, band_name: schedules.BandName, lead_min: int) -> pathlib.Path | None:
+        # Prefer the published snapshot, but fall back to the most recent
+        # snapshot that has this overlay — longer bands refresh on their own
+        # cadence and their PNGs may live in an older snapshot than the latest
+        # nowcast one (the worker folds their data forward, not their files).
         snap = self.latest_snapshot()
-        if snap is None:
-            return None
-        path = snap / "overlays" / band_name / f"{lead_min}.png"
-        return path if path.exists() else None
+        if snap is not None:
+            path = snap / "overlays" / band_name / f"{lead_min}.png"
+            if path.exists():
+                return path
+        for older in self.complete_snapshots():
+            path = older / "overlays" / band_name / f"{lead_min}.png"
+            if path.exists():
+                return path
+        return None
 
     # ─────────────────────────────────────────────────────────────── helpers
 

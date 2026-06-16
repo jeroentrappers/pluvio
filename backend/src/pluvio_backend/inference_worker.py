@@ -53,17 +53,40 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
     cache.write_band(snap, band_name, rates)
     cache.write_overlays(snap, band_name, rates)
     cache.write_grid_metadata(snap, model_version=settings.model_version)
-    # `points` is built once we have at least one band on disk; rebuild it
-    # every tick so the bucket file is always coherent across bands.
-    all_bands = _collect_all_bands(cache, snap)
+
+    # Fold the freshest data for *every* band into this snapshot's point index:
+    # the band we just wrote, plus the most recent prior snapshot for the others
+    # (bands refresh on different cadences). This lets the API serve the full
+    # horizon — nowcast → 10-day long-range — from one published snapshot.
+    all_bands: dict[schedules.BandName, np.ndarray] = {band_name: rates}
+    for b in schedules.all_bands():
+        if b.name == band_name:
+            continue
+        arr = cache.read_band_any(b.name)
+        if arr is not None:
+            all_bands[b.name] = arr
     cache.write_point_shards(snap, all_bands)
-    cache.mark_complete(snap, summary={"refreshed_band": band_name})
-    cache.swap_latest(snap)
+    cache.mark_complete(snap, summary={"refreshed_band": band_name, "bands": sorted(all_bands)})
+
+    # Only publish once the snapshot carries the nowcast band — the only
+    # location-specific one. A longer-band-only snapshot would serve a single
+    # uniform (stub) frame that reads identically everywhere; never expose that.
+    published = "nowcast" in all_bands
+    if published:
+        cache.swap_latest(snap)
+    else:
+        LOG.warning(
+            "tick band=%s: no nowcast band available yet — not publishing %s",
+            band_name,
+            snap.name,
+        )
 
     removed = cache.prune(keep=24)
     summary = {
         "snapshot": snap.name,
         "band": band_name,
+        "published": published,
+        "bands": sorted(all_bands),
         "n_leads": rates.shape[0],
         "max_mm_per_h": float(rates.max()),
         "pruned": removed,
@@ -91,23 +114,6 @@ def _reuse_or_new_snapshot(
     if existing is not None and existing.name.startswith(bucket_dt.strftime("%Y-%m-%dT%H-%M-")):
         return existing
     return cache.new_snapshot_dir(bucket_dt)
-
-
-def _collect_all_bands(
-    cache: ForecastCache, snap: pathlib.Path
-) -> dict[schedules.BandName, np.ndarray]:
-    """Read whichever band zarrs exist in `snap`. Missing bands are skipped."""
-    import zarr
-
-    out: dict[schedules.BandName, np.ndarray] = {}
-    bands_dir = snap / "bands"
-    if not bands_dir.exists():
-        return out
-    for band in schedules.all_bands():
-        path = bands_dir / f"{band.name}.zarr"
-        if path.exists():
-            out[band.name] = np.asarray(zarr.open_array(store=str(path), mode="r")[:])
-    return out
 
 
 def main(argv: list[str] | None = None) -> int:

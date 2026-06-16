@@ -43,14 +43,18 @@ BANDS: dict[BandName, Band] = {
     "nowcast": Band(
         name="nowcast",
         lead_min_start=0,
-        lead_min_end=120,
+        # Inclusive of 120: the model field covers 0–120 min, so emit
+        # [0, 10, …, 120] (exclusive end 130). Stopping at 110 dropped the
+        # model's 120-min prediction and let the short-band stub fill +120.
+        lead_min_end=130,
         step_min=10,
         refresh_seconds=300,
         cron_expression="*/5 * * * *",
     ),
     "short": Band(
         name="short",
-        lead_min_start=120,
+        # Starts after the nowcast horizon (120 min) to avoid a duplicate lead.
+        lead_min_start=180,
         lead_min_end=12 * 60,
         step_min=60,
         refresh_seconds=3600,

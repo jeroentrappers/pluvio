@@ -11,6 +11,11 @@ from __future__ import annotations
 
 import numpy as np
 
+# Below this rate it's a trace (model noise), shown as nothing — kept in sync
+# with the web client's RAIN_THRESHOLD_MM_H (web/src/domain/precip.ts) so the
+# map overlay doesn't tint where the chart/headline say "dry".
+RAIN_THRESHOLD_MM_H = 0.1
+
 # (lower-bound mm/h, RGB tuple) — matches PrecipitationPalette in Dart.
 STOPS: list[tuple[float, tuple[int, int, int]]] = [
     (0.0, (220, 220, 220)),  # "none" — light grey
@@ -57,5 +62,6 @@ def rgba_for_array(mm_per_h: np.ndarray, max_alpha: int = 220) -> np.ndarray:
     rgba = np.empty((h, w, 4), dtype="uint8")
     rgba[..., :3] = rgb.astype("uint8")
     rgba[..., 3] = alpha.astype("uint8")
-    rgba[rate <= 0] = (0, 0, 0, 0)
+    # Trace/no rain → fully transparent (matches the web client's dry cutoff).
+    rgba[rate < RAIN_THRESHOLD_MM_H] = (0, 0, 0, 0)
     return rgba
