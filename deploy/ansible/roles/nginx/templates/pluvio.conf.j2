@@ -12,6 +12,20 @@
 {% endmacro %}
 {% macro vhost_body() %}
     # ── API (same-origin) ──────────────────────────────────────────────
+    # WebSocket for new-prediction pushes — exact match wins over /v1/ and adds
+    # the Upgrade handshake + a long read timeout (the generic proxy's 30s would
+    # drop an idle socket).
+    location = /v1/ws {
+        proxy_pass http://127.0.0.1:{{ api_loopback_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+    }
     location /v1/            { {{ proxy(api_loopback_port) }} }
     location = /healthz      { {{ proxy(api_loopback_port) }} }
     location = /docs         { {{ proxy(api_loopback_port) }} }

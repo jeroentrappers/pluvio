@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import sys
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -17,6 +20,65 @@ from .cache import ForecastCache
 from .config import Settings, get_settings
 
 LOG = logging.getLogger("pluvio.api")
+
+# How often the server checks whether a new snapshot was published, to push it
+# to connected clients. Cheap (a symlink stat); snapshots advance ~every 5 min.
+_SNAPSHOT_POLL_SECONDS = 5.0
+
+
+class _WSManager:
+    """Tracks live WebSocket clients and broadcasts new-prediction notices."""
+
+    def __init__(self) -> None:
+        self._clients: set[WebSocket] = set()
+
+    async def connect(self, ws: WebSocket) -> None:
+        await ws.accept()
+        self._clients.add(ws)
+
+    def disconnect(self, ws: WebSocket) -> None:
+        self._clients.discard(ws)
+
+    async def broadcast(self, message: dict) -> None:
+        for ws in list(self._clients):
+            try:
+                await ws.send_json(message)
+            except Exception:  # noqa: BLE001 — a dead socket shouldn't block others
+                self._clients.discard(ws)
+
+
+def _snapshot_message(cache: ForecastCache) -> dict | None:
+    """The 'new prediction' notice: snapshot id + issue time, so the client can
+    refetch (one /v1/forecast + one sprite) instead of polling."""
+    snap = cache.latest_snapshot()
+    if snap is None:
+        return None
+    meta = cache.latest_metadata() or {}
+    return {
+        "type": "snapshot",
+        "snapshot": snap.name,
+        "issued_at": meta.get("issued_at"),
+        "model_version": meta.get("model_version"),
+    }
+
+
+async def _watch_snapshots(cache: ForecastCache, manager: _WSManager) -> None:
+    """Background task: poll the published snapshot and broadcast when it changes
+    (the worker advances it ~every 5 min). Server-side only — clients never poll."""
+    last: str | None = None
+    while True:
+        try:
+            snap = cache.latest_snapshot()
+            name = snap.name if snap else None
+            if name and name != last:
+                last = name
+                msg = _snapshot_message(cache)
+                if msg:
+                    await manager.broadcast(msg)
+                    LOG.info("ws: broadcast new snapshot %s to clients", name)
+        except Exception:  # noqa: BLE001 — keep the watcher alive across hiccups
+            LOG.exception("ws: snapshot watcher error")
+        await asyncio.sleep(_SNAPSHOT_POLL_SECONDS)
 
 
 class FrameDto(BaseModel):
@@ -63,11 +125,23 @@ class HealthDto(BaseModel):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     cache = ForecastCache(settings.cache_root)
+    ws_manager = _WSManager()
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        watcher = asyncio.create_task(_watch_snapshots(cache, ws_manager))
+        try:
+            yield
+        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
 
     app = FastAPI(
         title="Pluvio Forecast API",
         version="0.1.0",
         description="Precipitation forecast cache for Belgium.",
+        lifespan=lifespan,
     )
 
     if settings.cors_origin_list:
@@ -179,6 +253,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sprite=sprite_dto,
             bounds=meta.get("grid", {}).get("bounds"),
         )
+
+    @app.websocket("/v1/ws")
+    async def updates(websocket: WebSocket) -> None:
+        """Push a notice whenever a new prediction is published, so the client
+        refetches on demand instead of polling. On connect we send the current
+        snapshot immediately; thereafter the server-side watcher broadcasts."""
+        await ws_manager.connect(websocket)
+        try:
+            current = _snapshot_message(cache)
+            if current:
+                await websocket.send_json(current)
+            # We don't expect client messages; receiving just detects the close.
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001 — never let one client crash the route
+            LOG.debug("ws: client error", exc_info=True)
+        finally:
+            ws_manager.disconnect(websocket)
 
     @app.get("/v1/sprite.png")
     def sprite() -> FileResponse:

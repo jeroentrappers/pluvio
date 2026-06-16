@@ -109,3 +109,22 @@ def test_animation_manifest(client: TestClient) -> None:
     assert body["bounds"] is not None
     assert len(body["frames"]) > 0
     assert body["frames"][0]["url"].endswith(".png?t=" + body["snapshot"])
+
+
+def test_ws_sends_current_snapshot_on_connect(client: TestClient) -> None:
+    """A client connecting to /v1/ws is told the current snapshot immediately,
+    so it can refetch the new prediction without polling."""
+    with client.websocket_connect("/v1/ws") as ws:
+        msg = ws.receive_json()
+    assert msg["type"] == "snapshot"
+    assert msg["snapshot"] is not None
+    assert msg["model_version"] == "test-api"
+
+
+def test_ws_on_empty_cache_connects_without_snapshot(empty_client: TestClient) -> None:
+    """With no published snapshot yet, the socket still opens cleanly (no crash);
+    it just sends nothing until the first prediction lands. Open and close
+    without receiving (there's nothing to receive, and a blocking receive would
+    hang)."""
+    with empty_client.websocket_connect("/v1/ws"):
+        pass

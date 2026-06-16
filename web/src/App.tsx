@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getRadar, minutesUntilRain, type RadarData } from './api'
+import { subscribeUpdates } from './updates'
 import { useGeolocation } from './location'
 import { HORIZON_MIN, frameFull, timeOfDay } from './format'
 import { LANGS } from './i18n'
@@ -33,6 +34,17 @@ export default function App() {
   const [index, setIndex] = useState(0)
   const [isPlaying, setPlaying] = useState(false)
   const [nonce, setNonce] = useState(0) // bump to force a refetch
+  const lastSnapshot = useRef<string | null>(null)
+
+  // Live updates: when the server publishes a new prediction, refetch (deduped
+  // so the connect-time "current snapshot" message doesn't double-fetch).
+  useEffect(() => {
+    return subscribeUpdates((snapshot) => {
+      if (snapshot === lastSnapshot.current) return
+      lastSnapshot.current = snapshot
+      setNonce((n) => n + 1)
+    })
+  }, [])
 
   // Track geolocation until the user manually picks a location.
   useEffect(() => {
