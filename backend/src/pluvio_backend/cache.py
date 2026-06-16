@@ -204,6 +204,49 @@ class ForecastCache:
             n_written += 1
         return n_written
 
+    def write_sprite(
+        self,
+        snapshot_dir: pathlib.Path,
+        all_bands: dict[schedules.BandName, np.ndarray],
+        cols: int = 12,
+    ) -> dict:
+        """Compose one sprite-sheet PNG of every (band, lead) frame and return
+        its layout. The client downloads this single image and scrubs by tile,
+        so the whole animation is one request instead of one-per-frame.
+
+        Tiles are ordered by lead-time across all bands (the same order the
+        client sorts frames), and ``index`` maps "band:lead" → tile number.
+        """
+        from .tiler import render_sprite
+
+        ordered: list[tuple[int, str, np.ndarray]] = []
+        for band_name, arr in all_bands.items():
+            band = schedules.band(band_name)
+            for i, lead in enumerate(band.leads_min):
+                ordered.append((lead, band_name, arr[i]))
+        ordered.sort(key=lambda t: t[0])
+
+        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols)
+        (snapshot_dir / "sprite.png").write_bytes(png)
+
+        h, w = self.grid.shape
+        return {
+            "tile_w": w,
+            "tile_h": h,
+            "cols": cols,
+            "rows": rows,
+            "count": len(ordered),
+            "index": {f"{band}:{lead}": i for i, (lead, band, _) in enumerate(ordered)},
+        }
+
+    def sprite_path(self) -> pathlib.Path | None:
+        """The published snapshot's sprite, if present."""
+        snap = self.latest_snapshot()
+        if snap is None:
+            return None
+        p = snap / "sprite.png"
+        return p if p.exists() else None
+
     def mark_complete(self, snapshot_dir: pathlib.Path, summary: dict | None = None) -> None:
         """Drop a `status.json` flag — must be the last file we write."""
         body = {

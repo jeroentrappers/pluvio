@@ -31,6 +31,9 @@ class FrameDto(BaseModel):
     # we are. Null when the band is stub-served (no cube provenance).
     source: str | None = None
     confidence: float | None = None
+    # Index of this frame's tile in the sprite sheet (see ForecastDto.sprite), so
+    # the client renders it by cropping rather than fetching a per-frame PNG.
+    sprite_index: int | None = None
 
 
 class ForecastDto(BaseModel):
@@ -42,6 +45,11 @@ class ForecastDto(BaseModel):
     # Per-band {source, confidence, producer}, so the client can honestly label
     # each horizon and widen its uncertainty band with lead.
     provenance: dict[str, dict] | None = None
+    # Sprite sheet: one image with every frame tiled, so the client animates the
+    # whole horizon with a single download. {url, tile_w, tile_h, cols, rows}.
+    sprite: dict | None = None
+    # Grid bounds [west, east, south, north] for placing the overlay/sprite.
+    bounds: dict[str, float] | None = None
 
 
 class HealthDto(BaseModel):
@@ -129,25 +137,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         provenance = meta.get("provenance") or {}
+        sprite = meta.get("sprite") or {}
+        sprite_index = sprite.get("index", {})
         frames: list[FrameDto] = []
         for _, row in point_df.iterrows():
             if int(row["lead_min"]) > horizon_min:
                 continue
             band = row["band"]
+            lead = int(row["lead_min"])
             prov = provenance.get(band, {})
-            valid = issued_at.replace(microsecond=0) + _minutes(int(row["lead_min"]))
+            valid = issued_at.replace(microsecond=0) + _minutes(lead)
             frames.append(
                 FrameDto(
                     band=band,
-                    lead_min=int(row["lead_min"]),
+                    lead_min=lead,
                     valid_time=valid,
                     rate_mm_per_h=float(row["rate_mm_per_h"]),
-                    overlay_url=f"/v1/overlay/{band}/{int(row['lead_min'])}.png?t={snap.name}",
+                    overlay_url=f"/v1/overlay/{band}/{lead}.png?t={snap.name}",
                     source=prov.get("source"),
                     confidence=prov.get("confidence"),
+                    sprite_index=sprite_index.get(f"{band}:{lead}"),
                 )
             )
 
+        sprite_dto = None
+        if sprite:
+            sprite_dto = {
+                "url": f"/v1/sprite.png?t={snap.name}",
+                "tile_w": sprite.get("tile_w"),
+                "tile_h": sprite.get("tile_h"),
+                "cols": sprite.get("cols"),
+                "rows": sprite.get("rows"),
+            }
         return ForecastDto(
             issued_at=issued_at,
             location={"lat": lat, "lon": lon},
@@ -155,6 +176,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             horizon_min=horizon_min,
             frames=frames,
             provenance=provenance or None,
+            sprite=sprite_dto,
+            bounds=meta.get("grid", {}).get("bounds"),
+        )
+
+    @app.get("/v1/sprite.png")
+    def sprite() -> FileResponse:
+        """The published snapshot's sprite sheet — one image with every frame
+        tiled. The client downloads it once per prediction and crops tiles to
+        animate, so scrubbing hits no network. Immutable per snapshot (the URL
+        carries ?t=<snapshot>), so it caches for a long time."""
+        path = cache.sprite_path()
+        if path is None:
+            raise HTTPException(status_code=404, detail="no sprite in cache")
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
         )
 
     @app.get("/v1/overlay/{band}/{lead_min}.png")

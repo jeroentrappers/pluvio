@@ -10,6 +10,17 @@ export interface FrameDto {
   // Null when the band is stub-served (no forecast-cube provenance).
   source?: string | null // "nowcast" | "blend" | "nwp"
   confidence?: number | null // 0–1, widening (decreasing) with lead
+  // Tile index in the sprite sheet (ForecastDto.sprite) — the client renders
+  // this frame by cropping that tile rather than fetching a per-frame PNG.
+  sprite_index?: number | null
+}
+
+export interface SpriteDto {
+  url: string // relative to API_BASE, e.g. /v1/sprite.png?t=…
+  tile_w: number
+  tile_h: number
+  cols: number
+  rows: number
 }
 
 export interface BandProvenance {
@@ -25,6 +36,11 @@ export interface ForecastDto {
   horizon_min: number
   frames: FrameDto[]
   provenance?: Record<string, BandProvenance> | null // per-band
+  // One sprite sheet with every frame tiled — animate the whole horizon from a
+  // single download instead of one request per frame.
+  sprite?: SpriteDto | null
+  // Grid bounds for placing the overlay/sprite.
+  bounds?: Bounds | null
 }
 
 export interface Bounds {

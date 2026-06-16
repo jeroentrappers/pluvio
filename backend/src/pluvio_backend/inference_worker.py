@@ -66,14 +66,18 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
             all_bands[b.name] = arr
     cache.write_point_shards(snap, all_bands)
 
+    # One sprite-sheet PNG of every frame so the client animates the whole
+    # horizon with a single download (no per-frame requests).
+    sprite = cache.write_sprite(snap, all_bands)
+
     # Fold per-band provenance (source tag + confidence, from the forecast cube)
     # into grid.json so the product can honestly label each horizon and widen
     # its uncertainty band with lead. None when a band is stub-served.
     provenance = {b: p for b in all_bands if (p := band_provenance(b)) is not None}
-    cache.write_grid_metadata(
-        snap, model_version=settings.model_version,
-        extras={"provenance": provenance} if provenance else None,
-    )
+    extras: dict = {"sprite": sprite}
+    if provenance:
+        extras["provenance"] = provenance
+    cache.write_grid_metadata(snap, model_version=settings.model_version, extras=extras)
     cache.mark_complete(snap, summary={"refreshed_band": band_name, "bands": sorted(all_bands)})
 
     # Only publish once the snapshot carries the nowcast band — the only

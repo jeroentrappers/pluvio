@@ -1,7 +1,7 @@
 // Typed client for the Pluvio forecast API. Read-only; base URL from config.ts.
 import { API_BASE } from './config'
 import { levelFromMmPerHour, type PrecipLevel } from './domain/precip'
-import type { AnimationManifestDto, Bounds, ForecastDto, HealthDto } from './types'
+import type { Bounds, ForecastDto, HealthDto } from './types'
 
 // Geographic extent the radar composite PNG is rendered onto. Matches the
 // backend grid (cache.py) and the Flutter app's Env.radarBounds*; used as a
@@ -14,9 +14,18 @@ export interface RadarFrame {
   validTime: Date
   rateMmPerH: number
   level: PrecipLevel
-  overlayUrl: string // absolute
   source: string | null // "nowcast" | "blend" | "nwp" | null (stub-served)
   confidence: number | null // 0–1
+  spriteIndex: number | null // tile in the sprite sheet
+}
+
+// The single sprite sheet for a prediction: one download, scrub by cropping.
+export interface RadarSprite {
+  url: string // absolute
+  tileW: number
+  tileH: number
+  cols: number
+  rows: number
 }
 
 export interface RadarData {
@@ -25,6 +34,7 @@ export interface RadarData {
   modelVersion: string
   bounds: Bounds
   frames: RadarFrame[] // sorted by lead time (now → +horizon)
+  sprite: RadarSprite | null
 }
 
 const abs = (url: string) => (url.startsWith('http') ? url : `${API_BASE}${url}`)
@@ -45,16 +55,13 @@ export async function getRadar(
   horizonMin = 120,
   signal?: AbortSignal,
 ): Promise<RadarData> {
-  const [forecast, manifest] = await Promise.all([
-    getJson<ForecastDto>(
-      `/v1/forecast?lat=${lat}&lon=${lon}&horizon_min=${horizonMin}`,
-      signal,
-    ),
-    // Bounds only; tolerate failure and fall back to the known grid extent.
-    getJson<AnimationManifestDto>('/v1/animation/manifest.json?band=nowcast', signal).catch(
-      () => null,
-    ),
-  ])
+  // One request: the forecast carries the per-point rates, provenance, the grid
+  // bounds, and the sprite-sheet descriptor. The whole animation is then served
+  // by a single sprite image (fetched in RadarMap), so scrubbing hits no network.
+  const forecast = await getJson<ForecastDto>(
+    `/v1/forecast?lat=${lat}&lon=${lon}&horizon_min=${horizonMin}`,
+    signal,
+  )
 
   const frames: RadarFrame[] = forecast.frames
     .map((f) => ({
@@ -62,18 +69,29 @@ export async function getRadar(
       validTime: new Date(f.valid_time),
       rateMmPerH: f.rate_mm_per_h,
       level: levelFromMmPerHour(f.rate_mm_per_h),
-      overlayUrl: abs(f.overlay_url),
       source: f.source ?? null,
       confidence: f.confidence ?? null,
+      spriteIndex: f.sprite_index ?? null,
     }))
     .sort((a, b) => a.leadMin - b.leadMin)
+
+  const sprite = forecast.sprite
+    ? {
+        url: abs(forecast.sprite.url),
+        tileW: forecast.sprite.tile_w,
+        tileH: forecast.sprite.tile_h,
+        cols: forecast.sprite.cols,
+        rows: forecast.sprite.rows,
+      }
+    : null
 
   return {
     issuedAt: new Date(forecast.issued_at),
     location: forecast.location,
     modelVersion: forecast.model_version,
-    bounds: manifest?.bounds ?? DEFAULT_BOUNDS,
+    bounds: forecast.bounds ?? DEFAULT_BOUNDS,
     frames,
+    sprite,
   }
 }
 

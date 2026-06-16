@@ -143,7 +143,7 @@ export default function App() {
             center={location}
             bounds={load.state === 'ok' ? load.data.bounds : { west: 1.5, east: 7.5, south: 48.9, north: 52.5 }}
             frame={load.state === 'ok' ? frames[index] ?? null : null}
-            frames={frames}
+            sprite={load.state === 'ok' ? load.data.sprite : null}
             onPick={onPick}
             recenter={recenter}
           />

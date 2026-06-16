@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import maplibregl, { type ImageSource } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { STYLE_URL } from '../config'
 import type { Bounds } from '../types'
-import type { RadarFrame } from '../api'
+import type { RadarFrame, RadarSprite } from '../api'
 
 // Register the PMTiles protocol once so MapLibre can read the vector basemap
 // straight from tiles.appmire.be (the style's source is pmtiles://…). The key
@@ -30,7 +30,7 @@ interface Props {
   center: { lat: number; lon: number }
   bounds: Bounds
   frame: RadarFrame | null
-  frames: RadarFrame[] // for prefetch
+  sprite: RadarSprite | null // one sheet for the whole animation
   // Called when the user picks a new location (map click or marker drag).
   onPick?: (lat: number, lon: number) => void
   // Bump to re-center the map on `center` (e.g. after "locate me"). A plain
@@ -39,7 +39,7 @@ interface Props {
   recenter?: number
 }
 
-export default function RadarMap({ center, bounds, frame, frames, onPick, recenter }: Props) {
+export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -49,6 +49,10 @@ export default function RadarMap({ center, bounds, frame, frames, onPick, recent
   onPickRef.current = onPick
   const centerRef = useRef(center)
   centerRef.current = center
+  // Sprite sheet: load the image once, then scrub by cropping tiles to a canvas.
+  const spriteImgRef = useRef<HTMLImageElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [spriteReady, setSpriteReady] = useState(0)
 
   // Init the map once.
   useEffect(() => {
@@ -78,13 +82,10 @@ export default function RadarMap({ center, bounds, frame, frames, onPick, recent
 
     map.on('load', () => {
       readyRef.current = true
-      const url = frame?.overlayUrl
       map.addSource(RADAR_SOURCE, {
         type: 'image',
-        // 1×1 transparent pixel until the first frame is set.
-        url:
-          url ||
-          'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        // 1×1 transparent pixel until the sprite loads and the first tile is drawn.
+        url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
         coordinates: cornersOf(bounds),
       })
       map.addLayer({
@@ -134,40 +135,49 @@ export default function RadarMap({ center, bounds, frame, frames, onPick, recent
     mapRef.current?.easeTo({ center: [centerRef.current.lon, centerRef.current.lat], duration: 600 })
   }, [recenter])
 
-  // Swap the overlay image (and re-anchor) when the frame or bounds change.
+  // Download the sprite sheet once per prediction (one request for the whole
+  // animation). crossOrigin so the canvas we crop from it isn't tainted when
+  // the API is a different origin (dev); same-origin in prod needs nothing.
+  useEffect(() => {
+    if (!sprite?.url) return
+    let cancelled = false
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      if (cancelled) return
+      spriteImgRef.current = img
+      setSpriteReady((n) => n + 1)
+    }
+    img.src = sprite.url
+    return () => {
+      cancelled = true
+    }
+  }, [sprite?.url])
+
+  // Render the current frame by cropping its tile from the sprite onto a canvas
+  // and handing that to the overlay — no network while scrubbing/playing.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !readyRef.current || !frame) return
+    const img = spriteImgRef.current
+    if (!map || !readyRef.current || !img || !sprite || !frame || frame.spriteIndex == null) return
+    const { tileW, tileH, cols } = sprite
+    let canvas = canvasRef.current
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      canvasRef.current = canvas
+    }
+    canvas.width = tileW
+    canvas.height = tileH
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const idx = frame.spriteIndex
+    const sx = (idx % cols) * tileW
+    const sy = Math.floor(idx / cols) * tileH
+    ctx.clearRect(0, 0, tileW, tileH)
+    ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
     const src = map.getSource(RADAR_SOURCE) as ImageSource | undefined
-    src?.updateImage({ url: frame.overlayUrl, coordinates: cornersOf(bounds) })
-  }, [frame, bounds])
-
-  // Prefetch all overlay PNGs so scrubbing/playback is instant and hits no
-  // network. Two things matter for the cache to actually be reused:
-  //   • crossOrigin='anonymous' — overlays come from API_BASE, a different
-  //     origin, so MapLibre loads the image source as a CORS request. A bare
-  //     `new Image()` is a *no-cors* request; browsers key the HTTP cache on
-  //     request mode, so a no-cors prefetch can't satisfy MapLibre's CORS
-  //     fetch and every frame would refetch. Matching the mode fixes that.
-  //   • holding references in `prefetchRef` keeps the decoded images alive (so
-  //     they aren't GC'd mid-loop) and lets us cache until a new prediction
-  //     arrives, then drop the stale URLs.
-  const prefetchRef = useRef<Map<string, HTMLImageElement>>(new Map())
-  useEffect(() => {
-    const cache = prefetchRef.current
-    const wanted = new Set(frames.map((f) => f.overlayUrl))
-    for (const f of frames) {
-      if (cache.has(f.overlayUrl)) continue
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.src = f.overlayUrl
-      cache.set(f.overlayUrl, img)
-    }
-    // Drop overlays from a superseded prediction so the cache doesn't grow.
-    for (const url of cache.keys()) {
-      if (!wanted.has(url)) cache.delete(url)
-    }
-  }, [frames])
+    src?.updateImage({ url: canvas.toDataURL('image/png'), coordinates: cornersOf(bounds) })
+  }, [frame, bounds, sprite, spriteReady])
 
   return <div ref={containerRef} className="map" />
 }

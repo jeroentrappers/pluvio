@@ -86,7 +86,7 @@ mtg_l2_min_free_gb: 50
 producer_app_dir: /opt/pluvio-producer
 producer_serve_dir: /opt/pluvio/serve        # mounted into the worker (compose)
 producer_storage_dir: /mnt/storagebox        # OPERA (+AIFS) input, read-only
-producer_interval_min: 10                     # refresh cadence (OPERA is 15-min)
+producer_interval_min: 5                       # refresh cadence (picks up new OPERA promptly)
 producer_max_age_min: 90                       # skip if the latest OPERA is staler
 
 # .env contents rendered onto the box (see roles/app/templates/env.j2).
