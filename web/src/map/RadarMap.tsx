@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import maplibregl, { type ImageSource } from 'maplibre-gl'
+import maplibregl, { type CanvasSource } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { STYLE_URL } from '../config'
@@ -57,6 +57,15 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // Init the map once.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
+    // The overlay is a *canvas* source: we draw the current frame's tile onto
+    // this canvas and MapLibre reads its pixels straight to a GPU texture — no
+    // per-frame image URL (so nothing shows up in the Network panel, and no
+    // PNG re-encoding). Created once; reused for the map's whole lifetime.
+    const overlayCanvas = document.createElement('canvas')
+    overlayCanvas.width = 100
+    overlayCanvas.height = 100
+    canvasRef.current = overlayCanvas
+
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE_URL,
@@ -83,10 +92,12 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     map.on('load', () => {
       readyRef.current = true
       map.addSource(RADAR_SOURCE, {
-        type: 'image',
-        // 1×1 transparent pixel until the sprite loads and the first tile is drawn.
-        url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        type: 'canvas',
+        canvas: overlayCanvas,
         coordinates: cornersOf(bounds),
+        // Static by default (no continuous repaint / battery drain). We force a
+        // one-shot upload after each draw via play()→render→pause().
+        animate: false,
       })
       map.addLayer({
         id: RADAR_LAYER,
@@ -154,20 +165,17 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     }
   }, [sprite?.url])
 
-  // Render the current frame by cropping its tile from the sprite onto a canvas
-  // and handing that to the overlay — no network while scrubbing/playing.
+  // Render the current frame: crop its tile from the sprite onto the overlay
+  // canvas, then nudge MapLibre to upload it once. No network, no data URL.
   useEffect(() => {
     const map = mapRef.current
     const img = spriteImgRef.current
-    if (!map || !readyRef.current || !img || !sprite || !frame || frame.spriteIndex == null) return
+    const canvas = canvasRef.current
+    if (!map || !readyRef.current || !img || !canvas || !sprite || !frame || frame.spriteIndex == null)
+      return
     const { tileW, tileH, cols } = sprite
-    let canvas = canvasRef.current
-    if (!canvas) {
-      canvas = document.createElement('canvas')
-      canvasRef.current = canvas
-    }
-    canvas.width = tileW
-    canvas.height = tileH
+    if (canvas.width !== tileW) canvas.width = tileW
+    if (canvas.height !== tileH) canvas.height = tileH
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const idx = frame.spriteIndex
@@ -175,8 +183,15 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     const sy = Math.floor(idx / cols) * tileH
     ctx.clearRect(0, 0, tileW, tileH)
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
-    const src = map.getSource(RADAR_SOURCE) as ImageSource | undefined
-    src?.updateImage({ url: canvas.toDataURL('image/png'), coordinates: cornersOf(bounds) })
+
+    // Push the freshly-drawn canvas to the GPU once: play() makes the canvas
+    // source copy on the next frame; we pause() right after so the map goes
+    // back to idle (no continuous repaint).
+    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
+    if (!src) return
+    src.play()
+    map.triggerRepaint()
+    map.once('render', () => src.pause())
   }, [frame, bounds, sprite, spriteReady])
 
   return <div ref={containerRef} className="map" />
