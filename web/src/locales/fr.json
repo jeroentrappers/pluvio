@@ -4,6 +4,7 @@
   "refresh": "Actualiser",
   "locating": "Localisation…",
   "locate": "Me localiser",
+  "tapHint": "Touchez la carte pour un autre lieu",
   "locationError": "Impossible de déterminer votre position.",
   "locationDenied": "Localisation bloquée — la Belgique est affichée.",
   "radarError": "Impossible de récupérer les données radar.",
@@ -27,5 +28,6 @@
   },
   "language": "Langue",
   "install": "Installer l'app",
-  "updated": "Mis à jour {{time}}"
+  "updated": "Mis à jour {{time}}",
+  "horizon": "Horizon"
 }

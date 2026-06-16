@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { frameTime, leadLabel } from '../format'
 import type { RadarFrame } from '../api'
 
 interface Props {
@@ -9,9 +10,6 @@ interface Props {
   onPlayPause: () => void
   issuedAt: Date
 }
-
-const fmtClock = (d: Date) =>
-  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 // Video-scrubber-style transport: play/pause + a range slider over the frames.
 export default function TimelineSlider({
@@ -44,8 +42,8 @@ export default function TimelineSlider({
         aria-label="timeline"
       />
       <div className="timeline-label">
-        <span className="clock">{frame ? fmtClock(frame.validTime) : '--:--'}</span>
-        <span className="lead">{leadMin <= 0 ? t('now') : t('minutesShort', { minutes: leadMin })}</span>
+        <span className="clock">{frame ? frameTime(frame.validTime, leadMin) : '--:--'}</span>
+        <span className="lead">{leadMin <= 0 ? t('now') : leadLabel(leadMin)}</span>
       </div>
     </div>
   )

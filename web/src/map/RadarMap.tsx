@@ -31,13 +31,24 @@ interface Props {
   bounds: Bounds
   frame: RadarFrame | null
   frames: RadarFrame[] // for prefetch
+  // Called when the user picks a new location (map click or marker drag).
+  onPick?: (lat: number, lon: number) => void
+  // Bump to re-center the map on `center` (e.g. after "locate me"). A plain
+  // `center` change only moves the marker, so picking a spot doesn't yank the
+  // map out from under the user.
+  recenter?: number
 }
 
-export default function RadarMap({ center, bounds, frame, frames }: Props) {
+export default function RadarMap({ center, bounds, frame, frames, onPick, recenter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const readyRef = useRef(false)
+  // Latest callback / center, read by the once-registered map handlers.
+  const onPickRef = useRef(onPick)
+  onPickRef.current = onPick
+  const centerRef = useRef(center)
+  centerRef.current = center
 
   // Init the map once.
   useEffect(() => {
@@ -53,6 +64,10 @@ export default function RadarMap({ center, bounds, frame, frames }: Props) {
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
+
+    // Tap/click anywhere to query the forecast for that spot.
+    map.on('click', (e) => onPickRef.current?.(e.lngLat.lat, e.lngLat.lng))
+    map.getCanvas().style.cursor = 'crosshair'
 
     map.on('load', () => {
       readyRef.current = true
@@ -73,11 +88,26 @@ export default function RadarMap({ center, bounds, frame, frames }: Props) {
       })
     })
 
-    markerRef.current = new maplibregl.Marker({ color: '#3182bd' })
+    const marker = new maplibregl.Marker({ color: '#3182bd', draggable: true })
       .setLngLat([center.lon, center.lat])
       .addTo(map)
+    // Drag the pin to query a different spot.
+    marker.on('dragend', () => {
+      const ll = marker.getLngLat()
+      onPickRef.current?.(ll.lat, ll.lng)
+    })
+    markerRef.current = marker
+
+    // The container resizes after the map is created — the responsive layout
+    // reflows when data loads (the timeline + panel appear and the grid rows
+    // recompute). MapLibre's built-in trackResize doesn't reliably catch that,
+    // leaving the canvas stuck at its initial (smaller) size, so the basemap
+    // only paints a strip. Observe the container ourselves and resize.
+    const ro = new ResizeObserver(() => map.resize())
+    if (containerRef.current) ro.observe(containerRef.current)
 
     return () => {
+      ro.disconnect()
       map.remove()
       mapRef.current = null
       readyRef.current = false
@@ -85,13 +115,17 @@ export default function RadarMap({ center, bounds, frame, frames }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Recentre + move the marker when the located position changes.
+  // Move the pin to the queried location (no recenter — picking a spot
+  // shouldn't pan the map away from where the user tapped).
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    map.easeTo({ center: [center.lon, center.lat], duration: 600 })
     markerRef.current?.setLngLat([center.lon, center.lat])
   }, [center.lat, center.lon])
+
+  // Explicit recenter (e.g. "locate me" or first geolocation fix).
+  useEffect(() => {
+    if (recenter === undefined) return
+    mapRef.current?.easeTo({ center: [centerRef.current.lon, centerRef.current.lat], duration: 600 })
+  }, [recenter])
 
   // Swap the overlay image (and re-anchor) when the frame or bounds change.
   useEffect(() => {
@@ -101,12 +135,31 @@ export default function RadarMap({ center, bounds, frame, frames }: Props) {
     src?.updateImage({ url: frame.overlayUrl, coordinates: cornersOf(bounds) })
   }, [frame, bounds])
 
-  // Prefetch all overlay PNGs so scrubbing/playback doesn't flicker.
+  // Prefetch all overlay PNGs so scrubbing/playback is instant and hits no
+  // network. Two things matter for the cache to actually be reused:
+  //   • crossOrigin='anonymous' — overlays come from API_BASE, a different
+  //     origin, so MapLibre loads the image source as a CORS request. A bare
+  //     `new Image()` is a *no-cors* request; browsers key the HTTP cache on
+  //     request mode, so a no-cors prefetch can't satisfy MapLibre's CORS
+  //     fetch and every frame would refetch. Matching the mode fixes that.
+  //   • holding references in `prefetchRef` keeps the decoded images alive (so
+  //     they aren't GC'd mid-loop) and lets us cache until a new prediction
+  //     arrives, then drop the stale URLs.
+  const prefetchRef = useRef<Map<string, HTMLImageElement>>(new Map())
   useEffect(() => {
-    frames.forEach((f) => {
+    const cache = prefetchRef.current
+    const wanted = new Set(frames.map((f) => f.overlayUrl))
+    for (const f of frames) {
+      if (cache.has(f.overlayUrl)) continue
       const img = new Image()
+      img.crossOrigin = 'anonymous'
       img.src = f.overlayUrl
-    })
+      cache.set(f.overlayUrl, img)
+    }
+    // Drop overlays from a superseded prediction so the cache doesn't grow.
+    for (const url of cache.keys()) {
+      if (!wanted.has(url)) cache.delete(url)
+    }
   }, [frames])
 
   return <div ref={containerRef} className="map" />

@@ -4,6 +4,7 @@
   "refresh": "Aktualisieren",
   "locating": "Standort wird ermittelt…",
   "locate": "Mein Standort",
+  "tapHint": "Tippe auf die Karte für einen anderen Ort",
   "locationError": "Standort konnte nicht ermittelt werden.",
   "locationDenied": "Standort blockiert — Belgien wird angezeigt.",
   "radarError": "Radardaten konnten nicht geladen werden.",
@@ -27,5 +28,6 @@
   },
   "language": "Sprache",
   "install": "App installieren",
-  "updated": "Aktualisiert {{time}}"
+  "updated": "Aktualisiert {{time}}",
+  "horizon": "Zeitraum"
 }

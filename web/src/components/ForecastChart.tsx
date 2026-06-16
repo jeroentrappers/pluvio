@@ -1,17 +1,19 @@
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useTranslation } from 'react-i18next'
 import { PRECIP_COLOR } from '../domain/precip'
+import { leadLabel } from '../format'
 import type { RadarFrame } from '../api'
 
 interface Props {
   frames: RadarFrame[]
   index: number // currently-scrubbed frame, highlighted
   issuedAt: Date
+  onSelect?: (index: number) => void // click a bar → jump there (and pause)
 }
 
 // Bar chart of expected precipitation intensity (mm/h) across the forecast
 // horizon. Bars are coloured by WMO band; the scrubbed frame is highlighted.
-export default function ForecastChart({ frames, index, issuedAt }: Props) {
+export default function ForecastChart({ frames, index, issuedAt, onSelect }: Props) {
   const { t } = useTranslation()
   const data = frames.map((f, i) => ({
     i,
@@ -24,25 +26,36 @@ export default function ForecastChart({ frames, index, issuedAt }: Props) {
     <div className="chart">
       <div className="chart-title">{t('chartTitle')}</div>
       <ResponsiveContainer width="100%" height={140}>
-        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
+        <BarChart
+          data={data}
+          margin={{ top: 4, right: 8, bottom: 0, left: 4 }}
+          onClick={(s) => {
+            const i = s?.activeTooltipIndex
+            if (typeof i === 'number' && onSelect) onSelect(i)
+          }}
+          style={{ cursor: onSelect ? 'pointer' : 'default' }}
+        >
           <XAxis
             dataKey="lead"
-            tickFormatter={(v) => (v <= 0 ? t('now') : `+${v}`)}
+            tickFormatter={(v) => (v <= 0 ? t('now') : leadLabel(v))}
             tick={{ fill: '#9aa0a6', fontSize: 11 }}
             interval="preserveStartEnd"
             axisLine={false}
             tickLine={false}
           />
           <YAxis
+            // Enough width for the full label (e.g. "0.05") — a negative left
+            // margin / too-narrow axis clips it, so "0.05" reads as "5".
             tick={{ fill: '#9aa0a6', fontSize: 11 }}
             axisLine={false}
             tickLine={false}
-            width={36}
+            width={48}
+            tickFormatter={(v) => `${v}`}
           />
           <Tooltip
             cursor={{ fill: 'rgba(255,255,255,0.05)' }}
             contentStyle={{ background: '#1b1b1d', border: 'none', borderRadius: 8, fontSize: 12 }}
-            labelFormatter={(v) => (Number(v) <= 0 ? t('now') : t('minutesShort', { minutes: v }))}
+            labelFormatter={(v) => (Number(v) <= 0 ? t('now') : leadLabel(Number(v)))}
             formatter={(v) => [t('rate', { value: v }), '']}
           />
           <Bar dataKey="rate" radius={[3, 3, 0, 0]} isAnimationActive={false}>

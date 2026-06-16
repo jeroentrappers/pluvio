@@ -4,8 +4,14 @@
 
 export type PrecipLevel = 'none' | 'light' | 'moderate' | 'heavy' | 'violent'
 
+// Below this rate it's a trace — not perceptible rain, and within model noise.
+// Treating it as "none" stops the headline from crying "rain expected" (and the
+// chart from colouring bars) for a forecast that's effectively dry. 0.1 mm/h is
+// the conventional "measurable precipitation" threshold. Tune here if needed.
+export const RAIN_THRESHOLD_MM_H = 0.1
+
 export function levelFromMmPerHour(mmPerHour: number): PrecipLevel {
-  if (mmPerHour <= 0) return 'none'
+  if (mmPerHour < RAIN_THRESHOLD_MM_H) return 'none'
   if (mmPerHour < 2.5) return 'light'
   if (mmPerHour < 7.5) return 'moderate'
   if (mmPerHour < 50) return 'heavy'

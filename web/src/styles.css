@@ -100,7 +100,12 @@ body {
   flex: 1 1 auto;
   min-height: 0;
 }
-.map { position: absolute; inset: 0; }
+/* MapLibre adds `.maplibregl-map { position: relative }` to this same element.
+   A bare `.map { position: absolute }` has equal specificity but loses on
+   source order (maplibre-gl.css is bundled after this file), collapsing the
+   container to height 0 so the map never sizes. The descendant selector
+   outranks it, letting the map fill .map-wrap. */
+.map-wrap .map { position: absolute; inset: 0; }
 
 .overlay-msg {
   position: absolute;
@@ -110,6 +115,20 @@ body {
   color: var(--fg);
   background: rgba(12, 12, 12, 0.5);
   font-size: 14px;
+  pointer-events: none;
+}
+
+/* Discoverability hint that the map is tappable. */
+.map-hint {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(12, 12, 12, 0.6);
+  color: var(--muted);
+  font-size: 11px;
   pointer-events: none;
 }
 
@@ -147,6 +166,25 @@ body {
 .headline { font-size: 18px; font-weight: 600; margin: 4px 0 12px; line-height: 1.25; }
 
 .chart-title { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+
+/* Selected-bar readout: day + time-of-day and the expected rate. */
+.chart-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.chart-readout .rstamp { font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
+.chart-readout .rrate { font-size: 14px; font-weight: 600; color: var(--accent); }
+
+/* "Updated HH:MM" stamp under the headline. */
+.updated {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 .legend {
   display: flex;

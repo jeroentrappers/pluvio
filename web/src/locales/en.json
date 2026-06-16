@@ -4,6 +4,7 @@
   "refresh": "Refresh",
   "locating": "Locating…",
   "locate": "Locate me",
+  "tapHint": "Tap the map to check another location",
   "locationError": "Couldn't determine your location.",
   "locationDenied": "Location blocked — showing Belgium.",
   "radarError": "Couldn't fetch radar data.",
@@ -27,5 +28,6 @@
   },
   "language": "Language",
   "install": "Install app",
-  "updated": "Updated {{time}}"
+  "updated": "Updated {{time}}",
+  "horizon": "Horizon"
 }

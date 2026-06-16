@@ -4,6 +4,7 @@
   "refresh": "Vernieuwen",
   "locating": "Locatie bepalen…",
   "locate": "Mijn locatie",
+  "tapHint": "Tik op de kaart voor een andere locatie",
   "locationError": "Kon je locatie niet bepalen.",
   "locationDenied": "Locatie geblokkeerd — België wordt getoond.",
   "radarError": "Kon de radargegevens niet ophalen.",
@@ -27,5 +28,6 @@
   },
   "language": "Taal",
   "install": "App installeren",
-  "updated": "Bijgewerkt {{time}}"
+  "updated": "Bijgewerkt {{time}}",
+  "horizon": "Tijdspanne"
 }
