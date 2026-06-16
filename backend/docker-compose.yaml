@@ -46,9 +46,12 @@ services:
     environment:
       PLUVIO_CACHE_ROOT: /data/forecasts
       PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-unet-0.1}
-      # The hetz1 inference step (research/model/infer_latest.py) writes the
-      # model's nowcast field here every cycle; mounted read-only below.
-      # model_band reads it and falls back to the KMI stub if missing/stale.
+      # The hetz1 producers write forecast fields here every cycle (mounted
+      # read-only below); model_band serves them and falls back to the KMI stub
+      # if missing/stale. FORECAST_NPZ (full 0–240 h cube with source tags +
+      # confidence, written by the classical/model producer) is preferred;
+      # NOWCAST_NPZ is the legacy nowcast-only UNet artifact.
+      PLUVIO_MODEL_FORECAST_NPZ: /opt/pluvio/serve/model_forecast.npz
       PLUVIO_MODEL_NOWCAST_NPZ: /opt/pluvio/serve/model_nowcast.npz
     volumes:
       - cache:/data/forecasts

@@ -8,6 +8,7 @@ import RadarMap from './map/RadarMap'
 import TimelineSlider from './components/TimelineSlider'
 import ForecastChart from './components/ForecastChart'
 import PrecipitationLegend from './components/PrecipitationLegend'
+import SourceBadge from './components/SourceBadge'
 
 // One animation tick. ~13 nowcast frames span ~5s — fast enough to feel like
 // motion, slow enough that each step reads. Matches the Flutter app.
@@ -173,6 +174,12 @@ export default function App() {
                   {t('rate', { value: frames[index].rateMmPerH.toFixed(2) })}
                 </span>
               </div>
+            )}
+            {frames.length > 0 && frames[index] && (
+              <SourceBadge
+                source={frames[index].source}
+                confidence={frames[index].confidence}
+              />
             )}
             {frames.length > 0 && (
               <ForecastChart

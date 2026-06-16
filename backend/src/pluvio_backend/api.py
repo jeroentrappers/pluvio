@@ -27,6 +27,10 @@ class FrameDto(BaseModel):
     valid_time: datetime
     rate_mm_per_h: float
     overlay_url: str
+    # Provenance (rec #4): where this lead's number came from and how confident
+    # we are. Null when the band is stub-served (no cube provenance).
+    source: str | None = None
+    confidence: float | None = None
 
 
 class ForecastDto(BaseModel):
@@ -35,6 +39,9 @@ class ForecastDto(BaseModel):
     model_version: str
     horizon_min: int
     frames: list[FrameDto]
+    # Per-band {source, confidence, producer}, so the client can honestly label
+    # each horizon and widen its uncertainty band with lead.
+    provenance: dict[str, dict] | None = None
 
 
 class HealthDto(BaseModel):
@@ -121,18 +128,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="no point shard for the requested location yet",
             )
 
+        provenance = meta.get("provenance") or {}
         frames: list[FrameDto] = []
         for _, row in point_df.iterrows():
             if int(row["lead_min"]) > horizon_min:
                 continue
+            band = row["band"]
+            prov = provenance.get(band, {})
             valid = issued_at.replace(microsecond=0) + _minutes(int(row["lead_min"]))
             frames.append(
                 FrameDto(
-                    band=row["band"],
+                    band=band,
                     lead_min=int(row["lead_min"]),
                     valid_time=valid,
                     rate_mm_per_h=float(row["rate_mm_per_h"]),
-                    overlay_url=f"/v1/overlay/{row['band']}/{int(row['lead_min'])}.png?t={snap.name}",
+                    overlay_url=f"/v1/overlay/{band}/{int(row['lead_min'])}.png?t={snap.name}",
+                    source=prov.get("source"),
+                    confidence=prov.get("confidence"),
                 )
             )
 
@@ -142,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             model_version=meta.get("model_version", settings.model_version),
             horizon_min=horizon_min,
             frames=frames,
+            provenance=provenance or None,
         )
 
     @app.get("/v1/overlay/{band}/{lead_min}.png")

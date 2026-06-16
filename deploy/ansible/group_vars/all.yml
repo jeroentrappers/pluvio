@@ -24,6 +24,71 @@ pluvio_web_tiles_url: https://tiles.appmire.be
 # tiles_api_key is NOT here: this repo is public. It lives in the gitignored
 # deploy/ansible/secrets.yml (see secrets.yml.example).
 
+# OPERA radar truth collection (research data → Storage Box). The collector
+# windowed-crops the EUMETNET OPERA composite COGs onto our BeNeLux+context
+# domain (open, anonymous, CC-BY-4.0). RATE = instantaneous rain rate, ACRR =
+# 1-h accumulation; both carry a quality band.
+opera_app_dir: /opt/opera
+opera_data_dir: /mnt/storagebox/opera
+opera_products: "RATE,ACRR"
+opera_min_free_gb: 50          # stop collecting if the Storage Box drops below this
+# Matches the trainable window: KNMI radar history + operational nowcast + rtcor
+# truth (the channels the current correction model is paired to) only go back to
+# 2024-08-14. Earlier OPERA has no matching inputs, so collecting it is wasted.
+opera_backfill_start: "2024-08-14"
+
+# AIFS NWP context collection (ECMWF open data → Storage Box). Forward-only:
+# open-data keeps only the last few days. Deterministic single model; the
+# ensemble (aifs-ens) is heavy and left as an on-demand manual run.
+aifs_app_dir: /opt/aifs
+aifs_data_dir: /mnt/storagebox/aifs
+aifs_model: aifs-single
+aifs_param: tp
+aifs_max_step: 240
+aifs_step: 6
+
+# MTG Lightning Imager collection (EUMETSAT Data Store → Storage Box). Forward
+# only by default (LI L2 history is short). Creds in secrets.yml (gitignored).
+mtg_li_app_dir: /opt/mtg-li
+mtg_li_data_dir: /mnt/storagebox/mtg_li
+mtg_li_env_file: /opt/mtg-li/eumdac.env
+mtg_li_products: "AF"
+mtg_li_min_free_gb: 50
+
+# ERA5 reanalysis (public ARCO-ERA5 Zarr on GCS → Storage Box). The decades-deep
+# NWP field set used to PRETRAIN the seamless model's outlook/downscaling head
+# (AIFS open-data can't be backfilled — only ~4 days are kept — so ERA5 stands in
+# as the historical NWP proxy, paired with the long OPERA archive as truth).
+# Source is anonymous/public (gs://gcp-public-data-arco-era5), so NO credentials.
+# Detached multi-year backfill + monthly catch-up.
+era5_app_dir: /opt/era5
+era5_data_dir: /mnt/storagebox/era5
+era5_start: "2018-01"                 # first month of the backfill (YYYY-MM)
+era5_variables: "total_precipitation,convective_available_potential_energy,total_column_water_vapour,2m_temperature,mean_sea_level_pressure,10m_u_component_of_wind,10m_v_component_of_wind"
+era5_area: "58,-6,46,16"              # N,W,S,E — BeNeLux + synoptic context
+era5_min_free_gb: 50
+
+# MTG-FCI Level-2 gridded products (convective-precursor channels) via satpy.
+# Same EUMDAC creds. GII=instability+moisture, CTTH=cloud-top, OCA=cloud
+# microphysics, CT=cloud type/phase, OLR=outgoing longwave.
+mtg_l2_app_dir: /opt/mtg-l2
+mtg_l2_data_dir: /mnt/storagebox/mtg_l2
+mtg_l2_env_file: /opt/mtg-l2/eumdac.env
+mtg_l2_products: "GII,CTTH,OCA,CT,OLR"
+mtg_l2_min_free_gb: 50
+
+# Classical seamless-forecast producer (rec #4). Builds an image from the
+# research model code and schedules a timer that writes model_forecast.npz to the
+# serve dir the backend worker reads — so the product serves a source-tagged,
+# confidence-banded forecast (pysteps optical-flow nowcast ⊕ AIFS outlook) with
+# no dependence on the GPU-trained model. The learned model is a gated upgrade
+# (produce_forecast.py --producer model), not wired here.
+producer_app_dir: /opt/pluvio-producer
+producer_serve_dir: /opt/pluvio/serve        # mounted into the worker (compose)
+producer_storage_dir: /mnt/storagebox        # OPERA (+AIFS) input, read-only
+producer_interval_min: 10                     # refresh cadence (OPERA is 15-min)
+producer_max_age_min: 90                       # skip if the latest OPERA is staler
+
 # .env contents rendered onto the box (see roles/app/templates/env.j2).
 pluvio_env:
   PLUVIO_CACHE_ROOT: /data/forecasts

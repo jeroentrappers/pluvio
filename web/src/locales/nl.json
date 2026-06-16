@@ -29,5 +29,13 @@
   "language": "Taal",
   "install": "App installeren",
   "updated": "Bijgewerkt {{time}}",
-  "horizon": "Tijdspanne"
+  "horizon": "Tijdspanne",
+  "source": {
+    "nowcast": "Radar-nowcast",
+    "blend": "Radar + model",
+    "nwp": "Weermodel",
+    "confidence": "{{tier}} betrouwbaarheid · {{pct}}%",
+    "tier": { "high": "Hoge", "medium": "Gemiddelde", "low": "Lage" },
+    "explainer": "Waar deze voorspelling vandaan komt. Radar bepaalt de komende ~2 uur; een weermodel de dagen erna, met lagere betrouwbaarheid verder vooruit."
+  }
 }

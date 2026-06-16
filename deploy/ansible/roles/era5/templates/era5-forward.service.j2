@@ -1,0 +1,17 @@
+# Managed by Ansible. Monthly catch-up: re-runs the full-range pull, but the
+# collector skips months already on disk, so this only fetches the newly
+# published trailing month(s). ERA5 has ~5-day latency (ERA5T sooner), so the
+# timer fires well into the following month.
+[Unit]
+Description=Pluvio ERA5 reanalysis collection (monthly catch-up)
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm \
+  -v {{ era5_data_dir }}:/data \
+  era5-collector:latest \
+  --start {{ era5_start }} --end now \
+  --variables "{{ era5_variables }}" --area "{{ era5_area }}" \
+  --out /data --min-free-gb {{ era5_min_free_gb }}

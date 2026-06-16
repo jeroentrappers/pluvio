@@ -16,3 +16,21 @@
     - role: nginx    # reverse proxy + certbot TLS
       become: true
       tags: [nginx]
+    - role: opera    # OPERA radar collector: forward timer + archive backfill
+      become: true
+      tags: [opera, never]   # opt-in: run with --tags opera (not on plain backend deploys)
+    - role: aifs     # ECMWF AIFS NWP context collector: forward timer
+      become: true
+      tags: [aifs, never]    # opt-in: run with --tags aifs
+    - role: mtg_li   # MTG Lightning Imager collector: forward timer
+      become: true
+      tags: [mtg_li, never]  # opt-in: run with --tags mtg_li
+    - role: mtg_l2   # MTG-FCI L2 gridded products (GII/CTTH/OCA/CT/OLR): forward timer
+      become: true
+      tags: [mtg_l2, never]  # opt-in: run with --tags mtg_l2
+    - role: era5     # ERA5 reanalysis (CDS): detached multi-year backfill + monthly catch-up
+      become: true
+      tags: [era5, never]    # opt-in: run with --tags era5
+    - role: producer # classical seamless-forecast producer: image + 10-min timer → model_forecast.npz
+      become: true
+      tags: [producer, never]  # opt-in: run with --tags producer

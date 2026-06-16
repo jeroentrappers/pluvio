@@ -1,0 +1,11 @@
+# Managed by Ansible. LI accumulated products land every ~10 min; scan every
+# 15 min (the collector skips windows already on disk).
+[Unit]
+Description=Pluvio MTG-LI lightning forward collection (every 15 min)
+
+[Timer]
+OnCalendar=*:07/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

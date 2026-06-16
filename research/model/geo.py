@@ -16,16 +16,37 @@ the native 765×700, which shares the same projected extent).
 from __future__ import annotations
 
 import functools
+import os
 import pathlib
 import sys
 
 import numpy as np
 import pyproj
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "notebooks"))
-import _lib as kpi  # noqa: E402
+# The analysis grid default is 100×100 over the ~707×773 km KNMI radar domain —
+# i.e. an effective resolution of ~7–8 km/cell (see grid_resolution_km()), NOT
+# the "2 km" some design notes claimed. That is **coarser than a convective
+# cell** (1–5 km), which directly bounds the heavy-rain/convective claim
+# (docs/seamless_model_plan.md §1). To train/serve at a finer resolution, set
+#     PLUVIO_GRID_N=256     # → ~2.8 km/cell
+# and rebuild the zarr; everything reprojects from the same projected extent, so
+# the only cost is compute + storage (and checkpoints are resolution-specific).
+#
+# Resolution order of preference: env override → notebooks canonical → literal.
+def _default_grid() -> tuple[int, int]:
+    n = os.environ.get("PLUVIO_GRID_N")
+    if n:
+        return (int(n), int(n))
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "notebooks"))
+        import _lib as kpi  # noqa: E402
 
-GRID = kpi.ANALYSIS_GRID  # (100, 100)
+        return tuple(kpi.ANALYSIS_GRID)  # (100, 100)
+    except Exception:
+        return (100, 100)
+
+
+GRID = _default_grid()
 
 # KNMI radar stereographic projection (from the HDF5 map_projection group).
 # The HDF5 gives the ellipsoid radii in km (a=6378.14, b=6356.75); pyproj
@@ -75,3 +96,39 @@ def bbox() -> tuple[float, float, float, float]:
     """(west, south, east, north) lon/lat envelope of the grid, for WMS GetMap."""
     lat, lon = grid_latlon()
     return float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())
+
+
+@functools.lru_cache(maxsize=1)
+def analysis_grid_dst():
+    """Destination for reprojecting any source onto the analysis grid: returns
+    (proj4, affine_transform, (h, w)) in the KNMI stereographic CRS. Use with
+    rasterio.warp.reproject — handles arbitrary source CRS (OPERA LAEA, AIFS
+    lat/lon, MTG EPSG:4326) onto our regular projected grid."""
+    from rasterio.transform import from_origin
+
+    h, w = GRID
+    to_xy = pyproj.Transformer.from_crs("EPSG:4326", _PROJ4, always_xy=True)
+    xs, ys = [], []
+    for lon, lat in _CORNERS_LONLAT:
+        x, y = to_xy.transform(lon, lat)
+        xs.append(x)
+        ys.append(y)
+    xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+    px = (xmax - xmin) / (w - 1)
+    py = (ymax - ymin) / (h - 1)
+    transform = from_origin(xmin - px / 2, ymax + py / 2, px, py)  # north-up
+    return _PROJ4, transform, (h, w)
+
+
+@functools.lru_cache(maxsize=1)
+def grid_resolution_km() -> tuple[float, float]:
+    """Effective cell size (dy_km, dx_km) of the current analysis grid.
+
+    The stereographic extent is fixed by the radar domain corners, so the
+    resolution is purely a function of ``GRID``. Use this to gate convective
+    claims honestly: at the 100×100 default this returns ~(7.7, 7.1) km — much
+    coarser than a convective cell, so heavy-rain structure below the cell scale
+    is averaged away and should not be claimed at face value.
+    """
+    _, transform, (h, w) = analysis_grid_dst()
+    return (abs(transform.e) / 1000.0, abs(transform.a) / 1000.0)

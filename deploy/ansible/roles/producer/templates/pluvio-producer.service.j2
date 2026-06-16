@@ -1,0 +1,21 @@
+# Managed by Ansible. One-shot classical seamless-forecast production: reads the
+# latest OPERA RATE analyses (+ AIFS when present) off the Storage Box and writes
+# {{ producer_serve_dir }}/model_forecast.npz (per-lead rates + source +
+# confidence). Fired every {{ producer_interval_min }} min by pluvio-producer.timer.
+[Unit]
+Description=Pluvio classical seamless-forecast producer
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Storage Box mounted read-only (input); serve dir read-write (output, shared
+# with the backend worker which reads it).
+ExecStart=/usr/bin/docker run --rm \
+  -v {{ producer_storage_dir }}:{{ producer_storage_dir }}:ro \
+  -v {{ producer_serve_dir }}:{{ producer_serve_dir }} \
+  pluvio-producer:latest \
+  --producer classical \
+  --storage {{ producer_storage_dir }} \
+  --out {{ producer_serve_dir }}/model_forecast.npz \
+  --max-age-min {{ producer_max_age_min }}

@@ -1,0 +1,12 @@
+# Managed by Ansible. Pulls the latest ECMWF AIFS deterministic run (tp to
+# +{{ aifs_max_step }}h) to the Storage Box. Fired every 6 h by the timer.
+[Unit]
+Description=Pluvio AIFS NWP forward collection
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v {{ aifs_data_dir }}:/data aifs-collector:latest \
+  --model {{ aifs_model }} --param {{ aifs_param }} \
+  --max-step {{ aifs_max_step }} --step {{ aifs_step }} --out /data

@@ -24,7 +24,7 @@ import numpy as np
 from . import schedules
 from .cache import ForecastCache, GridSpec
 from .config import get_settings
-from .model import model_band
+from .model import band_provenance, model_band
 from .stubs import stub_band  # noqa: F401  (kept; model_band falls back to it)
 
 LOG = logging.getLogger("pluvio.worker")
@@ -52,7 +52,6 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
 
     cache.write_band(snap, band_name, rates)
     cache.write_overlays(snap, band_name, rates)
-    cache.write_grid_metadata(snap, model_version=settings.model_version)
 
     # Fold the freshest data for *every* band into this snapshot's point index:
     # the band we just wrote, plus the most recent prior snapshot for the others
@@ -66,6 +65,15 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
         if arr is not None:
             all_bands[b.name] = arr
     cache.write_point_shards(snap, all_bands)
+
+    # Fold per-band provenance (source tag + confidence, from the forecast cube)
+    # into grid.json so the product can honestly label each horizon and widen
+    # its uncertainty band with lead. None when a band is stub-served.
+    provenance = {b: p for b in all_bands if (p := band_provenance(b)) is not None}
+    cache.write_grid_metadata(
+        snap, model_version=settings.model_version,
+        extras={"provenance": provenance} if provenance else None,
+    )
     cache.mark_complete(snap, summary={"refreshed_band": band_name, "bands": sorted(all_bands)})
 
     # Only publish once the snapshot carries the nowcast band — the only

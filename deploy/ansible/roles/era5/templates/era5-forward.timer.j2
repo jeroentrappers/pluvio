@@ -1,0 +1,11 @@
+# Managed by Ansible. Fire on the 8th of each month, after ERA5's ~5-day
+# publication latency, to pull the previous month once it's final.
+[Unit]
+Description=Pluvio ERA5 reanalysis monthly catch-up
+
+[Timer]
+OnCalendar=*-*-08 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

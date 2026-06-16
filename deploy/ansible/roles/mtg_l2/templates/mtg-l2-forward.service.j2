@@ -1,0 +1,14 @@
+# Managed by Ansible. Pulls recent MTG-FCI L2 gridded products (GII, CTTH, OCA,
+# CT, OLR), resamples to the BeNeLux+context domain → Storage Box. oneshot, so
+# the timer won't double-fire while a run is in progress.
+[Unit]
+Description=Pluvio MTG-FCI L2 forward collection
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm --env-file {{ mtg_l2_env_file }} \
+  -v {{ mtg_l2_data_dir }}:/data mtg-l2-collector:latest \
+  --mode forward --products {{ mtg_l2_products }} --forward-hours 1 \
+  --out /data --min-free-gb {{ mtg_l2_min_free_gb }}

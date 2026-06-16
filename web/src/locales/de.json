@@ -29,5 +29,13 @@
   "language": "Sprache",
   "install": "App installieren",
   "updated": "Aktualisiert {{time}}",
-  "horizon": "Zeitraum"
+  "horizon": "Zeitraum",
+  "source": {
+    "nowcast": "Radar-Nowcast",
+    "blend": "Radar + Modell",
+    "nwp": "Wettermodell",
+    "confidence": "{{tier}} Zuverlässigkeit · {{pct}} %",
+    "tier": { "high": "Hohe", "medium": "Mittlere", "low": "Niedrige" },
+    "explainer": "Woher diese Vorhersage stammt. Radar deckt die nächsten ~2 Stunden ab; ein Wettermodell die folgenden Tage, mit geringerer Zuverlässigkeit in der Ferne."
+  }
 }

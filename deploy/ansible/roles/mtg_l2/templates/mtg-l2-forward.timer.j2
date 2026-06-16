@@ -1,0 +1,11 @@
+# Managed by Ansible. FCI L2 products land every ~10 min; scan every 15 min
+# (the collector skips windows already done via per-product .done markers).
+[Unit]
+Description=Pluvio MTG-FCI L2 forward collection (every 15 min)
+
+[Timer]
+OnCalendar=*:11/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

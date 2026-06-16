@@ -1,0 +1,64 @@
+# Deploy the generic MTG-FCI L2 collector to hetz1: satpy image + a 15-min
+# forward timer collecting GII/CTTH/OCA/CT/OLR → Storage Box. Runs as root.
+---
+- name: Ensure app + data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ mtg_l2_app_dir }}"
+    - "{{ mtg_l2_data_dir }}"
+
+- name: Copy collector script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/fetch_mtg_l2.py"
+    dest: "{{ mtg_l2_app_dir }}/fetch_mtg_l2.py"
+    mode: "0644"
+  register: l2_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/mtg_l2/Dockerfile"
+    dest: "{{ mtg_l2_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: l2_dockerfile
+
+- name: Build collector image
+  when: l2_src.changed or l2_dockerfile.changed or mtg_l2_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ mtg_l2_app_dir }}"
+    cmd: docker build -t mtg-l2-collector:latest .
+  changed_when: true
+
+- name: Render EUMDAC credentials env-file (root, 0600)
+  ansible.builtin.template:
+    src: mtg-l2.env.j2
+    dest: "{{ mtg_l2_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install forward service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - mtg-l2-forward.service
+    - mtg-l2-forward.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the forward timer
+  ansible.builtin.systemd:
+    name: mtg-l2-forward.timer
+    enabled: true
+    state: started
+
+- name: Kick one collection now
+  ansible.builtin.systemd:
+    name: mtg-l2-forward.service
+    state: started

@@ -1,0 +1,11 @@
+# Managed by Ansible. OPERA composites publish every 15 min; we scan a few
+# minutes after each slot. Persistent catches up missed runs after downtime.
+[Unit]
+Description=Pluvio OPERA radar forward collection (every 15 min)
+
+[Timer]
+OnCalendar=*:03/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

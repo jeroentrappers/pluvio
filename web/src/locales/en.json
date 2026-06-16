@@ -29,5 +29,13 @@
   "language": "Language",
   "install": "Install app",
   "updated": "Updated {{time}}",
-  "horizon": "Horizon"
+  "horizon": "Horizon",
+  "source": {
+    "nowcast": "Radar nowcast",
+    "blend": "Radar + model",
+    "nwp": "Weather model",
+    "confidence": "{{tier}} confidence · {{pct}}%",
+    "tier": { "high": "High", "medium": "Medium", "low": "Low" },
+    "explainer": "Where this forecast comes from. Radar drives the next ~2 hours; a weather model drives the days ahead, with lower confidence further out."
+  }
 }

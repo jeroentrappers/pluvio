@@ -6,6 +6,16 @@ export interface FrameDto {
   valid_time: string // ISO-8601 UTC
   rate_mm_per_h: number
   overlay_url: string // relative to API_BASE, e.g. /v1/overlay/nowcast/10.png?t=…
+  // Provenance: which method produced this lead and how confident we are.
+  // Null when the band is stub-served (no forecast-cube provenance).
+  source?: string | null // "nowcast" | "blend" | "nwp"
+  confidence?: number | null // 0–1, widening (decreasing) with lead
+}
+
+export interface BandProvenance {
+  source: string
+  confidence: number
+  producer: string // "classical" | "model" | …
 }
 
 export interface ForecastDto {
@@ -14,6 +24,7 @@ export interface ForecastDto {
   model_version: string
   horizon_min: number
   frames: FrameDto[]
+  provenance?: Record<string, BandProvenance> | null // per-band
 }
 
 export interface Bounds {

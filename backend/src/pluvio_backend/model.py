@@ -1,14 +1,26 @@
-"""Serve the trained UNet's nowcast.
+"""Serve the precomputed forecast cube — classical baseline or learned model.
 
-The hetz1 inference step (research/model/infer_latest.py) runs the model on the
-latest data every ~15 min and writes `model_nowcast.npz` — corrected rain fields
-at leads [0, 30, 60, 90, 120] already reprojected onto our Belgium grid. Here we
-read it, interpolate to the nowcast band's 10-min steps, and serve it. If the
-file is missing or stale we fall back to the KMI stub so the API never goes dark.
+A hetz1 producer (research/model/produce_forecast.py) runs on a schedule and
+writes `model_forecast.npz` — a seamless 0–240 h cube already reprojected onto
+the Belgium grid, with per-lead **source** tags and **confidence**. This module
+reads it and serves **every** band (nowcast → long) from it, interpolating the
+cube to each band's lead steps.
 
-Same signature as `stubs.stub_band` (a `BandInference`), so it drops into
-`inference_worker.run_tick`. Only the nowcast band is model-backed; the longer
-bands stay on the stub (the model only covers 0–120 min).
+Crucially, the served artifact is producer-agnostic (recommendation #4): it is
+the *classical* pysteps⊕AIFS baseline by default, and the learned `SeamlessNet`
+only once it has been promoted through the champion/challenger gate. The backend
+neither knows nor cares which produced the file — it just serves it and surfaces
+the `source`/`confidence` provenance so the product is honest about where each
+lead's number came from.
+
+Fallback chain (the API never goes dark):
+    model_forecast.npz  (full horizon, any band)
+      → model_nowcast.npz  (legacy nowcast-only UNet, nowcast band)
+        → KMI stub  (any band)
+
+`model_band` keeps the `BandInference` signature so it drops into
+`inference_worker.run_tick`; `band_provenance` exposes the source/confidence for
+the worker to fold into the snapshot's grid.json.
 """
 
 from __future__ import annotations
@@ -27,6 +39,11 @@ from .stubs import stub_band
 
 LOG = logging.getLogger("pluvio.model")
 
+# Full-horizon cube (classical baseline or promoted model) — preferred.
+FORECAST_NPZ_PATH = pathlib.Path(
+    os.environ.get("PLUVIO_MODEL_FORECAST_NPZ", "/opt/pluvio/serve/model_forecast.npz")
+)
+# Legacy nowcast-only artifact (the original UNet) — back-compat fallback.
 NPZ_PATH = pathlib.Path(
     os.environ.get("PLUVIO_MODEL_NOWCAST_NPZ", "/opt/pluvio/serve/model_nowcast.npz")
 )
@@ -47,42 +64,93 @@ def _interp_lead(src: np.ndarray, src_leads: list[int], lead: int) -> np.ndarray
     return src[-1]
 
 
+def _load_fresh(path: pathlib.Path):
+    """Load an npz if it exists and is fresh; else None. Never raises."""
+    if not path.exists():
+        return None
+    try:
+        d = np.load(path, allow_pickle=False)
+    except Exception as exc:
+        LOG.warning("forecast field %s unreadable (%s)", path, exc)
+        return None
+    issued_at = datetime.fromtimestamp(int(d["issue_epoch"]), tz=UTC)
+    age = (datetime.now(UTC) - issued_at).total_seconds()
+    if age > MAX_AGE_S:
+        LOG.warning("forecast field %s stale (%.0f s > %d)", path, age, MAX_AGE_S)
+        return None
+    return d, issued_at
+
+
+def _band_from_cube(d, issued_at, band_name: schedules.BandName):
+    """Interpolate the full cube onto one band's lead steps."""
+    src_leads = [int(x) for x in d["leads"]]
+    src = d["rates"].astype("float32")
+    band = schedules.band(band_name)
+    out = np.stack([_interp_lead(src, src_leads, L) for L in band.leads_min]).astype("float32")
+    return out, issued_at
+
+
 def model_band(
     client: httpx.Client,
     base_url: str,
     grid: GridSpec,
     band_name: schedules.BandName,
 ) -> tuple[np.ndarray, datetime]:
-    # Model only covers the nowcast band; everything else stays on the stub.
-    if band_name != "nowcast":
-        return stub_band(client, base_url, grid, band_name)
+    # 1) full-horizon cube serves every band.
+    loaded = _load_fresh(FORECAST_NPZ_PATH)
+    if loaded is not None:
+        d, issued_at = loaded
+        out, _ = _band_from_cube(d, issued_at, band_name)
+        LOG.info("forecast(%s) served from cube: producer=%s issued=%s max=%.2f mm/h",
+                 band_name, str(d["producer"]) if "producer" in d else "?",
+                 issued_at.isoformat(), float(out.max()))
+        return out, issued_at
 
-    if not NPZ_PATH.exists():
-        LOG.warning("model field %s missing — falling back to stub", NPZ_PATH)
-        return stub_band(client, base_url, grid, band_name)
+    # 2) legacy nowcast-only artifact covers just the nowcast band.
+    if band_name == "nowcast":
+        loaded = _load_fresh(NPZ_PATH)
+        if loaded is not None:
+            d, issued_at = loaded
+            out, _ = _band_from_cube(d, issued_at, band_name)
+            LOG.info("nowcast served from legacy npz: issued=%s max=%.2f mm/h",
+                     issued_at.isoformat(), float(out.max()))
+            return out, issued_at
 
-    # Any read/parse failure (permissions, half-written, corrupt) must not take
-    # down the nowcast band — degrade to the stub instead.
-    try:
-        d = np.load(NPZ_PATH)
-    except Exception as exc:
-        LOG.warning("model field %s unreadable (%s) — falling back to stub", NPZ_PATH, exc)
-        return stub_band(client, base_url, grid, band_name)
-    issued_at = datetime.fromtimestamp(int(d["issue_epoch"]), tz=UTC)
-    age = (datetime.now(UTC) - issued_at).total_seconds()
-    if age > MAX_AGE_S:
-        LOG.warning("model field stale (%.0f s > %d) — falling back to stub", age, MAX_AGE_S)
-        return stub_band(client, base_url, grid, band_name)
+    # 3) stub keeps the API alive.
+    LOG.warning("no fresh forecast artifact for band=%s — falling back to stub", band_name)
+    return stub_band(client, base_url, grid, band_name)
 
-    src_leads = [int(x) for x in d["leads"]]  # [0, 30, 60, 90, 120]
-    src = d["rates"].astype("float32")  # (5, H, W) already on the Belgium grid
-    band = schedules.band("nowcast")
-    dst_leads = list(band.leads_min)  # [0, 10, …, 120]
-    out = np.stack([_interp_lead(src, src_leads, L) for L in dst_leads]).astype("float32")
-    LOG.info(
-        "model nowcast served: issued=%s leads=%d max=%.2f mm/h",
-        issued_at.isoformat(),
-        len(dst_leads),
-        float(out.max()),
-    )
-    return out, issued_at
+
+def band_provenance(band_name: schedules.BandName) -> dict | None:
+    """Source/confidence provenance for a band, read from the forecast cube.
+
+    Returned to the worker for grid.json so the product can honestly label each
+    horizon ("radar nowcast" vs "NWP outlook") and widen its uncertainty band.
+    Reports the source at the band's representative (mid) lead and the mean
+    confidence across the band. None if the cube is absent/stale (stub serving).
+    """
+    loaded = _load_fresh(FORECAST_NPZ_PATH)
+    if loaded is None:
+        return None
+    d, _ = loaded
+    if "source" not in d or "confidence" not in d:
+        return None
+    src_leads = np.asarray([int(x) for x in d["leads"]])
+    sources = [str(s) for s in d["source"]]
+    conf = np.asarray(d["confidence"], dtype="float32")
+    band = schedules.band(band_name)
+    lo, hi = band.lead_min_start, band.lead_min_end
+    in_band = (src_leads >= lo) & (src_leads < hi)
+    if not in_band.any():
+        # nearest lead to the band centre
+        mid = (lo + hi) // 2
+        j = int(np.argmin(np.abs(src_leads - mid)))
+        return {"source": sources[j], "confidence": float(conf[j]),
+                "producer": str(d["producer"]) if "producer" in d else "unknown"}
+    mid_lead = (lo + min(hi, int(src_leads.max()) + 1)) // 2
+    j = int(np.argmin(np.abs(src_leads - mid_lead)))
+    return {
+        "source": sources[j],
+        "confidence": float(conf[in_band].mean()),
+        "producer": str(d["producer"]) if "producer" in d else "unknown",
+    }

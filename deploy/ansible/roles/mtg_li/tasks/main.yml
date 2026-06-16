@@ -1,0 +1,66 @@
+# Deploy the MTG-LI lightning collector to hetz1: build the image, render the
+# EUMDAC credentials env-file (0600), and a 15-min forward timer → Storage Box.
+# Forward-only by default (LI L2 history is short); backfill can be launched
+# manually once LI availability is confirmed. Runs as root (become).
+---
+- name: Ensure app + data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ mtg_li_app_dir }}"
+    - "{{ mtg_li_data_dir }}"
+
+- name: Copy collector script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/fetch_mtg_lightning.py"
+    dest: "{{ mtg_li_app_dir }}/fetch_mtg_lightning.py"
+    mode: "0644"
+  register: mtg_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/mtg_li/Dockerfile"
+    dest: "{{ mtg_li_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: mtg_dockerfile
+
+- name: Build collector image
+  when: mtg_src.changed or mtg_dockerfile.changed or mtg_li_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ mtg_li_app_dir }}"
+    cmd: docker build -t mtg-li-collector:latest .
+  changed_when: true
+
+- name: Render EUMDAC credentials env-file (root, 0600)
+  ansible.builtin.template:
+    src: mtg-li.env.j2
+    dest: "{{ mtg_li_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install forward service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - mtg-li-forward.service
+    - mtg-li-forward.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the forward timer
+  ansible.builtin.systemd:
+    name: mtg-li-forward.timer
+    enabled: true
+    state: started
+
+- name: Kick one collection now
+  ansible.builtin.systemd:
+    name: mtg-li-forward.service
+    state: started

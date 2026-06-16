@@ -1,0 +1,11 @@
+# Managed by Ansible. AIFS runs 00/06/12/18z and publishes a few hours later;
+# we pull a few hours after each so client.latest() catches the fresh run.
+[Unit]
+Description=Pluvio AIFS NWP forward collection (4×/day)
+
+[Timer]
+OnCalendar=*-*-* 03,09,15,21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

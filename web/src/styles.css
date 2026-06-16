@@ -178,6 +178,36 @@ body {
 .chart-readout .rstamp { font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
 .chart-readout .rrate { font-size: 14px; font-weight: 600; color: var(--accent); }
 
+/* Provenance badge: source of the scrubbed lead + a confidence bar that
+   widens with lead. Sits between the readout and the chart. */
+.provenance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.prov-source { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.prov-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.prov-nowcast { background: #3182bd; }   /* radar */
+.prov-blend { background: #6f9bd1; }      /* radar + model */
+.prov-nwp { background: #9a86c4; }        /* weather model */
+.prov-conf { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.prov-bar {
+  width: 48px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.prov-bar-fill { display: block; height: 100%; border-radius: 3px; background: currentColor; }
+.prov-conf-label { font-variant-numeric: tabular-nums; }
+.prov-conf-high { color: #4cae74; }
+.prov-conf-medium { color: #d9a441; }
+.prov-conf-low { color: #cf6b5c; }
+
 /* "Updated HH:MM" stamp under the headline. */
 .updated {
   font-size: 12px;

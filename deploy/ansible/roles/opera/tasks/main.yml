@@ -1,0 +1,79 @@
+# Deploy the OPERA radar collector to hetz1: build a small image, schedule a
+# 15-min forward timer, and kick off a detached, resumable archive backfill.
+# Data lands on the Storage Box (/mnt/storagebox). Runs as root (become) — the
+# CIFS mount is root-owned and the container writes as root.
+---
+- name: Ensure app + data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ opera_app_dir }}"
+    - "{{ opera_data_dir }}"
+
+- name: Copy collector script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/fetch_opera_radar.py"
+    dest: "{{ opera_app_dir }}/fetch_opera_radar.py"
+    mode: "0644"
+  register: opera_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/opera/Dockerfile"
+    dest: "{{ opera_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: opera_dockerfile
+
+- name: Build collector image
+  when: opera_src.changed or opera_dockerfile.changed or opera_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ opera_app_dir }}"
+    cmd: docker build -t opera-collector:latest .
+  register: opera_build
+  changed_when: true
+
+- name: Install forward service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - opera-forward.service
+    - opera-forward.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the forward timer
+  ansible.builtin.systemd:
+    name: opera-forward.timer
+    enabled: true
+    state: started
+
+# Detached, resumable archive backfill (2012 → now). The collector skips files
+# already present, so a re-launch resumes; the marker stops us re-launching on
+# every deploy. To force a fresh backfill, delete the marker on the box.
+- name: Has the archive backfill been launched?
+  ansible.builtin.stat:
+    path: "{{ opera_data_dir }}/.backfill_launched"
+  register: backfill_marker
+
+- name: Launch archive backfill (detached systemd-run)
+  when: not backfill_marker.stat.exists
+  ansible.builtin.command:
+    cmd: >-
+      systemd-run --unit=opera-backfill --collect
+      /usr/bin/docker run --rm -v {{ opera_data_dir }}:/data opera-collector:latest
+      --mode backfill --bucket archive --start {{ opera_backfill_start }}
+      --products {{ opera_products }} --out /data --min-free-gb {{ opera_min_free_gb }}
+  changed_when: true
+
+- name: Mark backfill launched
+  when: not backfill_marker.stat.exists
+  ansible.builtin.file:
+    path: "{{ opera_data_dir }}/.backfill_launched"
+    state: touch
+    mode: "0644"

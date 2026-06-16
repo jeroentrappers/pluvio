@@ -1,0 +1,13 @@
+# Managed by Ansible. OPERA composites publish every 15 min; we re-run the
+# classical forecast every {{ producer_interval_min }} min (a few min after the
+# OPERA forward timer's :03/15 slots so the latest frame has landed). Persistent
+# catches up a missed run after downtime.
+[Unit]
+Description=Pluvio classical forecast producer (every {{ producer_interval_min }} min)
+
+[Timer]
+OnCalendar=*:06/{{ producer_interval_min }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -29,5 +29,13 @@
   "language": "Langue",
   "install": "Installer l'app",
   "updated": "Mis à jour {{time}}",
-  "horizon": "Horizon"
+  "horizon": "Horizon",
+  "source": {
+    "nowcast": "Prévision radar",
+    "blend": "Radar + modèle",
+    "nwp": "Modèle météo",
+    "confidence": "Confiance {{tier}} · {{pct}} %",
+    "tier": { "high": "élevée", "medium": "moyenne", "low": "faible" },
+    "explainer": "D'où vient cette prévision. Le radar couvre les ~2 prochaines heures ; un modèle météo couvre les jours suivants, avec une confiance plus faible à long terme."
+  }
 }

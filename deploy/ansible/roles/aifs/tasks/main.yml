@@ -1,0 +1,57 @@
+# Deploy the AIFS NWP collector to hetz1: build the image + a 6-hourly forward
+# timer. Forward-only — ECMWF open-data keeps just the last few days, so there's
+# no archive to backfill. Data → Storage Box. Runs as root (become).
+---
+- name: Ensure app + data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ aifs_app_dir }}"
+    - "{{ aifs_data_dir }}"
+
+- name: Copy collector script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/fetch_aifs_opendata.py"
+    dest: "{{ aifs_app_dir }}/fetch_aifs_opendata.py"
+    mode: "0644"
+  register: aifs_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/aifs/Dockerfile"
+    dest: "{{ aifs_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: aifs_dockerfile
+
+- name: Build collector image
+  when: aifs_src.changed or aifs_dockerfile.changed or aifs_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ aifs_app_dir }}"
+    cmd: docker build -t aifs-collector:latest .
+  changed_when: true
+
+- name: Install forward service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - aifs-forward.service
+    - aifs-forward.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the forward timer
+  ansible.builtin.systemd:
+    name: aifs-forward.timer
+    enabled: true
+    state: started
+
+- name: Kick one collection now (so we don't wait for the first timer fire)
+  ansible.builtin.systemd:
+    name: aifs-forward.service
+    state: started

@@ -1,0 +1,12 @@
+# Managed by Ansible. One-shot OPERA forward collection (latest composites from
+# the 24-h rolling-cache bucket). Fired every 15 min by opera-forward.timer.
+[Unit]
+Description=Pluvio OPERA radar forward collection
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v {{ opera_data_dir }}:/data opera-collector:latest \
+  --mode forward --bucket 24h --products {{ opera_products }} \
+  --out /data --min-free-gb {{ opera_min_free_gb }} --forward-days 1

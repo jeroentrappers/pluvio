@@ -1,0 +1,79 @@
+# Classical seamless-forecast producer (rec #4). Builds a small image from the
+# research model code and schedules a timer that writes
+# /opt/pluvio/serve/model_forecast.npz from the latest OPERA (+ AIFS) data. The
+# backend worker already mounts /opt/pluvio/serve and serves the cube (with
+# per-lead source tags + confidence). Runs as root (become) — the Storage Box
+# CIFS mount is root-owned and the serve dir is shared with the root-run worker.
+---
+- name: Ensure producer app dir, serve dir, and tools subdir
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ producer_app_dir }}"
+    - "{{ producer_serve_dir }}"
+    - "{{ producer_app_dir }}/tools"
+
+- name: Copy model package (classical path needs classical/geo/nwp_regrid)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/model"
+    dest: "{{ producer_app_dir }}/"
+    mode: "0644"
+    directory_mode: "0755"
+  register: producer_model_src
+
+# Only the tools files the classical path imports
+# (tools.build_seamless_zarr._index_tiffs); skip the rest of tools/.
+- name: Copy tools files (build_seamless_zarr + package marker)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/tools/{{ item }}"
+    dest: "{{ producer_app_dir }}/tools/{{ item }}"
+    mode: "0644"
+  loop:
+    - __init__.py
+    - build_seamless_zarr.py
+  register: producer_tools_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/model/producer/Dockerfile"
+    dest: "{{ producer_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: producer_dockerfile
+
+- name: Build producer image
+  when: >-
+    producer_model_src.changed or producer_tools_src.changed
+    or producer_dockerfile.changed or producer_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ producer_app_dir }}"
+    cmd: docker build -t pluvio-producer:latest .
+  changed_when: true
+
+- name: Install producer service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - pluvio-producer.service
+    - pluvio-producer.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the producer timer
+  ansible.builtin.systemd:
+    name: pluvio-producer.timer
+    enabled: true
+    state: started
+
+# Kick one run immediately so the artefact appears without waiting for the first
+# timer slot. Best-effort: it (correctly) fails if no fresh OPERA data is on the
+# box yet — the timer retries every slot, so this never blocks the deploy.
+- name: Kick one production run now (best-effort)
+  ansible.builtin.command:
+    cmd: systemctl start --no-block pluvio-producer.service
+  changed_when: true

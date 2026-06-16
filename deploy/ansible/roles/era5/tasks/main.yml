@@ -1,0 +1,82 @@
+# Deploy the ERA5 reanalysis collector to hetz1: build the image, schedule a
+# monthly catch-up timer, and kick a detached, resumable multi-year backfill from
+# the public ARCO-ERA5 Zarr (anonymous GCS — no credentials). Data → Storage
+# Box. Runs as root (become) — the CIFS mount is root-owned and the container
+# writes as root.
+---
+- name: Ensure app + data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ era5_app_dir }}"
+    - "{{ era5_data_dir }}"
+
+- name: Copy collector script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/fetch_era5.py"
+    dest: "{{ era5_app_dir }}/fetch_era5.py"
+    mode: "0644"
+  register: era5_src
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/era5/Dockerfile"
+    dest: "{{ era5_app_dir }}/Dockerfile"
+    mode: "0644"
+  register: era5_dockerfile
+
+- name: Build collector image
+  when: era5_src.changed or era5_dockerfile.changed or era5_force_build | default(false)
+  ansible.builtin.command:
+    chdir: "{{ era5_app_dir }}"
+    cmd: docker build -t era5-collector:latest .
+  changed_when: true
+
+- name: Install forward (monthly catch-up) service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - era5-forward.service
+    - era5-forward.timer
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start the monthly timer
+  ansible.builtin.systemd:
+    name: era5-forward.timer
+    enabled: true
+    state: started
+
+# Detached, resumable backfill (era5_start → now). The collector skips months
+# already on disk, so a re-launch resumes; the marker stops us re-launching on
+# every deploy. To force a fresh backfill, delete the marker on the box.
+- name: Has the backfill been launched?
+  ansible.builtin.stat:
+    path: "{{ era5_data_dir }}/.backfill_launched"
+  register: era5_backfill_marker
+
+- name: Launch ERA5 backfill (detached systemd-run)
+  when: not era5_backfill_marker.stat.exists
+  ansible.builtin.command:
+    cmd: >-
+      systemd-run --unit=era5-backfill --collect
+      /usr/bin/docker run --rm
+      -v {{ era5_data_dir }}:/data
+      era5-collector:latest
+      --start {{ era5_start }} --end now
+      --variables "{{ era5_variables }}" --area "{{ era5_area }}"
+      --out /data --min-free-gb {{ era5_min_free_gb }}
+  changed_when: true
+
+- name: Mark backfill launched
+  when: not era5_backfill_marker.stat.exists
+  ansible.builtin.file:
+    path: "{{ era5_data_dir }}/.backfill_launched"
+    state: touch
+    mode: "0644"

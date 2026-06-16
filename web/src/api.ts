@@ -15,6 +15,8 @@ export interface RadarFrame {
   rateMmPerH: number
   level: PrecipLevel
   overlayUrl: string // absolute
+  source: string | null // "nowcast" | "blend" | "nwp" | null (stub-served)
+  confidence: number | null // 0–1
 }
 
 export interface RadarData {
@@ -61,6 +63,8 @@ export async function getRadar(
       rateMmPerH: f.rate_mm_per_h,
       level: levelFromMmPerHour(f.rate_mm_per_h),
       overlayUrl: abs(f.overlay_url),
+      source: f.source ?? null,
+      confidence: f.confidence ?? null,
     }))
     .sort((a, b) => a.leadMin - b.leadMin)
 

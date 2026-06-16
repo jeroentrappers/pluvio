@@ -60,6 +60,13 @@ export default function RadarMap({ center, bounds, frame, frames, onPick, recent
       zoom: 7.5,
       minZoom: 5,
       maxZoom: 11,
+      // Lock panning to the radar-covered region (the overlay's bounds): the
+      // forecast only exists here, so there's nothing to see outside it.
+      // MapLibre also clamps zoom-out so the viewport can't exceed these bounds.
+      maxBounds: [
+        [bounds.west, bounds.south],
+        [bounds.east, bounds.north],
+      ],
       attributionControl: { compact: true },
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')

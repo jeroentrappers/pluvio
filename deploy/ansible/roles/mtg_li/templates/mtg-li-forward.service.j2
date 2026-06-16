@@ -1,0 +1,13 @@
+# Managed by Ansible. Pulls recent MTG-LI Accumulated Flashes, grids them onto
+# the BeNeLux+context domain → Storage Box. Fired every 15 min by the timer.
+[Unit]
+Description=Pluvio MTG-LI lightning forward collection
+After=docker.service network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm --env-file {{ mtg_li_env_file }} \
+  -v {{ mtg_li_data_dir }}:/data mtg-li-collector:latest \
+  --mode forward --products {{ mtg_li_products }} --forward-hours 2 \
+  --out /data --min-free-gb {{ mtg_li_min_free_gb }}
