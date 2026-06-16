@@ -21,10 +21,12 @@ class Settings(BaseSettings):
 
     # Storage
     cache_root: pathlib.Path = Field(default=pathlib.Path("./var/forecasts"))
-    # 30 min: the forecast's issue time is the OPERA analysis time, which lags
-    # wall-clock by the radar cadence + collection + producer latency (~15–25
-    # min). A tighter threshold flaps "degraded" on fresh-but-normal data.
-    cache_stale_after_seconds: int = Field(default=1800)
+    # 45 min: the forecast's issue time is the OPERA analysis time, which lags
+    # wall-clock by radar cadence + collection + producer latency. Observed
+    # worst case is ~40 min (a 15:00Z frame isn't on the box until ~15:20Z, and
+    # the producer only refreshes every 10 min), so a tighter threshold flaps
+    # "degraded" on fresh-but-normal data. Above this means collection is broken.
+    cache_stale_after_seconds: int = Field(default=2700)
 
     # Upstream
     kmi_base_url: str = Field(default="https://app.meteo.be/services/appv4/")

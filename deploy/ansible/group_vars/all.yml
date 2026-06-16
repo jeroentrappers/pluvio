@@ -93,9 +93,10 @@ producer_max_age_min: 90                       # skip if the latest OPERA is sta
 pluvio_env:
   PLUVIO_CACHE_ROOT: /data/forecasts
   PLUVIO_KMI_BASE_URL: https://app.meteo.be/services/appv4/
-  # 30 min — the forecast issue time is the OPERA analysis time, which lags
-  # wall-clock by radar cadence + collection + producer latency (~15–25 min).
-  PLUVIO_CACHE_STALE_AFTER_SECONDS: "1800"
+  # 45 min — the forecast issue time is the OPERA analysis time, which lags
+  # wall-clock by radar cadence + collection + producer latency (observed worst
+  # case ~40 min). Above this = collection broken, not normal OPERA lag.
+  PLUVIO_CACHE_STALE_AFTER_SECONDS: "2700"
   PLUVIO_API_HOST: 0.0.0.0
   PLUVIO_API_PORT: "8000"
   # The trained UNet is served via the precomputed field written by the hetz1
