@@ -1,0 +1,9 @@
+# Eval image = CPU-train image + scipy (semi-Lagrangian fallback) + pysteps
+# (the real operational optical-flow baseline for eval_nowcast). pysteps is
+# best-effort: if it won't install, classical.py falls back to phase-correlation
+# advection and records engine="fallback-phasecorr".
+FROM pluvio-cputrain:latest
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+ && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir scipy "rasterio==1.4.*" scikit-learn \
+ && (pip install --no-cache-dir pysteps || echo "WARN: pysteps unavailable, using phasecorr fallback")

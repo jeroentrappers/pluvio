@@ -138,10 +138,15 @@ def make_tar_zst(files: list[pathlib.Path], out_path: pathlib.Path, level: int =
 
 
 def mirror(parquet_local: pathlib.Path, nas_target: pathlib.Path) -> None:
-    """Atomically replace nas_target with a copy of parquet_local."""
+    """Atomically replace nas_target with a copy of parquet_local.
+
+    Uses copyfile (data only), not copy2: the Storage Box CIFS mount forces
+    root ownership (uid=0,forceuid), so copystat's utime/chmod on the freshly
+    written file raises EPERM for the non-root collector user. Timestamps/modes
+    on CIFS aren't ours to set anyway."""
     nas_target.parent.mkdir(parents=True, exist_ok=True)
     tmp = nas_target.with_suffix(nas_target.suffix + ".tmp")
-    shutil.copy2(parquet_local, tmp)
+    shutil.copyfile(parquet_local, tmp)
     os.replace(tmp, nas_target)
 
 
@@ -154,15 +159,19 @@ def run(stage_dir: pathlib.Path, nas_dir: pathlib.Path, dry_run: bool) -> int:
     for rule in RULES:
         rel_path, _, month_re = rule
 
-        # Mirror-only rule (parquet / db).
+        # Mirror-only rule (parquet / db). rel_path may be a single file OR a
+        # directory holding several read-heavy parquets (e.g. aws/ now has both
+        # the KMI and KNMI AWS parquets) — mirror each file, preserving names.
         if month_re is None:
             src = stage_dir / rel_path
             if not src.exists():
                 continue
-            dst = nas_dir / rel_path
-            LOG.info("mirror %s → %s", src, dst)
-            if not dry_run:
-                mirror(src, dst)
+            files = [p for p in sorted(src.rglob("*")) if p.is_file()] if src.is_dir() else [src]
+            for f in files:
+                dst = (nas_dir / rel_path / f.relative_to(src)) if src.is_dir() else (nas_dir / rel_path)
+                LOG.info("mirror %s → %s", f, dst)
+                if not dry_run:
+                    mirror(f, dst)
             continue
 
         plans = discover_months(stage_dir, rule, current_month)

@@ -54,8 +54,8 @@ _NON_AUX = {TRUTH_VAR, NWP_VAR, "issue_time", "leads_min"}
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
     """Bring each channel family to ~O(1). Real-valued products (no rendered
     bytes here): scale by physically sensible constants."""
-    if name in (TRUTH_VAR, NWP_VAR) or name.startswith(("li_", "opera_", "era5_tp")):
-        return arr  # mm/h — model predicts mm/h
+    if name in (TRUTH_VAR, NWP_VAR) or name.startswith(("li_", "opera_", "era5_tp", "om_")):
+        return arr  # mm/h — model predicts mm/h (om_* = Open-Meteo NWP precip)
     # ERA5 predictor channels → ~O(1) by physically sensible constants.
     if name == "era5_cape":
         return arr / 1000.0

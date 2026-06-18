@@ -45,7 +45,24 @@ DEFAULT_LEADS = (
 LOG = logging.getLogger("pluvio.build_seamless")
 
 STORAGE = pathlib.Path("/mnt/storagebox")
+# Crop filenames carry the timestamp in one of two formats depending on source:
+#   OPERA / radar:  <YYYYmmddTHHMM>      e.g. 20240814T0000   (has a literal 'T')
+#   MTG-LI / L2:    <YYYYmmddHHMMSS>     e.g. 20251124170000  (14 digits, no 'T')
+# The old single-'T' regex silently dropped EVERY MTG crop (no 'T' to match), which
+# NaN-filled the lightning/GII channels — verify each channel is populated after a
+# build. Try the 'T' form first (more specific), then the 14-digit form.
 TS_RE = re.compile(r"(\d{8}T\d{4})")
+TS_RE_MTG = re.compile(r"(\d{14})")
+
+
+def _parse_ts(name: str) -> dt.datetime | None:
+    m = TS_RE.search(name)
+    if m:
+        return dt.datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    m = TS_RE_MTG.search(name)
+    if m:
+        return dt.datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=dt.UTC)
+    return None
 
 # Obs aux channels: (zarr var, source dir glob). MTG-L2 vars live under
 # mtg_l2/<PROD>/<dataset>/…; MTG-LI under mtg_li/AF/….
@@ -69,9 +86,9 @@ def _index_tiffs(root: pathlib.Path) -> list[tuple[dt.datetime, pathlib.Path]]:
     if not root.exists():
         return out
     for p in root.rglob("*.tiff"):
-        m = TS_RE.search(p.name)
-        if m:
-            out.append((dt.datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=dt.UTC), p))
+        ts = _parse_ts(p.name)
+        if ts is not None:
+            out.append((ts, p))
     out.sort()
     return out
 
@@ -96,7 +113,9 @@ def _opera_clean(grid: np.ndarray) -> np.ndarray:
 
 
 def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None,
-          max_age_min: int, no_aifs: bool = False, no_aux: bool = False):
+          max_age_min: int, no_aifs: bool = False, no_aux: bool = False,
+          start: dt.datetime | None = None, end: dt.datetime | None = None,
+          aux_vars: list[str] | None = None):
     import zarr
 
     opera_idx = _index_tiffs(STORAGE / "opera" / "RATE")
@@ -105,6 +124,13 @@ def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None
         return
     LOG.info("OPERA truth: %d analyses (%s … %s)", len(opera_idx),
              opera_idx[0][0].date(), opera_idx[-1][0].date())
+
+    # Optional date window — for a multimodal build over the MTG-covered span only
+    # (aux channels are NaN outside their coverage, so restrict to where they exist).
+    if start or end:
+        opera_idx = [(t, p) for t, p in opera_idx
+                     if (start is None or t >= start) and (end is None or t < end)]
+        LOG.info("date-windowed to %s … %s → %d analyses", start, end, len(opera_idx))
 
     # Issue-times = OPERA timestamps subsampled to the requested cadence.
     step = dt.timedelta(minutes=cadence_min)
@@ -119,7 +145,8 @@ def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None
     leads = list(leads_min)
     LOG.info("building %d issue-times × %d leads → %s", n, len(leads), out_path)
 
-    aux_idx = {} if no_aux else {var: _index_tiffs(STORAGE / src) for var, src in AUX_SOURCES.items()}
+    sources = AUX_SOURCES if not aux_vars else {k: v for k, v in AUX_SOURCES.items() if k in aux_vars}
+    aux_idx = {} if no_aux else {var: _index_tiffs(STORAGE / src) for var, src in sources.items()}
 
     root = zarr.open_group(str(out_path), mode="w")
     root.create_array("issue_time", shape=(n,), dtype="int64")[:] = [int(t.timestamp()) for t, _ in issues]
@@ -162,14 +189,20 @@ def main(argv=None) -> int:
     p.add_argument("--max-age-min", type=int, default=20, help="aux staleness tolerance")
     p.add_argument("--no-aifs", action="store_true", help="skip the AIFS cube (baseline; not yet accumulated)")
     p.add_argument("--no-aux", action="store_true", help="skip MTG obs aux channels (baseline)")
+    p.add_argument("--aux-vars", default="", help="comma subset of aux channels to include (e.g. li_flash); empty=all")
+    p.add_argument("--start", default="", help="restrict to OPERA issues >= YYYY-MM-DD (multimodal window)")
+    p.add_argument("--end", default="", help="restrict to OPERA issues < YYYY-MM-DD")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     STORAGE = pathlib.Path(args.storage)
     leads = [int(x) for x in args.leads.split(",") if x.strip()] or list(DEFAULT_LEADS)
+    start = dt.datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=dt.UTC) if args.start else None
+    end = dt.datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=dt.UTC) if args.end else None
+    aux_vars = [v.strip() for v in args.aux_vars.split(",") if v.strip()] or None
     build(pathlib.Path(args.out), args.cadence_min, leads, args.limit, args.max_age_min,
-          no_aifs=args.no_aifs, no_aux=args.no_aux)
+          no_aifs=args.no_aifs, no_aux=args.no_aux, start=start, end=end, aux_vars=aux_vars)
     return 0
 
 

@@ -50,12 +50,18 @@ def main(argv=None) -> int:
     p.add_argument("--samples", type=int, default=6000)
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--aux-channels", default="",
+                   help="match training: 'none' = radar-only ablation, empty = auto-discover")
     args = p.parse_args(argv)
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cut = issue_time_split(args.zarr, args.val_frac)
     hi = datetime(2100, 1, 1, tzinfo=timezone.utc)
-    ds = SeamlessDataset(args.zarr, time_range=(cut, hi), leads_min=NOWCAST_LEADS)
+    sel = args.aux_channels.strip().lower()
+    aux_channels = [] if sel == "none" else (
+        None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
+    ds = SeamlessDataset(args.zarr, time_range=(cut, hi), leads_min=NOWCAST_LEADS,
+                         aux_channels=aux_channels)
     Hsteps, dt_min = ds.history_steps, ds.history_step_min
 
     ck = torch.load(args.ckpt, map_location=dev, weights_only=False)

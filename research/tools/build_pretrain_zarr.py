@@ -74,7 +74,25 @@ def _era5_file_band(ts: dt.datetime, era5_dir: pathlib.Path):
     return f, band
 
 
-def build(out_path, storage, era5_dir, cadence_min, limit, leads=(0,)):
+# Open-Meteo high-res NWP precip (collectors/fetch_openmeteo_nwp.py → om_sl_<YYYYMM>.nc,
+# same (time,lat,lon) layout as ERA5). netcdf var → (zarr channel, scale). mm/h already.
+OM_VARS = {
+    "om_icon_d2": ("om_icon_d2", 1.0),
+    "om_meteofrance_arome_france_hd": ("om_arome", 1.0),
+    "om_ecmwf_ifs025": ("om_ifs", 1.0),
+}
+
+
+def _om_file_band(ts: dt.datetime, om_dir: pathlib.Path):
+    """(path, band) for the Open-Meteo monthly NetCDF at hour ts, or None."""
+    f = om_dir / f"om_sl_{ts.year:04d}{ts.month:02d}.nc"
+    if not f.exists():
+        return None
+    month_start = dt.datetime(ts.year, ts.month, 1, tzinfo=dt.UTC)
+    return f, int((ts - month_start).total_seconds() // 3600) + 1
+
+
+def build(out_path, storage, era5_dir, cadence_min, limit, leads=(0,), om_dir=None):
     import zarr
 
     opera_idx = _index_tiffs(storage / "opera" / "RATE")
@@ -112,6 +130,8 @@ def build(out_path, storage, era5_dir, cadence_min, limit, leads=(0,)):
     opera_z = root.create_array("opera_rate", shape=(n, H, W), chunks=(1, H, W), dtype="float32")
     era5_z = {chan: root.create_array(chan, shape=(n, H, W), chunks=(1, H, W), dtype="float32")
               for _, (chan, _) in ERA5_VARS.items()}
+    om_z = ({chan: root.create_array(chan, shape=(n, H, W), chunks=(1, H, W), dtype="float32")
+             for _, (chan, _) in OM_VARS.items()} if om_dir else {})
 
     for i, (ts, opath) in enumerate(issues):
         opera_z[i] = np.nan_to_num(reproject_to_analysis_grid(opath), nan=0.0).astype("float32")
@@ -122,9 +142,17 @@ def build(out_path, storage, era5_dir, cadence_min, limit, leads=(0,)):
             except Exception as exc:  # noqa: BLE001
                 LOG.warning("era5 %s @ %s failed (%s)", var, ts, exc)
                 era5_z[chan][i] = np.full((H, W), np.nan, dtype="float32")
+        if om_dir:
+            omfb = _om_file_band(ts, om_dir)
+            for var, (chan, scale) in OM_VARS.items():
+                try:
+                    om_z[chan][i] = (reproject_era5_var(omfb[0], var, omfb[1], scale=scale)
+                                     if omfb else np.full((H, W), np.nan, dtype="float32"))
+                except Exception:  # noqa: BLE001 — var missing for a model/month → NaN
+                    om_z[chan][i] = np.full((H, W), np.nan, dtype="float32")
         if (i + 1) % 500 == 0:
             LOG.info("  %d/%d", i + 1, n)
-    LOG.info("done: %s (%d pairs, %d ERA5 channels)", out_path, n, len(ERA5_VARS))
+    LOG.info("done: %s (%d pairs, %d ERA5 + %d Open-Meteo channels)", out_path, n, len(ERA5_VARS), len(om_z))
 
 
 def main(argv=None) -> int:
@@ -132,6 +160,7 @@ def main(argv=None) -> int:
     p.add_argument("--out", default="/stage/pretrain.zarr")
     p.add_argument("--storage", default="/stage", help="root holding opera/RATE crops")
     p.add_argument("--era5", default="/mnt/storagebox/era5", help="dir of era5_sl_<YYYYMM>.nc")
+    p.add_argument("--openmeteo", default="", help="dir of om_sl_<YYYYMM>.nc (high-res NWP anchor); empty=skip")
     p.add_argument("--cadence-min", type=int, default=60, help="issue spacing (ERA5 is hourly)")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--leads", default="0",
@@ -142,8 +171,9 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     leads = tuple(int(x) for x in args.leads.split(",") if x.strip())
+    om_dir = pathlib.Path(args.openmeteo) if args.openmeteo else None
     build(pathlib.Path(args.out), pathlib.Path(args.storage), pathlib.Path(args.era5),
-          args.cadence_min, args.limit, leads=leads)
+          args.cadence_min, args.limit, leads=leads, om_dir=om_dir)
     return 0
 
 

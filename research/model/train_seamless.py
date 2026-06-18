@@ -75,12 +75,33 @@ def quantile_loss(pred_q: torch.Tensor, target: torch.Tensor, quantiles,
     return (w * pinball).mean()
 
 
-def run_epoch(model, loader, optim, device, scaler, train: bool, loss_fn=None):
+def _augment(x: torch.Tensor, y: torch.Tensor):
+    """Random dihedral transform (h/v flips + k·90° rotation) applied *identically*
+    to inputs and target. Precip-intensity fields are ~isotropic, so this 8× expands
+    the effective training set and directly fights the fast overfit we measured
+    (val bottomed at epoch 3 with no regularisation). The lead/time `cond` vector is
+    non-spatial and left untouched. ⚠️ Only safe while inputs are direction-agnostic
+    (radar intensity, lightning); if wind components (u10/v10) are added as channels,
+    rotation would desynchronise them from the field — gate augmentation then."""
+    if torch.rand(()) < 0.5:
+        x, y = torch.flip(x, dims=[-1]), torch.flip(y, dims=[-1])
+    if torch.rand(()) < 0.5:
+        x, y = torch.flip(x, dims=[-2]), torch.flip(y, dims=[-2])
+    if x.shape[-1] == x.shape[-2]:
+        k = int(torch.randint(0, 4, ()).item())
+        if k:
+            x, y = torch.rot90(x, k, dims=[-2, -1]), torch.rot90(y, k, dims=[-2, -1])
+    return x, y
+
+
+def run_epoch(model, loader, optim, device, scaler, train: bool, loss_fn=None, augment=False):
     loss_fn = loss_fn or precip_loss
     model.train(train)
     total, n = 0.0, 0
     for x, cond, y in loader:
         x, cond, y = x.to(device), cond.to(device), y.to(device)
+        if train and augment:
+            x, y = _augment(x, y)
         with torch.set_grad_enabled(train), torch.autocast(device.type, enabled=(device.type == "cuda")):
             pred = model(x, cond)
             loss = loss_fn(pred, y)
@@ -105,8 +126,19 @@ def main(argv=None) -> int:
     p.add_argument("--aux-at-valid-time", action="store_true",
                    help="Stage B: read the ERA5/aux anchor at the valid-time (issue+lead) "
                         "as a perfect-forecast proxy the outlook head downscales")
+    p.add_argument("--aux-channels", default="",
+                   help="comma aux-channel names to feed the model; 'none' = radar-only "
+                        "ablation (ignore lightning/GII even if present in the zarr); "
+                        "empty = auto-discover all aux arrays in the store")
     p.add_argument("--base-channels", type=int, default=32)
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--weight-decay", type=float, default=0.0,
+                   help="AdamW L2 regularisation (e.g. 1e-4); 0 keeps plain Adam behaviour")
+    p.add_argument("--augment", action="store_true",
+                   help="random dihedral (flip/rotate) augmentation — fights overfit on isotropic fields")
+    p.add_argument("--patience", type=int, default=0,
+                   help="early-stop after N epochs with no val improvement; 0 disables")
+    p.add_argument("--cosine", action="store_true", help="cosine-anneal the LR over --epochs")
     p.add_argument("--max-minutes", type=float, default=None, help="wall-clock cap (laptop/CPU smoke test)")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--out", default="checkpoints/pluvio_seamless.pt")
@@ -122,10 +154,16 @@ def main(argv=None) -> int:
     cut = issue_time_split(args.zarr, args.val_frac)
     from datetime import datetime, timezone
     lo, hi = datetime(1970, 1, 1, tzinfo=timezone.utc), datetime(2100, 1, 1, tzinfo=timezone.utc)
+    # aux-channel selection: '' → auto-discover; 'none' → radar-only ablation ([]);
+    # else an explicit comma list. Lets mm vs radar-only share ONE zarr (controlled).
+    sel = args.aux_channels.strip().lower()
+    aux_channels = [] if sel == "none" else (
+        None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
     train_ds = SeamlessDataset(args.zarr, time_range=(lo, cut), require_rain_fraction=0.0,
-                               history_steps=args.history_steps, aux_at_valid_time=args.aux_at_valid_time)
+                               history_steps=args.history_steps, aux_at_valid_time=args.aux_at_valid_time,
+                               aux_channels=aux_channels)
     val_ds = SeamlessDataset(args.zarr, time_range=(cut, hi), history_steps=args.history_steps,
-                             aux_at_valid_time=args.aux_at_valid_time)
+                             aux_at_valid_time=args.aux_at_valid_time, aux_channels=aux_channels)
     LOG.info("train=%d val=%d | %d channels | device=%s", len(train_ds), len(val_ds), train_ds.n_channels, device)
 
     quantiles = tuple(float(q) for q in args.quantiles.split(",") if q.strip()) or None
@@ -137,23 +175,38 @@ def main(argv=None) -> int:
     else:
         loss_fn = precip_loss
     LOG.info("SeamlessNet params: %s", f"{num_params(model):,}")
-    optim = torch.optim.Adam(model.parameters(), lr=args.lr)
+    if args.weight_decay > 0:
+        optim = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optim = torch.optim.Adam(model.parameters(), lr=args.lr)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=args.epochs) if args.cosine else None
+    LOG.info("optim=%s wd=%g augment=%s patience=%d cosine=%s",
+             type(optim).__name__, args.weight_decay, args.augment, args.patience, bool(sched))
     scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
     tl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.workers, drop_last=True)
     vl = DataLoader(val_ds, batch_size=args.batch_size, num_workers=args.workers)
 
     best = float("inf")
+    since_improve = 0
     start = time.time()
     out = pathlib.Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     for epoch in range(args.epochs):
-        tr = run_epoch(model, tl, optim, device, scaler, train=True, loss_fn=loss_fn)
+        tr = run_epoch(model, tl, optim, device, scaler, train=True, loss_fn=loss_fn, augment=args.augment)
         va = run_epoch(model, vl, optim, device, scaler, train=False, loss_fn=loss_fn)
-        LOG.info("epoch %d: train=%.4f val=%.4f", epoch, tr, va)
+        if sched:
+            sched.step()
+        LOG.info("epoch %d: train=%.4f val=%.4f%s", epoch, tr, va,
+                 f" lr={sched.get_last_lr()[0]:.2e}" if sched else "")
         if va < best:
-            best = va
+            best = va; since_improve = 0
             torch.save({"model": model.state_dict(), "in_channels": train_ds.n_channels,
                         "base_channels": args.base_channels, "val_loss": best,
                         "quantiles": list(quantiles) if quantiles else None}, out)
+        else:
+            since_improve += 1
+            if args.patience and since_improve >= args.patience:
+                LOG.info("early stop: no val improvement in %d epochs (best=%.4f)", args.patience, best)
+                break
         if args.max_minutes and (time.time() - start) / 60 > args.max_minutes:
             LOG.info("hit --max-minutes; stopping"); break
     LOG.info("done. best val=%.4f → %s", best, out)
