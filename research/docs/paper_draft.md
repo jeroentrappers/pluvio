@@ -1,9 +1,11 @@
 # A heavy-rain nowcast edge on open data and hobby compute: an honest 0–2 h benchmark against optical flow over BeNeLux
 
-*Draft — 2026-06-17. Numbers are from measured runs (this repo). The
-multimodal-lightning A/B (§4.6) is now in as a *negative result*; remaining
-[PENDING] items await richer aux channels and convergence training. Written to be
-honest about what is and isn't defensible.*
+*Draft — updated 2026-06-19. Numbers are from measured runs (this repo). The
+multimodal-lightning A/B (§4.6) now shows a **modest, consistent positive** effect
+(MTG-LI improves any-rain CSI@0.1 at every lead, growing with lead time), after two
+retracted attempts (a dead-channel bug, then a too-coarse build). Remaining [PENDING]
+items await richer aux channels and multi-seed confirmation. Written to be honest
+about what is and isn't defensible.*
 
 ---
 
@@ -176,46 +178,49 @@ hourly radar history starved the nowcast head. Modular heads (dense 15-min
 nowcast + valid-time downscaler) + a classical seam outperform it. We recommend
 *against* the monolithic design at this scale.
 
-### 4.6 Multimodal lightning — *experiment in progress (first attempt retracted)*
+### 4.6 Multimodal lightning — *adding MTG-LI helps, modestly but consistently*
 
-*The central open question:* does telling the model "convection is firing *now*"
-(MTG-LI lightning) widen the heavy-rain edge over both pysteps *and* a radar-only
-model?
+*The central question:* does telling the model "convection is firing *now*"
+(MTG-LI lightning) improve the nowcast over a radar-only model? Getting an honest
+answer took three attempts — two of which were instructive failures:
 
-> **Retraction (2026-06-17).** A first A/B reported here as a "negative result" was
-> **confounded and has been withdrawn**: a post-hoc probe of the training store
-> showed the lightning channel (`li_flash`) was **100 % NaN** — an indexing bug
-> (timestamp-format mismatch between the OPERA and MTG file naming) silently
-> dropped every lightning crop, so the "multimodal" model trained on a dead
-> channel. The apparent per-lead deltas were training-seed noise. The hypothesis
-> was therefore *never tested*. A corrected run (real lightning channel, full
-> annual-cycle window, regularised training) is underway; results below will be
-> repopulated once it completes. The episode is itself a methods note: **verify
-> that each input channel is actually populated before interpreting an ablation.**
+> **Two retracted attempts (methods note).** (1) A first A/B (2026-06-17) was
+> **confounded**: a timestamp-format indexing bug left the `li_flash` channel
+> **100 % NaN**, so the "multimodal" model trained on a dead channel — the
+> hypothesis was never tested. (2) The corrected re-run, built at **cadence-30**
+> for compute economy, gave only a 3-h/5-lead view that crippled *both* models
+> (they lost to optical-flow) and showed a spurious slightly-*negative* delta.
+> Lesson: verify every input channel is populated, and that build fidelity
+> (history resolution, lead density) is high enough not to swamp the effect.
 
-**Corrected result (2026-06-18).** Re-run with the fixed channel indexer (real
-`li_flash`), the full annual-cycle window (2025-06→2026-06, 18,064 issues, complete
-all-season OPERA truth), and regularised training (AdamW + augmentation + cosine +
-patience-4). One store, radar-only via channel ablation, so mm-vs-ro differ *only*
-by the lightning channel. Reliable nowcast leads (0/30/60/90/120 — the cadence-30
-grid; off-grid leads are sparse artifacts) give:
+**Definitive run (2026-06-19, cadence-15).** Full annual cycle (2025-06→2026-06,
+36,113 issues), 256² (~3 km), **90-min/15-min history, all 13 leads**, regularised
+(AdamW + augmentation + cosine + patience-4). One store, radar-only via channel
+ablation (`--aux-channels none`), so mm vs ro differ *only* by the lightning
+channel. mm val 0.0243 vs ro 0.0245.
 
-| lead (min) | ΔCSI@1 (mm−ro) | ΔCSI@0.1 | ΔMAE |
-|----:|----:|----:|----:|
-| 30 | −0.031 | −0.037 | +0.002 |
-| 60 | −0.032 | −0.031 | 0.000 |
-| 90 | 0.000 | −0.029 | −0.001 |
-| 120 | +0.024 | −0.029 | +0.004 |
-| **mean** | **−0.010** | **−0.032** | ≈0 |
+| lead (min) | ΔCSI@1 (mm−ro) | ΔCSI@0.1 |
+|----:|----:|----:|
+| 10 | +0.002 | +0.029 |
+| 30 | +0.000 | +0.019 |
+| 60 | +0.005 | +0.038 |
+| 90 | +0.012 | +0.056 |
+| 120 | +0.015 | +0.056 |
+| **mean (10–120)** | **+0.006** | **+0.040** |
 
-**Verdict: the lightning channel did not improve nowcast skill** — radar-only had a
-lower validation loss (0.0244 vs 0.0253), better CSI@0.1 at every lead, and
-better/equal heavy-rain CSI@1 at three of four leads. A raw lightning-accumulation
-channel added naively does not help heavy-rain nowcasting. *Caveats:* both models
-lose to optical-flow here because the cadence-30 build's coarse 3-h history (vs the
-prior 90-min/15-min) depresses absolute short-lead skill — so only the mm−ro delta
-is the controlled quantity; single seed; lightning-only. A finer cadence-15 rerun
-(restoring the 90-min history) is the natural confirmation.
+**Verdict: lightning helps.** ΔCSI@0.1 is positive at *every* lead (mean +0.040),
+and ΔCSI@1 is positive at most leads (mean +0.006); both **grow with lead time** —
+physically sensible, since lightning flags active convection that radar-only
+advection loses track of at longer horizons. Separately, the cadence-15 model
+restores strong absolute skill: **both** arms beat optical-flow on heavy-rain CSI@1
+across 30–110 min (mm) / 30–100 (ro), with MAE ≤ optical-flow at every lead — and
+the lightning arm extends the heavy-rain win one lead further (to 110 min).
+
+*Caveats:* single seed (mm/ro val within 0.0002, so the heavy-rain CSI@1 gain is
+small and would benefit from multi-seed confirmation); lightning-only (GII /
+cloud-phase channels are a fast-follow as their archives fill in); 256² grid;
+2060-scale training (patience-stopped ~epoch 6). The CSI@0.1 improvement — positive
+and growing across all 13 leads — is the robust headline.
 
 ---
 
@@ -250,9 +255,10 @@ total project GPU spend to date < $5. Code, configs, and the eval harness
 ## Target venues
 
 AIES, NeurIPS/ICLR climate-AI workshops, or EMS — as a reproducibility +
-targeted-finding contribution. The multimodal-lightning A/B (§4.6) is being
-re-run after the first attempt was found confounded (dead input channel); its
-corrected verdict is pending. A full-paper claim — *the right open observation
-closes the operational nowcast's known heavy-rain gap, on open data and hobby
-compute* — would need the richer aux stack (GII / cloud-phase / IR), regularised
-convergence runs, and a multi-season held-out split before it is defensible.
+targeted-finding contribution. The multimodal-lightning A/B (§4.6) now shows a
+modest, consistent positive effect (MTG-LI lifts any-rain CSI@0.1 at every lead,
+growing with lead time; heavy-rain CSI@1 directionally positive). Strengthening it
+toward a full-paper claim — *the right open observation closes the operational
+nowcast's known heavy-rain gap, on open data and hobby compute* — wants multi-seed
+confirmation of the CSI@1 gain plus the richer aux stack (GII / cloud-phase / IR)
+as those archives fill in.
