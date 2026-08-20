@@ -33,7 +33,7 @@ Two leads out of the c16 ablations:
   **exceedance indicator** (`pr >= 0.1`, `eval_nowcast.py:114`). Matching pooled
   intensity is not the same objective as matching the pooled wet mask.
 
-## 0. Prerequisites (all new work — none of this exists yet)
+## 0. Prerequisites — ALL DONE as of 2026-08-20 (kept for the rationale)
 
 **P1 — build `static.npz` at 256².** It has never been built; no such file exists
 in the repo. `model/build_static.py` pulls ETOPO1 elevation from the public
@@ -95,28 +95,33 @@ relay; three more checkpoints and any zarr growth are small, but confirm).
 
 ## 1. Arms
 
-One variable off the c16_full baseline each, so the attribution stays clean.
-~20 h per arm on the free RTX-2060 (c16 arms ran 12–17 epochs at ~95 min/epoch).
+A **chain** of single-variable steps, so each delta is attributable to one change.
+~31 h per arm at the 24-month window (c16 measured 95 min/epoch on 39k issues →
+~165 min/epoch on 68k, patience-4 stopping around epoch 12–17).
 
-| arm | channels | change vs c16_full | question |
+| arm | channels | change vs the arm above it | question |
 |---|---|---|---|
-| **A · static** | 12 | + 3 static | **Do terrain channels help?** (the deliverable) |
-| **B · static_noadv** | 10 | + static, − advection prior | Does terrain help *most* where advection isn't masking it — and does it lift FSS@9km past noadv's 5/12? |
-| **C · static_exceed** | 12 | + static, `multiscale_loss` pools soft exceedance | Does matching the loss to the gate metric finally move FSS@9/15km? |
+| *(base)* c16_full re-eval | 9 | — (scored on the c17 zarr, `--no-static`) | the honest baseline on this validation window |
+| **A · static** | 12 | + 3 static channels | **Do terrain channels help?** (the deliverable) |
+| **C · static_exceed** | 12 | loss pools wet-mask, not intensity | Does matching the loss to the gate metric move FSS@9/15km? |
+| **B · noadv_exceed** | 10 | − advection prior | Does dropping advection lift large-scale FSS further (c16_noadv was the only 5/12 on FSS@9km)? |
 
-**A is the required run.** B and C are each independently useful and target the
-actual gate gap; A alone is ~20 h, all three ~2.5 days. Recommended order A → C →
-B, so the deliverable lands first and the most likely gate-closer is second.
+**A is the required run** (~31 h); all three ≈ 4 days. Each arm is independent, so
+the chain can stop after any of them.
 
-For **C**, pool a soft exceedance rather than the rate — i.e. compare
-`avg_pool(σ((pred − 0.1)/τ))` against `avg_pool(1[obs ≥ 0.1])` at scales
-(3, 5, 11) px, with τ ≈ 0.05 mm/h. Keep `precip_loss` for intensity and sweep
-`--fss-weight` (0.3 is the c16 value and may simply be too small — 0.5 and 1.0
-are worth a short probe on a subset before committing 20 h).
+⚠️ **c17 changes two things at once relative to c16**: the static channels *and* a
+window that grows from 14 to 24 months. A-vs-c16_full therefore mixes both. That is
+why step 0b re-evaluates `nowcast_mm_c16_full.pt` on the **c17** zarr with
+`--no-static` — that re-eval, not the published c16 table, is the baseline every
+c17 delta should be read against. It costs ~15 min.
 
-Control: **c16_full is the control** — same zarr, same leads, already evaluated.
-Do not retrain it. Re-eval it after P4 lands to confirm the numbers reproduce
-against the static-augmented store.
+For **C**, `--fss-mode exceedance` compares `avg_pool(σ((pred−0.1)/τ))` against the
+same soft transform of the target at scales (3, 5, 11) px, τ = 0.05 mm/h. Measured
+on a synthetic blob, this is the change that matters: pooling *intensity* charges a
+blurred hedge only 0.071× what it charges a 4-px displacement, whereas pooling the
+*wet mask* charges 1.013× — i.e. the c16 term was nearly indifferent to the exact
+failure it was meant to fix. `--fss-weight 0.3` is inherited from c16 and is still
+worth a sweep (0.5, 1.0) on a subset before spending 31 h.
 
 ## 2. Run
 
