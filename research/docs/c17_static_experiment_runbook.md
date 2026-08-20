@@ -78,6 +78,21 @@ fact.
 Also check free space on asusprime before starting (`/home` was 194 G at the c15
 relay; three more checkpoints and any zarr growth are small, but confirm).
 
+## 0b. What the build smoke test taught us (2026-08-20)
+
+- The window is **much wider than assumed**. OPERA truth spans 2024-08-14 →
+  2026-08-20 (68,394 analyses) and MTG-LI has near-complete daily coverage back to
+  2024-07 — the June "LI history is short" assumption is stale. c15/c16 trained on
+  14 months (39,454 issues); c17 uses **24 months / 68,361 issues (+73%)**.
+- `li_flash` reads as **100% NaN on quiet windows**, which looks exactly like the
+  c15-v1 dead-channel confound but isn't. The LI crops set `nodata=0.0` while 0 also
+  means "no flashes", so a flash-free frame reprojects to all-NaN and
+  `nan_to_num` maps it back to 0 — the physically correct value. Verified real
+  signal: 16 of 60 frames sampled across Aug 15-19 carry flashes, max 21.2.
+  ⚠️ Consequence: the model cannot distinguish missing data from zero flashes.
+- Cost at this window: build ~6.3 h (measured 3.0 issues/s), precompute ~65 min,
+  ~165 min/epoch → ~31 h per arm.
+
 ## 1. Arms
 
 One variable off the c16_full baseline each, so the attribution stays clean.
@@ -108,8 +123,14 @@ against the static-augmented store.
 Same shape as `run_c16.sh` (`--zarr nowcast_mm_c15_0724_v2.zarr`,
 `--history-steps 6`, `--leads 0,…,120`, `--batch-size 16 --workers 4 --augment
 --weight-decay 1e-4 --cosine --patience 4 --epochs 25 --aux-channels li_flash`),
-adding `--include-static` and, per arm, `--advection` / `--fss-weight` /
-`--fss-mode exceedance`.
+and per arm `--advection` / `--fss-weight` / `--fss-mode {rate,exceedance}`.
+No training flag is needed to *include* static: `SeamlessDataset` discovers
+`static_*` automatically (`include_static=True` by default), so the channels
+appear as soon as the zarr has them. The opposite direction is what needed a
+flag, and it lives on the eval: `eval_nowcast.py --no-static`, for scoring a
+pre-static checkpoint against a static-bearing store.
+
+The concrete script is `gpu_results/run_c17.sh`.
 
 Keep `watch_c16.sh` / `notify_c16.sh` running — and given the box suspended
 mid-session on 2026-08-20 and has an interrupted `do-release-upgrade` in its
