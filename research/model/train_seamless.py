@@ -28,7 +28,8 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.geo import GRID  # noqa: E402
 from model.seamless import SeamlessNet, num_params  # noqa: E402
-from model.seamless_dataset import DEFAULT_LEADS, SeamlessDataset, issue_time_split  # noqa: E402
+from model.seamless_dataset import (  # noqa: E402
+    DEFAULT_LEADS, RAIN_THRESHOLD, SeamlessDataset, issue_time_split)
 
 LOG = logging.getLogger("pluvio.train_seamless")
 
@@ -54,7 +55,8 @@ def precip_loss(pred: torch.Tensor, target: torch.Tensor, delta: float = 1.0,
 
 
 def multiscale_loss(pred: torch.Tensor, target: torch.Tensor,
-                    scales: tuple[int, ...] = (3, 5, 11)) -> torch.Tensor:
+                    scales: tuple[int, ...] = (3, 5, 11), mode: str = "rate",
+                    threshold: float = RAIN_THRESHOLD, tau: float = 0.05) -> torch.Tensor:
     """Neighbourhood-pooled structure term, aligned with the eval's scale-aware FSS.
 
     A per-pixel loss (``precip_loss``) is minimised by the conditional *mean*, so under
@@ -64,13 +66,41 @@ def multiscale_loss(pred: torch.Tensor, target: torch.Tensor,
     over 3/9/15 km blobs is rewarded even when the exact pixel is off — i.e. it pays for
     sharpness/placement, not smoothing. Added to ``precip_loss`` with a small weight so the
     point accuracy the model already wins isn't sacrificed. Scales mirror eval FSS px (1,3,5),
-    plus a wider one for the meso field. Differentiable and cheap (avg_pool2d)."""
-    lp, lt = torch.log1p(pred), torch.log1p(target)
+    plus a wider one for the meso field. Differentiable and cheap (avg_pool2d).
+
+    ``mode`` selects WHAT gets pooled, and it matters more than the weight did:
+
+    * ``"rate"`` (c16) pools log1p **intensity**. Measured effect on the metric it
+      was meant to fix: c16_full vs c16_nofss moved FSS@3km by one lead and
+      FSS@9km/@15km by nothing at all (0/12 → 0/12 vs pysteps).
+    * ``"exceedance"`` pools a soft **wet-mask indicator** instead, which is what
+      the eval's FSS actually scores (``pr >= 0.1``, eval_nowcast.py). Matching
+      pooled mean rate over a 9 km box is not the same objective as matching the
+      pooled wet fraction — a field can agree on the former while misplacing the
+      wet/dry boundary the latter measures. ``tau`` sets the softness in mm/h —
+      small enough to approximate a step, large enough that gradients don't vanish
+      for pixels far from the threshold.
+
+      The **same** soft indicator is applied to prediction and target. Using a soft
+      prediction against a hard target looks closer to the metric but is not a
+      divergence: every dry pixel then sits at sigma(-threshold/tau) ≈ 0.12 against
+      a target of 0, so the loss has an irreducible floor (measured 0.0139 on
+      identical fields) and spends gradient pushing an already-clamped Softplus
+      output further down. Soft-on-both is zero iff the fields agree, and still
+      compares pooled wet fractions.
+    """
+    if mode == "exceedance":
+        pf_src = torch.sigmoid((pred - threshold) / tau)
+        tf_src = torch.sigmoid((target - threshold) / tau)
+    elif mode == "rate":
+        pf_src, tf_src = torch.log1p(pred), torch.log1p(target)
+    else:
+        raise ValueError(f"unknown multiscale_loss mode {mode!r}")
     terms = []
     for k in scales:
         pad = k // 2
-        pf = F.avg_pool2d(lp, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
-        tf = F.avg_pool2d(lt, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
+        pf = F.avg_pool2d(pf_src, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
+        tf = F.avg_pool2d(tf_src, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
         terms.append(F.mse_loss(pf, tf))
     return torch.stack(terms).mean()
 
@@ -152,6 +182,10 @@ def main(argv=None) -> int:
     p.add_argument("--advection", action="store_true",
                    help="feed the optical-flow advection prior + growth/decay tendency as input "
                         "channels (needs tools/add_nowcast_channels.py run on the zarr first)")
+    p.add_argument("--fss-mode", choices=["rate", "exceedance"], default="rate",
+                   help="what the multi-scale term pools: 'rate' = log1p intensity (c16; moved "
+                        "FSS@9/15km by nothing), 'exceedance' = soft wet-mask, which is what the "
+                        "eval's FSS actually scores. See multiscale_loss.")
     p.add_argument("--fss-weight", type=float, default=0.0,
                    help="weight on the multi-scale (FSS-aligned) structure loss added to the "
                         "per-pixel Huber; 0 disables. ~0.3 sharpens without wrecking MAE.")
@@ -209,8 +243,10 @@ def main(argv=None) -> int:
         loss_fn = lambda pred, y: quantile_loss(pred, y, quantiles)  # noqa: E731
     elif args.fss_weight > 0:
         fw = args.fss_weight
-        loss_fn = lambda pred, y: precip_loss(pred, y) + fw * multiscale_loss(pred, y)  # noqa: E731
-        LOG.info("loss = precip_loss + %.3g * multiscale_loss (FSS-aligned structure term)", fw)
+        fm = args.fss_mode
+        loss_fn = lambda pred, y: precip_loss(pred, y) + fw * multiscale_loss(pred, y, mode=fm)  # noqa: E731
+        LOG.info("loss = precip_loss + %.3g * multiscale_loss(mode=%s) (FSS-aligned structure term)",
+                 fw, fm)
     else:
         loss_fn = precip_loss
     LOG.info("SeamlessNet params: %s", f"{num_params(model):,}")
@@ -253,7 +289,8 @@ def main(argv=None) -> int:
                         "advection": bool(args.advection),
                         "leads_min": list(leads),
                         "grid": list(GRID),
-                        "fss_weight": float(args.fss_weight)}, out)
+                        "fss_weight": float(args.fss_weight),
+                        "fss_mode": args.fss_mode}, out)
         else:
             since_improve += 1
             if args.patience and since_improve >= args.patience:
