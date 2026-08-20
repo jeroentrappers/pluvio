@@ -1,6 +1,8 @@
 .venv/
 .env
-data/
+# `data/*` not `data/`: git will not descend into an excluded DIRECTORY, so the
+# static.npz exception at the bottom would never take effect.
+data/*
 *.parquet
 *.h5
 *.tif
@@ -19,3 +21,9 @@ pluvio_bundle.tar
 # large archives (full-machine backups pulled before reinstall)
 *.tar
 *.tar.gz
+
+# EXCEPTION — track the static terrain channels (522 KB). Every training run
+# through c16 silently had no static channels partly because this file did not
+# exist and nothing complained; keeping it in the repo removes that failure mode.
+# Must come after `*.npz` above to win, and needs `data/*` (not `data/`) to apply.
+!data/static.npz
