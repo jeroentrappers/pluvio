@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from model.geo import GRID  # noqa: E402
 from model.seamless import SeamlessNet, num_params  # noqa: E402
 from model.seamless_dataset import DEFAULT_LEADS, SeamlessDataset, issue_time_split  # noqa: E402
 
@@ -237,9 +238,22 @@ def main(argv=None) -> int:
                  f" lr={sched.get_last_lr()[0]:.2e}" if sched else "")
         if va < best:
             best = va; since_improve = 0
+            # Record the full input recipe, not just the channel COUNT. Without this
+            # the layout is unreproducible from the artifact: eval/serving rebuild
+            # the dataset with auto-discovered aux + static, so adding any channel to
+            # the zarr (or forgetting --advection) silently changes the assembly — and
+            # a same-count-different-order mismatch trains and verifies as nonsense.
             torch.save({"model": model.state_dict(), "in_channels": train_ds.n_channels,
                         "base_channels": args.base_channels, "val_loss": best,
-                        "quantiles": list(quantiles) if quantiles else None}, out)
+                        "quantiles": list(quantiles) if quantiles else None,
+                        "aux_channels": list(train_ds.aux_channels),
+                        "static_channels": list(train_ds.static_channels),
+                        "history_steps": train_ds.history_steps,
+                        "has_aifs": bool(train_ds.has_aifs),
+                        "advection": bool(args.advection),
+                        "leads_min": list(leads),
+                        "grid": list(GRID),
+                        "fss_weight": float(args.fss_weight)}, out)
         else:
             since_improve += 1
             if args.patience and since_improve >= args.patience:

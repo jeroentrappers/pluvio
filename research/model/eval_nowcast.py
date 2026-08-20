@@ -52,22 +52,46 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--aux-channels", default="",
                    help="match training: 'none' = radar-only ablation, empty = auto-discover")
-    p.add_argument("--advection", action="store_true",
+    p.add_argument("--advection", action=argparse.BooleanOptionalAction, default=None,
                    help="match training: build inputs with the advection prior + tendency "
-                        "channels so the channel count matches an --advection checkpoint")
+                        "channels so the channel count matches an --advection checkpoint. "
+                        "Default: read from the checkpoint, else off.")
+    p.add_argument("--static", action=argparse.BooleanOptionalAction, default=None,
+                   help="include the static_* terrain channels. Default: read from the "
+                        "checkpoint. Pass --no-static to evaluate a pre-static checkpoint "
+                        "(e.g. c16) against a zarr that has since gained static channels.")
     args = p.parse_args(argv)
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Load the checkpoint FIRST: since 2026-08 it records the full input recipe
+    # (aux/static channels, history steps, advection), so the eval can rebuild the
+    # exact assembly training used instead of re-deriving it and hoping it matches.
+    ck = torch.load(args.ckpt, map_location=dev, weights_only=False)
     cut = issue_time_split(args.zarr, args.val_frac)
     hi = datetime(2100, 1, 1, tzinfo=timezone.utc)
     sel = args.aux_channels.strip().lower()
-    aux_channels = [] if sel == "none" else (
-        None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
+    if sel:
+        aux_channels = [] if sel == "none" else [s.strip() for s in args.aux_channels.split(",") if s.strip()]
+    else:
+        aux_channels = ck.get("aux_channels")  # None on a legacy ckpt → auto-discover
+    use_advection = args.advection if args.advection is not None else bool(ck.get("advection", False))
+    include_static = (args.static if args.static is not None
+                      else bool(ck.get("static_channels")) if "static_channels" in ck else True)
     ds = SeamlessDataset(args.zarr, time_range=(cut, hi), leads_min=NOWCAST_LEADS,
-                         aux_channels=aux_channels, use_advection=args.advection)
+                         aux_channels=aux_channels, use_advection=use_advection,
+                         include_static=include_static)
     Hsteps, dt_min = ds.history_steps, ds.history_step_min
 
-    ck = torch.load(args.ckpt, map_location=dev, weights_only=False)
+    # Fail loudly on a layout mismatch. load_state_dict would catch a channel-COUNT
+    # change, but not a same-count-different-channels one — which verifies as noise.
+    if ds.n_channels != ck["in_channels"]:
+        raise SystemExit(
+            f"channel mismatch: checkpoint expects {ck['in_channels']}, this zarr assembles "
+            f"{ds.n_channels} (aux={ds.aux_channels}, static={ds.static_channels}, "
+            f"history={ds.history_steps}, advection={use_advection}). "
+            f"Checkpoint recipe: aux={ck.get('aux_channels')}, static={ck.get('static_channels')}, "
+            f"history={ck.get('history_steps')}, advection={ck.get('advection')}. "
+            f"Use --aux-channels/--advection/--no-static to match it.")
     quantiles = ck.get("quantiles")
     net = SeamlessNet(in_channels=ck["in_channels"], base_channels=ck["base_channels"],
                       quantiles=tuple(quantiles) if quantiles else None).to(dev).eval()

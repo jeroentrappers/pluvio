@@ -80,6 +80,11 @@ AUX_SOURCES: dict[str, str] = {
 }
 
 
+# Terrain fields promoted to model input channels. static.npz also stores
+# grid_lat/grid_lon/grid_pitch_km, which are provenance, NOT channels.
+STATIC_CHANNEL_KEYS = ("elevation_m", "landmask", "distance_to_coast_km")
+
+
 def _index_tiffs(root: pathlib.Path) -> list[tuple[dt.datetime, pathlib.Path]]:
     """Sorted (timestamp, path) for date-organised crops named …<YYYYmmddTHHMM>_*.tiff."""
     out = []
@@ -112,10 +117,26 @@ def _opera_clean(grid: np.ndarray) -> np.ndarray:
     return np.nan_to_num(grid, nan=0.0).astype("float32")
 
 
+def _resolve_static(explicit: pathlib.Path | None) -> pathlib.Path | None:
+    """Locate static.npz. An explicit --static wins (and must exist — a typo there
+    should fail, not silently degrade to no static channels). Otherwise try
+    data/static.npz (where model/build_static.py writes by default) then the
+    legacy model/static.npz. Returns None when nothing is found."""
+    if explicit is not None:
+        if not explicit.exists():
+            raise FileNotFoundError(f"--static {explicit} does not exist")
+        return explicit
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    for cand in (repo / "data" / "static.npz", repo / "model" / "static.npz"):
+        if cand.exists():
+            return cand
+    return None
+
+
 def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None,
           max_age_min: int, no_aifs: bool = False, no_aux: bool = False,
           start: dt.datetime | None = None, end: dt.datetime | None = None,
-          aux_vars: list[str] | None = None):
+          aux_vars: list[str] | None = None, static_path: pathlib.Path | None = None):
     import zarr
 
     opera_idx = _index_tiffs(STORAGE / "opera" / "RATE")
@@ -168,13 +189,37 @@ def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None
         if (i + 1) % 500 == 0:
             LOG.info("  %d/%d", i + 1, n)
 
-    # Static channels from static.npz (elevation/landmask/dist), if present.
-    static = pathlib.Path(__file__).resolve().parents[1] / "model" / "static.npz"
-    if static.exists():
+    # Static channels (elevation / landmask / distance-to-coast) from static.npz.
+    # ⚠️ This used to read model/static.npz while model/build_static.py writes
+    # data/static.npz by default, and skipped in silence on a miss — so EVERY run
+    # up to and including c16 trained with no static channels and nobody noticed.
+    # Now: search both locations, log which one won, and WARN loudly when absent.
+    static = _resolve_static(static_path)
+    if static is None:
+        LOG.warning("NO static.npz found — building WITHOUT static channels "
+                    "(elevation/landmask/dist-to-coast). Run `python -m model.build_static "
+                    "--out data/static.npz` with the same PLUVIO_GRID_N to include them.")
+    else:
         d = np.load(static)
-        for k in d.files:
-            root.create_array(f"static_{k}", shape=(H, W), dtype="float32")[:] = d[k].astype("float32")
-    LOG.info("done: %s (%d issues, aux=%d, AIFS placeholder NaN)", out_path, n, len(AUX_SOURCES))
+        # Allow-list: static.npz also carries grid_lat/grid_lon (H, W) and
+        # grid_pitch_km (2,) as provenance. Iterating d.files would promote the
+        # coordinate grids to input channels and trip on the 1-D pitch array.
+        keys = [k for k in STATIC_CHANNEL_KEYS if k in d.files]
+        if not keys:
+            raise RuntimeError(f"{static} has none of {STATIC_CHANNEL_KEYS} (has: {sorted(d.files)})")
+        for k in keys:
+            arr = d[k]
+            # A grid mismatch (e.g. a 100² static.npz against a 256² build) would
+            # silently write garbage channels — fail loudly instead.
+            if tuple(arr.shape) != (H, W):
+                raise RuntimeError(
+                    f"{static}:{k} has shape {arr.shape}, but this build's grid is {(H, W)}. "
+                    f"Rebuild static.npz with PLUVIO_GRID_N matching this run.")
+            root.create_array(f"static_{k}", shape=(H, W), dtype="float32")[:] = arr.astype("float32")
+        LOG.info("static channels from %s: %s (skipped metadata: %s)", static,
+                 ", ".join(keys), ", ".join(sorted(set(d.files) - set(keys))) or "none")
+    LOG.info("done: %s (%d issues, aux=%d, static=%d, AIFS placeholder NaN)",
+             out_path, n, len(aux_idx), 0 if static is None else len(keys))
 
 
 def main(argv=None) -> int:
@@ -190,6 +235,8 @@ def main(argv=None) -> int:
     p.add_argument("--no-aifs", action="store_true", help="skip the AIFS cube (baseline; not yet accumulated)")
     p.add_argument("--no-aux", action="store_true", help="skip MTG obs aux channels (baseline)")
     p.add_argument("--aux-vars", default="", help="comma subset of aux channels to include (e.g. li_flash); empty=all")
+    p.add_argument("--static", default="", help="path to static.npz (elevation/landmask/dist); "
+                                                "default = data/static.npz, then model/static.npz")
     p.add_argument("--start", default="", help="restrict to OPERA issues >= YYYY-MM-DD (multimodal window)")
     p.add_argument("--end", default="", help="restrict to OPERA issues < YYYY-MM-DD")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -202,7 +249,8 @@ def main(argv=None) -> int:
     end = dt.datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=dt.UTC) if args.end else None
     aux_vars = [v.strip() for v in args.aux_vars.split(",") if v.strip()] or None
     build(pathlib.Path(args.out), args.cadence_min, leads, args.limit, args.max_age_min,
-          no_aifs=args.no_aifs, no_aux=args.no_aux, start=start, end=end, aux_vars=aux_vars)
+          no_aifs=args.no_aifs, no_aux=args.no_aux, start=start, end=end, aux_vars=aux_vars,
+          static_path=pathlib.Path(args.static) if args.static else None)
     return 0
 
 
