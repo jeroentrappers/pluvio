@@ -15,3 +15,7 @@ __pycache__/
 
 # staging bundle for hetz1 migration (large)
 pluvio_bundle.tar
+
+# large archives (full-machine backups pulled before reinstall)
+*.tar
+*.tar.gz

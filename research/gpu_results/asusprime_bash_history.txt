@@ -1,0 +1,80 @@
+sudo os-prober
+sudo apt update
+sudo apt upgrade
+sudo reboot
+sudo os-prober
+sudo update-grub
+cat /boot/grub/grub.cfg
+sudo reboot
+sudo os-prober
+grub-update
+sudo update-grub
+GRUB_DISABLE_OS_PROBER=false sudo update-grup
+GRUB_DISABLE_OS_PROBER=false sudo update-grub
+sudo vim /etc/default/grub
+sudo apt install vim
+sudo vim /etc/default/grub
+sudo update-grub
+reboot
+ls
+sudo apt update
+sudo apt upgrade
+sudo apt autoremove
+sudo reboot
+sudo vim ~/.ssh/authorized_keys
+exit
+sudo apt update
+sudo apt list --upgradable
+sudo apt upgrade
+nvidia-smi
+ssh -t asusprime 'echo "jeroentrappers ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/90-pluvio-nopasswd >/dev/null && sudo chmod 440 /etc/sudoers.d/90-pluvio-nopasswd && sudo -n true && echo GRANTED'
+sudo apt install sshd
+sudo apt install ssh
+sudo apt list --upgradable
+sudo apt upgrade
+exit
+btop
+exit
+ls -lart
+df -h
+btop
+gputop
+btop
+sudo apt install nvtop
+nvtop
+sudo apt install btop
+brew install btop
+sudo apt install brew
+sudo snap install btop
+btop
+sudo apt uninstall btop
+sudo apt remove btop
+btop
+sudo snap install btop
+snap help refresh
+sudo snap refresh btop
+mkdir -p btop-install
+wget -qO - https://github.com/aristocratos/btop/releases/latest/download/btop-x86_64-linux-musl.tbz | tar -xj -C btop-install
+wget -qO - https://github.com/aristocratos/btop/releases/latest/download/btop-x86_64-linux-musl.tbz | tar -xjtvv -C btop-install
+btop
+sudo apt update
+sudo apt list --ugpradable
+sudo apt upgrade
+sudo apt autoremove
+ls
+ls -lart
+cat exp_c15.log 
+ls
+cat sdns-bench/
+ls
+cd sdns-bench/
+ls
+cd ..
+ls
+btop
+exit
+do-release-upgrade
+sudo rebooot
+sudo reboot
+sudo do-release-upgrade
+exit

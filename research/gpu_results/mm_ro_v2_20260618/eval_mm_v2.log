@@ -1,0 +1,51 @@
+NOWCAST deliverable | checkpoints/nowcast_mm_v2.pt | grid ≈ 3.0×2.7 km | val=17858 | dev=cuda
+the bar is OPTICAL-FLOW, not persistence. FSS scales (px) → km: ['1=3km', '3=9km', '5=15km']
+
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+ lead        method     MAE    CRPS   CSI.1    CSI1   FSS1   FSS3   FSS5
+---------------------------------------------------------------------------
+    0         model   0.016   0.016   0.830   0.918  0.907  0.963  0.973
+    0  optical-flow   0.000   0.000   1.000   1.000  1.000  1.000  1.000
+    0   persistence   0.000   0.000   1.000   1.000  1.000  1.000  1.000
+
+   30         model   0.074   0.074   0.443   0.349  0.614  0.676  0.707
+   30  optical-flow   0.075   0.075   0.531   0.379  0.694  0.815  0.867
+   30   persistence   0.096   0.096   0.393   0.220  0.565  0.679  0.745
+
+   40         model   0.009   0.009   0.037   0.000  0.071  0.126  0.185
+   40  optical-flow   0.007   0.007   0.105   0.054  0.189  0.317  0.430
+   40   persistence   0.008   0.008   0.029   0.000  0.056  0.103  0.152
+
+   60         model   0.090   0.090   0.364   0.231  0.534  0.582  0.607
+   60  optical-flow   0.095   0.095   0.413   0.251  0.585  0.697  0.756
+   60   persistence   0.113   0.113   0.309   0.147  0.472  0.564  0.617
+
+   70         model   0.009   0.009   0.100   0.010  0.182  0.258  0.303
+   70  optical-flow   0.006   0.006   0.091   0.031  0.166  0.261  0.349
+   70   persistence   0.006   0.006   0.077   0.031  0.144  0.197  0.255
+
+   80         model   0.007   0.007   0.088   0.042  0.161  0.207  0.224
+   80  optical-flow   0.002   0.002   0.058   0.020  0.109  0.193  0.276
+   80   persistence   0.002   0.002   0.109   0.156  0.197  0.314  0.407
+
+   90         model   0.107   0.107   0.287   0.151  0.446  0.484  0.503
+   90  optical-flow   0.109   0.109   0.330   0.184  0.496  0.599  0.658
+   90   persistence   0.126   0.126   0.247   0.109  0.396  0.475  0.521
+
+  100         model   0.033   0.033   0.048   0.000  0.092  0.110  0.121
+  100  optical-flow   0.018   0.018   0.039   0.012  0.075  0.130  0.193
+  100   persistence   0.021   0.021   0.025   0.011  0.049  0.083  0.126
+
+  110         model   0.022   0.022   0.041   0.000  0.080  0.098  0.112
+  110  optical-flow   0.009   0.009   0.035   0.006  0.067  0.125  0.192
+  110   persistence   0.010   0.010   0.024   0.018  0.046  0.084  0.131
+
+  120         model   0.113   0.113   0.242   0.113  0.389  0.421  0.436
+  120  optical-flow   0.104   0.104   0.290   0.147  0.450  0.543  0.598
+  120   persistence   0.119   0.119   0.222   0.098  0.363  0.433  0.475
+
+HEADLINE (the honest claim):
+  model beats optical-flow on CSI@0.1 at leads [70, 80, 100, 110] min (of [0, 30, 40, 60, 70, 80, 90, 100, 110, 120]).

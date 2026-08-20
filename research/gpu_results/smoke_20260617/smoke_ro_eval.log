@@ -1,0 +1,13 @@
+=== mm done; final mm log ===
+2026-06-17 17:44:07,195 INFO pluvio.train_seamless epoch 2: train=0.0272 val=0.0280 lr=0.00e+00
+2026-06-17 17:44:07,195 INFO pluvio.train_seamless done. best val=0.0273 → checkpoints/smoke_mm.pt
+=== ro smoke-train (--aux-channels none -> 6ch) ===
+2026-06-17 17:44:15,952 INFO pluvio.train_seamless optim=AdamW wd=0.0001 augment=True patience=2 cosine=True
+2026-06-17 17:45:10,165 INFO pluvio.train_seamless epoch 0: train=0.0340 val=0.0279 lr=2.25e-04
+2026-06-17 17:46:03,955 INFO pluvio.train_seamless epoch 1: train=0.0283 val=0.0285 lr=7.50e-05
+2026-06-17 17:46:57,715 INFO pluvio.train_seamless epoch 2: train=0.0269 val=0.0312 lr=0.00e+00
+2026-06-17 17:46:57,715 INFO pluvio.train_seamless early stop: no val improvement in 2 epochs (best=0.0279)
+2026-06-17 17:46:57,715 INFO pluvio.train_seamless done. best val=0.0279 → checkpoints/smoke_ro.pt
+=== smoke-eval mm (7ch) ===
+=== smoke-eval ro (--aux-channels none, 6ch) ===
+=== SMOKE PIPELINE OK ===

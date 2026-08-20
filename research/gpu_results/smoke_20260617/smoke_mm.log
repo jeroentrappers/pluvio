@@ -1,0 +1,11 @@
+2026-06-17 17:41:00,300 INFO pluvio.seamless_dataset indexed 4095 samples | leads 0..14400 | 7 channels
+2026-06-17 17:41:00,316 INFO pluvio.seamless_dataset indexed 988 samples | leads 0..14400 | 7 channels
+2026-06-17 17:41:00,317 INFO pluvio.train_seamless train=4095 val=988 | 7 channels | device=cuda
+2026-06-17 17:41:00,822 INFO pluvio.train_seamless SeamlessNet params: 665,475
+2026-06-17 17:41:05,843 INFO pluvio.train_seamless optim=AdamW wd=0.0001 augment=True patience=2 cosine=True
+/home/jeroentrappers/pluvio/model/train_seamless.py:185: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
+2026-06-17 17:42:17,411 INFO pluvio.train_seamless epoch 0: train=0.0328 val=0.0279 lr=2.25e-04
+2026-06-17 17:43:12,444 INFO pluvio.train_seamless epoch 1: train=0.0284 val=0.0273 lr=7.50e-05
+2026-06-17 17:44:07,195 INFO pluvio.train_seamless epoch 2: train=0.0272 val=0.0280 lr=0.00e+00
+2026-06-17 17:44:07,195 INFO pluvio.train_seamless done. best val=0.0273 → checkpoints/smoke_mm.pt
