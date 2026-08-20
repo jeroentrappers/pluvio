@@ -48,7 +48,13 @@ DEFAULT_LEADS: tuple[int, ...] = (
 RAIN_THRESHOLD = 0.1
 TRUTH_VAR = "opera_rate"
 NWP_VAR = "aifs_tp"
-_NON_AUX = {TRUTH_VAR, NWP_VAR, "issue_time", "leads_min"}
+# Derived nowcast channels (tools/add_nowcast_channels.py) — fed explicitly via
+# use_advection, so they must never leak into aux auto-discovery or the RO ablation.
+OFLOW_VAR = "oflow_rate"          # (n, n_now, H, W) LK-advected radar per nowcast lead
+OFLOW_LEADS_VAR = "oflow_leads"   # (n_now,) the lead axis for OFLOW_VAR
+TENDENCY_VAR = "rate_tendency"    # (n, H, W) log1p-rate growth/decay slope
+_NON_AUX = {TRUTH_VAR, NWP_VAR, "issue_time", "leads_min",
+            OFLOW_VAR, OFLOW_LEADS_VAR, TENDENCY_VAR}
 
 
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
@@ -93,11 +99,13 @@ class SeamlessDataset(Dataset):
     def __init__(self, zarr_path, *, time_range=None, leads_min=DEFAULT_LEADS,
                  history_steps=RADAR_HISTORY_STEPS, history_step_min=None,
                  aux_channels=None, include_static=True, require_rain_fraction=None,
-                 history_tolerance_s=300, build_index=True, aux_at_valid_time=False):
+                 history_tolerance_s=300, build_index=True, aux_at_valid_time=False,
+                 use_advection=False):
         self.zarr_path = str(zarr_path)
         self.time_range = time_range
         self.leads_min = tuple(leads_min)
         self.history_steps = history_steps
+        self.use_advection = use_advection
         self.require_rain_fraction = require_rain_fraction
         # Stage B: read the NWP/aux anchor at the *valid* time (issue+lead) rather
         # than the issue time — i.e. ERA5-at-valid-time as a perfect-forecast
@@ -122,6 +130,17 @@ class SeamlessDataset(Dataset):
         self.aux_channels = aux_channels if aux_channels is not None else self._discover(root, True)
         self.static_channels = self._discover(root, False) if include_static else []
         self._static_cache = None
+        # Advection prior + tendency (tools/add_nowcast_channels.py). Appended AFTER the
+        # radar-history block so the first `history_steps` channels stay the raw OPERA
+        # frames the eval's OF baseline / persistence rely on.
+        self._oflow_lead_to_idx: dict[int, int] = {}
+        if self.use_advection:
+            keys = set(root.array_keys())
+            missing = {OFLOW_VAR, OFLOW_LEADS_VAR, TENDENCY_VAR} - keys
+            if missing:
+                raise RuntimeError(f"use_advection but zarr lacks {sorted(missing)} — "
+                                   "run tools/add_nowcast_channels.py first")
+            self._oflow_lead_to_idx = {int(l): i for i, l in enumerate(np.asarray(root[OFLOW_LEADS_VAR][:]))}
         self.index: list[_Sample] = []
         if build_index:
             self._build_index(root)
@@ -150,8 +169,10 @@ class SeamlessDataset(Dataset):
     @property
     def n_channels(self) -> int:
         # history(K) + AIFS forecast anchor @ lead(1, if present) + aux + static
+        # + advection prior (1) + tendency (1), when use_advection
         return (self.history_steps + (1 if self.has_aifs else 0)
-                + len(self.aux_channels) + len(self.static_channels))
+                + len(self.aux_channels) + len(self.static_channels)
+                + (2 if self.use_advection else 0))
 
     def __len__(self) -> int:
         return len(self.index)
@@ -221,6 +242,13 @@ class SeamlessDataset(Dataset):
                 self._static_cache = {n: _normalise(n, np.asarray(root[n][:])) for n in self.static_channels}
             for name in self.static_channels:
                 chans[c] = self._static_cache[name]; c += 1
+        if self.use_advection:
+            # LK-advected radar at this lead (zeros if lead is beyond the nowcast regime the
+            # oflow cube covers, e.g. > 120 min); scalar mm/h field, isotropic-safe for augment.
+            oi = self._oflow_lead_to_idx.get(int(lead_min))
+            chans[c] = np.asarray(root[OFLOW_VAR][issue_idx, oi]) if oi is not None else 0.0
+            c += 1
+            chans[c] = np.asarray(root[TENDENCY_VAR][issue_idx]); c += 1  # growth/decay slope
         np.nan_to_num(chans, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         return chans
 

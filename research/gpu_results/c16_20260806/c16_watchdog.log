@@ -1,0 +1,876 @@
+[2026-08-03T07:38:26Z] watchdog started
+[2026-08-03T07:38:26Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:86, 92 %, 110.38 W 
+[2026-08-03T07:43:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:78, 91 %, 93.79 W 
+[2026-08-03T07:48:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 83.21 W 
+[2026-08-03T07:53:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 82.09 W 
+[2026-08-03T07:58:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 91.36 W 
+[2026-08-03T08:03:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 82.01 W 
+[2026-08-03T08:08:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 82.33 W 
+[2026-08-03T08:13:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:79, 91 %, 93.00 W 
+[2026-08-03T08:18:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:none errs:0 gpu:75, 76 %, 81.55 W 
+[2026-08-03T08:23:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:77, 91 %, 81.24 W 
+[2026-08-03T08:28:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 92.85 W 
+[2026-08-03T08:33:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 92 %, 87.60 W 
+[2026-08-03T08:38:27Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 93.34 W 
+[2026-08-03T08:43:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 82.86 W 
+[2026-08-03T08:48:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 81.58 W 
+[2026-08-03T08:53:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 92 %, 80.79 W 
+[2026-08-03T08:58:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 88.26 W 
+[2026-08-03T09:03:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 93.43 W 
+[2026-08-03T09:08:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:78, 91 %, 91.96 W 
+[2026-08-03T09:13:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:78, 91 %, 86.22 W 
+[2026-08-03T09:18:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 93.57 W 
+[2026-08-03T09:23:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 92.43 W 
+[2026-08-03T09:28:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 92.02 W 
+[2026-08-03T09:33:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 92.44 W 
+[2026-08-03T09:38:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:78, 91 %, 81.49 W 
+[2026-08-03T09:43:28Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:79, 91 %, 93.44 W 
+[2026-08-03T09:48:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:78, 91 %, 88.53 W 
+[2026-08-03T09:53:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:76, 78 %, 80.74 W 
+[2026-08-03T09:58:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 0: train=0.0203 val=0.0261 lr=2.99e-04 errs:0 gpu:76, 78 %, 79.84 W 
+[2026-08-03T10:03:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 81.92 W 
+[2026-08-03T10:08:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 93 %, 92.58 W 
+[2026-08-03T10:13:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 81.96 W 
+[2026-08-03T10:18:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 81.19 W 
+[2026-08-03T10:23:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 92 %, 82.40 W 
+[2026-08-03T10:28:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 89.15 W 
+[2026-08-03T10:33:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 93.03 W 
+[2026-08-03T10:38:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 82.42 W 
+[2026-08-03T10:43:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 93 %, 82.33 W 
+[2026-08-03T10:48:29Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 86.78 W 
+[2026-08-03T10:53:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 93 %, 81.95 W 
+[2026-08-03T10:58:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 93 %, 88.15 W 
+[2026-08-03T11:03:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 92 %, 81.71 W 
+[2026-08-03T11:08:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 92 %, 82.22 W 
+[2026-08-03T11:13:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 85.19 W 
+[2026-08-03T11:18:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 94 %, 86.07 W 
+[2026-08-03T11:23:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:79, 91 %, 81.04 W 
+[2026-08-03T11:28:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:78, 78 %, 77.44 W 
+[2026-08-03T11:33:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 1: train=0.0189 val=0.0248 lr=2.95e-04 errs:0 gpu:77, 78 %, 73.95 W 
+[2026-08-03T11:38:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 93.56 W 
+[2026-08-03T11:43:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 87.43 W 
+[2026-08-03T11:48:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 93 %, 81.74 W 
+[2026-08-03T11:53:30Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 82.39 W 
+[2026-08-03T11:58:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 92.79 W 
+[2026-08-03T12:03:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 81.68 W 
+[2026-08-03T12:08:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 91 %, 81.68 W 
+[2026-08-03T12:13:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 91 %, 83.75 W 
+[2026-08-03T12:18:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 81.94 W 
+[2026-08-03T12:23:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 81.39 W 
+[2026-08-03T12:28:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:79, 91 %, 82.76 W 
+[2026-08-03T12:33:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 91 %, 81.48 W 
+[2026-08-03T12:38:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 92 %, 93.93 W 
+[2026-08-03T12:43:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 91 %, 82.29 W 
+[2026-08-03T12:48:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 91 %, 82.38 W 
+[2026-08-03T12:53:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 92 %, 93.86 W 
+[2026-08-03T12:58:31Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 92 %, 93.59 W 
+[2026-08-03T13:03:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:80, 92 %, 93.93 W 
+[2026-08-03T13:08:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 2: train=0.0185 val=0.0246 lr=2.89e-04 errs:0 gpu:77, 77 %, 79.49 W 
+[2026-08-03T13:13:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:77, 91 %, 91.69 W 
+[2026-08-03T13:18:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.09 W 
+[2026-08-03T13:23:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 81.45 W 
+[2026-08-03T13:28:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.15 W 
+[2026-08-03T13:33:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:79, 91 %, 82.58 W 
+[2026-08-03T13:38:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 92 %, 90.54 W 
+[2026-08-03T13:43:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.42 W 
+[2026-08-03T13:48:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 82.59 W 
+[2026-08-03T13:53:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 82.01 W 
+[2026-08-03T13:58:32Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.89 W 
+[2026-08-03T14:03:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 82.86 W 
+[2026-08-03T14:08:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.67 W 
+[2026-08-03T14:13:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 81.72 W 
+[2026-08-03T14:18:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 81.79 W 
+[2026-08-03T14:23:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 82.55 W 
+[2026-08-03T14:28:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 93 %, 93.11 W 
+[2026-08-03T14:33:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 92 %, 82.74 W 
+[2026-08-03T14:38:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:80, 91 %, 93.12 W 
+[2026-08-03T14:43:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:78, 78 %, 75.07 W 
+[2026-08-03T14:48:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 3: train=0.0182 val=0.0246 lr=2.81e-04 errs:0 gpu:77, 79 %, 81.50 W 
+[2026-08-03T14:53:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 91 %, 82.53 W 
+[2026-08-03T14:58:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 92 %, 82.74 W 
+[2026-08-03T15:03:33Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 92 %, 81.20 W 
+[2026-08-03T15:08:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 91 %, 94.18 W 
+[2026-08-03T15:13:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 92 %, 93.85 W 
+[2026-08-03T15:18:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 94.07 W 
+[2026-08-03T15:23:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 86.85 W 
+[2026-08-03T15:28:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 82.71 W 
+[2026-08-03T15:33:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 92 %, 87.61 W 
+[2026-08-03T15:38:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 82.96 W 
+[2026-08-03T15:43:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 91 %, 83.29 W 
+[2026-08-03T15:48:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 92 %, 85.95 W 
+[2026-08-03T15:53:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 91 %, 83.07 W 
+[2026-08-03T15:58:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 82.75 W 
+[2026-08-03T16:03:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 94.32 W 
+[2026-08-03T16:08:34Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 95.02 W 
+[2026-08-03T16:13:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:81, 91 %, 82.32 W 
+[2026-08-03T16:18:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:80, 79 %, 74.78 W 
+[2026-08-03T16:23:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 4: train=0.0180 val=0.0246 lr=2.71e-04 errs:0 gpu:77, 78 %, 80.49 W 
+[2026-08-03T16:28:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 92 %, 85.51 W 
+[2026-08-03T16:33:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 92.57 W 
+[2026-08-03T16:38:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 93 %, 94.24 W 
+[2026-08-03T16:43:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 88.61 W 
+[2026-08-03T16:48:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 82.90 W 
+[2026-08-03T16:53:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 92 %, 83.86 W 
+[2026-08-03T16:58:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 83.74 W 
+[2026-08-03T17:03:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 92 %, 94.36 W 
+[2026-08-03T17:08:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 83.73 W 
+[2026-08-03T17:13:35Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 92 %, 83.64 W 
+[2026-08-03T17:18:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 92 %, 83.84 W 
+[2026-08-03T17:23:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 83.65 W 
+[2026-08-03T17:28:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:82, 91 %, 85.42 W 
+[2026-08-03T17:33:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:81, 91 %, 96.35 W 
+[2026-08-03T17:38:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:82, 91 %, 84.38 W 
+[2026-08-03T17:43:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:82, 91 %, 85.58 W 
+[2026-08-03T17:48:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:82, 92 %, 85.06 W 
+[2026-08-03T17:53:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:82, 91 %, 95.29 W 
+[2026-08-03T17:58:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:78, 78 %, 79.92 W 
+[2026-08-03T18:03:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 5: train=0.0179 val=0.0249 lr=2.59e-04 errs:0 gpu:78, 78 %, 82.99 W 
+[2026-08-03T18:08:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 93.44 W 
+[2026-08-03T18:13:36Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 95.09 W 
+[2026-08-03T18:18:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 93 %, 94.79 W 
+[2026-08-03T18:23:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 92 %, 90.66 W 
+[2026-08-03T18:28:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 83.24 W 
+[2026-08-03T18:33:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 92 %, 87.18 W 
+[2026-08-03T18:38:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 95.85 W 
+[2026-08-03T18:43:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 94.34 W 
+[2026-08-03T18:48:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 92 %, 95.00 W 
+[2026-08-03T18:53:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 94.73 W 
+[2026-08-03T18:58:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 96.49 W 
+[2026-08-03T19:03:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 91.39 W 
+[2026-08-03T19:08:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 93.79 W 
+[2026-08-03T19:13:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 92 %, 94.67 W 
+[2026-08-03T19:18:37Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 84.60 W 
+[2026-08-03T19:23:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 92 %, 82.55 W 
+[2026-08-03T19:28:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:81, 91 %, 82.15 W 
+[2026-08-03T19:33:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:79, 78 %, 80.81 W 
+[2026-08-03T19:38:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 6: train=0.0178 val=0.0249 lr=2.46e-04 errs:0 gpu:78, 79 %, 80.28 W 
+[2026-08-03T19:43:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 82.94 W 
+[2026-08-03T19:48:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 93.73 W 
+[2026-08-03T19:53:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 83.14 W 
+[2026-08-03T19:58:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 89.78 W 
+[2026-08-03T20:03:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 93 %, 94.57 W 
+[2026-08-03T20:08:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 93.04 W 
+[2026-08-03T20:13:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 92 %, 85.50 W 
+[2026-08-03T20:18:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 90 %, 81.34 W 
+[2026-08-03T20:23:38Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 94.82 W 
+[2026-08-03T20:28:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 94.19 W 
+[2026-08-03T20:33:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 92 %, 94.67 W 
+[2026-08-03T20:38:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 92 %, 94.85 W 
+[2026-08-03T20:43:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 93 %, 94.95 W 
+[2026-08-03T20:48:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 92 %, 88.71 W 
+[2026-08-03T20:53:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 94.24 W 
+[2026-08-03T20:58:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 94.11 W 
+[2026-08-03T21:03:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:81, 91 %, 82.32 W 
+[2026-08-03T21:08:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:80, 78 %, 78.79 W 
+[2026-08-03T21:13:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 7: train=0.0176 val=0.0249 lr=2.30e-04 errs:0 gpu:77, 78 %, 73.26 W 
+[2026-08-03T21:18:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 92 %, 82.91 W 
+[2026-08-03T21:23:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 82.50 W 
+[2026-08-03T21:28:39Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 86.63 W 
+[2026-08-03T21:33:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 93 %, 91.34 W 
+[2026-08-03T21:38:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 93.82 W 
+[2026-08-03T21:43:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 92 %, 83.61 W 
+[2026-08-03T21:48:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 93.67 W 
+[2026-08-03T21:53:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 93 %, 94.24 W 
+[2026-08-03T21:58:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 92 %, 94.90 W 
+[2026-08-03T22:03:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 95.02 W 
+[2026-08-03T22:08:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 81.56 W 
+[2026-08-03T22:13:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 94.21 W 
+[2026-08-03T22:18:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 93.96 W 
+[2026-08-03T22:23:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:80, 91 %, 93.79 W 
+[2026-08-03T22:28:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 92 %, 82.98 W 
+[2026-08-03T22:33:40Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 83.93 W 
+[2026-08-03T22:38:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 91 %, 83.96 W 
+[2026-08-03T22:43:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:81, 92 %, 93.79 W 
+[2026-08-03T22:48:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 8: train=0.0175 val=0.0244 lr=2.14e-04 errs:0 gpu:78, 77 %, 81.88 W 
+[2026-08-03T22:53:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:78, 91 %, 84.87 W 
+[2026-08-03T22:58:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:82, 91 %, 88.23 W 
+[2026-08-03T23:03:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 84.18 W 
+[2026-08-03T23:08:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 96.10 W 
+[2026-08-03T23:13:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 90.54 W 
+[2026-08-03T23:18:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 90.71 W 
+[2026-08-03T23:23:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 92 %, 86.22 W 
+[2026-08-03T23:28:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 83.56 W 
+[2026-08-03T23:33:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 85.14 W 
+[2026-08-03T23:38:41Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 84.53 W 
+[2026-08-03T23:43:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:82, 92 %, 93.01 W 
+[2026-08-03T23:48:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 93.97 W 
+[2026-08-03T23:53:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:82, 91 %, 86.09 W 
+[2026-08-03T23:58:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 92 %, 96.08 W 
+[2026-08-04T00:03:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 95.40 W 
+[2026-08-04T00:08:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 91 %, 95.29 W 
+[2026-08-04T00:13:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:82, 93 %, 96.14 W 
+[2026-08-04T00:18:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:81, 92 %, 96.50 W 
+[2026-08-04T00:23:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:78, 78 %, 83.09 W 
+[2026-08-04T00:28:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 9: train=0.0174 val=0.0247 lr=1.96e-04 errs:0 gpu:78, 76 %, 83.65 W 
+[2026-08-04T00:33:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 83.39 W 
+[2026-08-04T00:38:42Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:80, 91 %, 93.75 W 
+[2026-08-04T00:43:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 92 %, 90.65 W 
+[2026-08-04T00:48:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 83.22 W 
+[2026-08-04T00:53:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:80, 91 %, 83.00 W 
+[2026-08-04T00:58:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:80, 91 %, 85.70 W 
+[2026-08-04T01:03:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 96.48 W 
+[2026-08-04T01:08:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 93 %, 85.56 W 
+[2026-08-04T01:13:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 94.68 W 
+[2026-08-04T01:18:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 90 %, 83.71 W 
+[2026-08-04T01:23:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 93 %, 91.58 W 
+[2026-08-04T01:28:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 90.36 W 
+[2026-08-04T01:33:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 88.86 W 
+[2026-08-04T01:38:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 91 %, 82.82 W 
+[2026-08-04T01:43:43Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 92 %, 83.39 W 
+[2026-08-04T01:48:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:81, 90 %, 93.20 W 
+[2026-08-04T01:53:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:80, 91 %, 82.75 W 
+[2026-08-04T01:58:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:78, 78 %, 84.31 W 
+[2026-08-04T02:03:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 10: train=0.0173 val=0.0244 lr=1.78e-04 errs:0 gpu:78, 78 %, 81.19 W 
+[2026-08-04T02:08:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 84.28 W 
+[2026-08-04T02:13:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 93.71 W 
+[2026-08-04T02:18:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 94.85 W 
+[2026-08-04T02:23:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 94.93 W 
+[2026-08-04T02:28:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 84.40 W 
+[2026-08-04T02:33:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 85.76 W 
+[2026-08-04T02:38:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 95.39 W 
+[2026-08-04T02:43:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 95.53 W 
+[2026-08-04T02:48:44Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 88.51 W 
+[2026-08-04T02:53:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 83.49 W 
+[2026-08-04T02:58:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 82.50 W 
+[2026-08-04T03:03:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 83.83 W 
+[2026-08-04T03:08:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 84.57 W 
+[2026-08-04T03:13:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 83.21 W 
+[2026-08-04T03:18:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 95.77 W 
+[2026-08-04T03:23:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 95.47 W 
+[2026-08-04T03:28:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 92 %, 86.35 W 
+[2026-08-04T03:33:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:81, 91 %, 94.59 W 
+[2026-08-04T03:38:45Z] suite:UP stage:ma 03 aug 2026 06:45:04 UTC TRAIN c16 FULL (advection + tendency + FSS loss) last:epoch 11: train=0.0172 val=0.0247 lr=1.59e-04 errs:0 gpu:78, 78 %, 82.93 W 
+[2026-08-04T03:43:45Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:79, 92 %, 82.49 W 
+[2026-08-04T03:48:45Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 91 %, 73.72 W 
+[2026-08-04T03:53:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:80, 92 %, 91.90 W 
+[2026-08-04T03:58:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 92 %, 84.11 W 
+[2026-08-04T04:03:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 92 %, 94.08 W 
+[2026-08-04T04:08:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 86 %, 93.98 W 
+[2026-08-04T04:13:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 93.05 W 
+[2026-08-04T04:18:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:82, 93 %, 84.55 W 
+[2026-08-04T04:23:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 84.16 W 
+[2026-08-04T04:28:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 92 %, 84.87 W 
+[2026-08-04T04:33:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 92 %, 85.94 W 
+[2026-08-04T04:38:46Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 85.84 W 
+[2026-08-04T04:43:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 92 %, 93.53 W 
+[2026-08-04T04:48:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 94.22 W 
+[2026-08-04T04:53:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 94.59 W 
+[2026-08-04T04:58:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 93.55 W 
+[2026-08-04T05:03:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 84.65 W 
+[2026-08-04T05:08:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:81, 93 %, 85.36 W 
+[2026-08-04T05:13:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0172 val=0.0245 lr=1.41e-04 errs:0 gpu:78, 81 %, 81.49 W 
+[2026-08-04T05:18:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:80, 93 %, 84.58 W 
+[2026-08-04T05:23:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 92 %, 84.92 W 
+[2026-08-04T05:28:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 93.28 W 
+[2026-08-04T05:33:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 85.29 W 
+[2026-08-04T05:38:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:80, 93 %, 93.56 W 
+[2026-08-04T05:43:47Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 92.72 W 
+[2026-08-04T05:48:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 94 %, 84.98 W 
+[2026-08-04T05:53:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 84.45 W 
+[2026-08-04T05:58:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 84.70 W 
+[2026-08-04T06:03:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 94.11 W 
+[2026-08-04T06:08:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 87.09 W 
+[2026-08-04T06:13:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 94.09 W 
+[2026-08-04T06:18:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 84.80 W 
+[2026-08-04T06:23:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 84.25 W 
+[2026-08-04T06:28:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 93.56 W 
+[2026-08-04T06:33:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 92 %, 84.35 W 
+[2026-08-04T06:38:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:81, 93 %, 88.66 W 
+[2026-08-04T06:43:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:79, 81 %, 82.47 W 
+[2026-08-04T06:48:48Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 0: train=0.0230 val=0.0284 lr=2.99e-04 errs:0 gpu:78, 81 %, 75.08 W 
+[2026-08-04T06:53:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 90.73 W 
+[2026-08-04T06:58:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 93.14 W 
+[2026-08-04T07:03:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 94.27 W 
+[2026-08-04T07:08:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 85.10 W 
+[2026-08-04T07:13:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 92 %, 88.36 W 
+[2026-08-04T07:18:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 92 %, 86.31 W 
+[2026-08-04T07:23:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 84.52 W 
+[2026-08-04T07:28:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 93.36 W 
+[2026-08-04T07:33:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 93.56 W 
+[2026-08-04T07:38:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 84.59 W 
+[2026-08-04T07:43:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 84.90 W 
+[2026-08-04T07:48:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:80, 93 %, 84.75 W 
+[2026-08-04T07:53:49Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 85.15 W 
+[2026-08-04T07:58:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 93.70 W 
+[2026-08-04T08:03:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 92 %, 93.02 W 
+[2026-08-04T08:08:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 93.82 W 
+[2026-08-04T08:13:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:81, 93 %, 86.63 W 
+[2026-08-04T08:18:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:78, 81 %, 78.90 W 
+[2026-08-04T08:23:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 1: train=0.0207 val=0.0268 lr=2.95e-04 errs:0 gpu:78, 80 %, 80.75 W 
+[2026-08-04T08:28:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 94.09 W 
+[2026-08-04T08:33:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 88.28 W 
+[2026-08-04T08:38:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:80, 93 %, 93.60 W 
+[2026-08-04T08:43:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:80, 92 %, 84.86 W 
+[2026-08-04T08:48:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 93.18 W 
+[2026-08-04T08:53:50Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 93.56 W 
+[2026-08-04T08:58:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 92 %, 94.04 W 
+[2026-08-04T09:03:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 93.60 W 
+[2026-08-04T09:08:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 84.55 W 
+[2026-08-04T09:13:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 83.92 W 
+[2026-08-04T09:18:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 92 %, 93.11 W 
+[2026-08-04T09:23:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 90.81 W 
+[2026-08-04T09:28:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 92 %, 93.94 W 
+[2026-08-04T09:33:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 89.12 W 
+[2026-08-04T09:38:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 93.54 W 
+[2026-08-04T09:43:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 93 %, 93.68 W 
+[2026-08-04T09:48:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:81, 92 %, 94.53 W 
+[2026-08-04T09:53:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:78, 81 %, 79.69 W 
+[2026-08-04T09:58:51Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 2: train=0.0202 val=0.0265 lr=2.89e-04 errs:0 gpu:78, 81 %, 84.03 W 
+[2026-08-04T10:03:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:82, 93 %, 84.64 W 
+[2026-08-04T10:08:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 84.50 W 
+[2026-08-04T10:13:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 92 %, 94.55 W 
+[2026-08-04T10:18:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 84.14 W 
+[2026-08-04T10:23:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 94.36 W 
+[2026-08-04T10:28:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 92 %, 95.20 W 
+[2026-08-04T10:33:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 92 %, 85.07 W 
+[2026-08-04T10:38:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 93.85 W 
+[2026-08-04T10:43:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:82, 93 %, 93.99 W 
+[2026-08-04T10:48:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 94 %, 94.16 W 
+[2026-08-04T10:53:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 89.13 W 
+[2026-08-04T10:58:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 94 %, 84.59 W 
+[2026-08-04T11:03:52Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 93.20 W 
+[2026-08-04T11:08:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 93.88 W 
+[2026-08-04T11:13:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:82, 93 %, 85.21 W 
+[2026-08-04T11:18:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:82, 93 %, 94.22 W 
+[2026-08-04T11:23:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:81, 93 %, 94.18 W 
+[2026-08-04T11:28:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 3: train=0.0199 val=0.0268 lr=2.81e-04 errs:0 gpu:79, 81 %, 84.90 W 
+[2026-08-04T11:33:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 92 %, 93.14 W 
+[2026-08-04T11:38:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 87.69 W 
+[2026-08-04T11:43:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 94.40 W 
+[2026-08-04T11:48:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 86.35 W 
+[2026-08-04T11:53:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 92 %, 94.57 W 
+[2026-08-04T11:58:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 87.96 W 
+[2026-08-04T12:03:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 89.60 W 
+[2026-08-04T12:08:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 85.27 W 
+[2026-08-04T12:13:53Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 95.17 W 
+[2026-08-04T12:18:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 85.25 W 
+[2026-08-04T12:23:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 85.89 W 
+[2026-08-04T12:28:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 93.43 W 
+[2026-08-04T12:33:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 86.40 W 
+[2026-08-04T12:38:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 92 %, 85.00 W 
+[2026-08-04T12:43:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 85.81 W 
+[2026-08-04T12:48:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:82, 93 %, 84.94 W 
+[2026-08-04T12:53:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 93 %, 93.78 W 
+[2026-08-04T12:58:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:81, 81 %, 85.70 W 
+[2026-08-04T13:03:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 4: train=0.0197 val=0.0265 lr=2.71e-04 errs:0 gpu:79, 80 %, 84.94 W 
+[2026-08-04T13:08:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 92 %, 85.53 W 
+[2026-08-04T13:13:54Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 85.84 W 
+[2026-08-04T13:18:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 86.07 W 
+[2026-08-04T13:23:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:81, 92 %, 93.42 W 
+[2026-08-04T13:28:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 94.55 W 
+[2026-08-04T13:33:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 84.47 W 
+[2026-08-04T13:38:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 94.65 W 
+[2026-08-04T13:43:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 92 %, 94.39 W 
+[2026-08-04T13:48:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:81, 93 %, 85.56 W 
+[2026-08-04T13:53:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:81, 93 %, 87.88 W 
+[2026-08-04T13:58:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 94 %, 86.57 W 
+[2026-08-04T14:03:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 92.24 W 
+[2026-08-04T14:08:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 85.65 W 
+[2026-08-04T14:13:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 94.13 W 
+[2026-08-04T14:18:55Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 94.04 W 
+[2026-08-04T14:23:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 94.79 W 
+[2026-08-04T14:28:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:82, 93 %, 89.38 W 
+[2026-08-04T14:33:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:80, 81 %, 79.19 W 
+[2026-08-04T14:38:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 5: train=0.0195 val=0.0264 lr=2.59e-04 errs:0 gpu:79, 81 %, 83.84 W 
+[2026-08-04T14:43:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.08 W 
+[2026-08-04T14:48:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.87 W 
+[2026-08-04T14:53:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:81, 92 %, 85.72 W 
+[2026-08-04T14:58:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.28 W 
+[2026-08-04T15:03:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 92 %, 93.96 W 
+[2026-08-04T15:08:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 90.10 W 
+[2026-08-04T15:13:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.84 W 
+[2026-08-04T15:18:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:81, 93 %, 94.36 W 
+[2026-08-04T15:23:56Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:81, 94 %, 85.40 W 
+[2026-08-04T15:28:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 84.87 W 
+[2026-08-04T15:33:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.98 W 
+[2026-08-04T15:38:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 92 %, 85.67 W 
+[2026-08-04T15:43:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 94.73 W 
+[2026-08-04T15:48:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 92 %, 93.85 W 
+[2026-08-04T15:53:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.47 W 
+[2026-08-04T15:58:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 92 %, 95.15 W 
+[2026-08-04T16:03:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:82, 93 %, 85.63 W 
+[2026-08-04T16:08:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:79, 81 %, 85.28 W 
+[2026-08-04T16:13:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 6: train=0.0194 val=0.0257 lr=2.46e-04 errs:0 gpu:79, 80 %, 76.42 W 
+[2026-08-04T16:18:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 85.60 W 
+[2026-08-04T16:23:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 87.69 W 
+[2026-08-04T16:28:57Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 94.95 W 
+[2026-08-04T16:33:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 92 %, 95.50 W 
+[2026-08-04T16:38:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 86.63 W 
+[2026-08-04T16:43:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 90.64 W 
+[2026-08-04T16:48:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 94.59 W 
+[2026-08-04T16:53:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 95.19 W 
+[2026-08-04T16:58:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:82, 93 %, 93.01 W 
+[2026-08-04T17:03:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 96.48 W 
+[2026-08-04T17:08:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 96.13 W 
+[2026-08-04T17:13:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 88.87 W 
+[2026-08-04T17:18:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 97.31 W 
+[2026-08-04T17:23:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 95.59 W 
+[2026-08-04T17:28:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 96.58 W 
+[2026-08-04T17:33:58Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 97.13 W 
+[2026-08-04T17:38:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:83, 93 %, 97.44 W 
+[2026-08-04T17:43:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 7: train=0.0193 val=0.0258 lr=2.30e-04 errs:0 gpu:80, 80 %, 87.44 W 
+[2026-08-04T17:48:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:82, 92 %, 95.80 W 
+[2026-08-04T17:53:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 86.17 W 
+[2026-08-04T17:58:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 87.25 W 
+[2026-08-04T18:03:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 90.61 W 
+[2026-08-04T18:08:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 92 %, 96.91 W 
+[2026-08-04T18:13:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 87.53 W 
+[2026-08-04T18:18:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 96.02 W 
+[2026-08-04T18:23:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 97.57 W 
+[2026-08-04T18:28:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 96.36 W 
+[2026-08-04T18:33:59Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 96.67 W 
+[2026-08-04T18:39:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:82, 93 %, 87.32 W 
+[2026-08-04T18:44:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 90.12 W 
+[2026-08-04T18:49:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 94.40 W 
+[2026-08-04T18:54:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 96.05 W 
+[2026-08-04T18:59:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 92 %, 86.90 W 
+[2026-08-04T19:04:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 92 %, 86.41 W 
+[2026-08-04T19:09:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:83, 93 %, 87.11 W 
+[2026-08-04T19:14:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:81, 93 %, 84.58 W 
+[2026-08-04T19:19:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 8: train=0.0192 val=0.0257 lr=2.14e-04 errs:0 gpu:80, 81 %, 81.75 W 
+[2026-08-04T19:24:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 95.12 W 
+[2026-08-04T19:29:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 92 %, 86.03 W 
+[2026-08-04T19:34:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 95.24 W 
+[2026-08-04T19:39:00Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 94.60 W 
+[2026-08-04T19:44:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 86.25 W 
+[2026-08-04T19:49:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 90.90 W 
+[2026-08-04T19:54:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 86.25 W 
+[2026-08-04T19:59:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 94.86 W 
+[2026-08-04T20:04:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 86.22 W 
+[2026-08-04T20:09:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 87.46 W 
+[2026-08-04T20:14:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 85.69 W 
+[2026-08-04T20:19:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 94.76 W 
+[2026-08-04T20:24:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 95.10 W 
+[2026-08-04T20:29:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 95.27 W 
+[2026-08-04T20:34:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 93 %, 94.57 W 
+[2026-08-04T20:39:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 92 %, 86.20 W 
+[2026-08-04T20:44:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:82, 92 %, 94.18 W 
+[2026-08-04T20:49:01Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:80, 80 %, 87.08 W 
+[2026-08-04T20:54:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 9: train=0.0191 val=0.0259 lr=1.96e-04 errs:0 gpu:79, 80 %, 83.54 W 
+[2026-08-04T20:59:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 85.91 W 
+[2026-08-04T21:04:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 86.39 W 
+[2026-08-04T21:09:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 86.29 W 
+[2026-08-04T21:14:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 94.90 W 
+[2026-08-04T21:19:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 86.35 W 
+[2026-08-04T21:24:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 88.37 W 
+[2026-08-04T21:29:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:83, 92 %, 88.75 W 
+[2026-08-04T21:34:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 92 %, 96.84 W 
+[2026-08-04T21:39:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 87.66 W 
+[2026-08-04T21:44:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 96.41 W 
+[2026-08-04T21:49:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:83, 93 %, 96.24 W 
+[2026-08-04T21:54:02Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 92 %, 96.87 W 
+[2026-08-04T21:59:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:83, 93 %, 87.85 W 
+[2026-08-04T22:04:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 90.81 W 
+[2026-08-04T22:09:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 87.94 W 
+[2026-08-04T22:14:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 96.10 W 
+[2026-08-04T22:19:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:82, 93 %, 96.96 W 
+[2026-08-04T22:24:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:80, 80 %, 82.67 W 
+[2026-08-04T22:29:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 10: train=0.0190 val=0.0257 lr=1.78e-04 errs:0 gpu:80, 81 %, 78.18 W 
+[2026-08-04T22:34:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 87.28 W 
+[2026-08-04T22:39:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 96.17 W 
+[2026-08-04T22:44:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 95.89 W 
+[2026-08-04T22:49:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 96.71 W 
+[2026-08-04T22:54:03Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 97.11 W 
+[2026-08-04T22:59:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 94 %, 89.02 W 
+[2026-08-04T23:04:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:83, 92 %, 88.22 W 
+[2026-08-04T23:09:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 97.24 W 
+[2026-08-04T23:14:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 88.68 W 
+[2026-08-04T23:19:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 86.57 W 
+[2026-08-04T23:24:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 90.23 W 
+[2026-08-04T23:29:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 92 %, 96.11 W 
+[2026-08-04T23:34:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 95.15 W 
+[2026-08-04T23:39:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 92 %, 89.11 W 
+[2026-08-04T23:44:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 95.50 W 
+[2026-08-04T23:49:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 84.91 W 
+[2026-08-04T23:54:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:82, 93 %, 87.27 W 
+[2026-08-04T23:59:04Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 11: train=0.0189 val=0.0261 lr=1.59e-04 errs:0 gpu:80, 81 %, 85.95 W 
+[2026-08-05T00:04:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 94.73 W 
+[2026-08-05T00:09:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 92 %, 98.21 W 
+[2026-08-05T00:14:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 92 %, 97.05 W 
+[2026-08-05T00:19:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 92 %, 94.92 W 
+[2026-08-05T00:24:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.00 W 
+[2026-08-05T00:29:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.13 W 
+[2026-08-05T00:34:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 95.98 W 
+[2026-08-05T00:39:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 84.38 W 
+[2026-08-05T00:44:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.29 W 
+[2026-08-05T00:49:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 96.47 W 
+[2026-08-05T00:54:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 97.07 W 
+[2026-08-05T00:59:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 85.69 W 
+[2026-08-05T01:04:05Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.77 W 
+[2026-08-05T01:09:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.68 W 
+[2026-08-05T01:14:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 86.79 W 
+[2026-08-05T01:19:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 93 %, 87.47 W 
+[2026-08-05T01:24:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:82, 92 %, 86.39 W 
+[2026-08-05T01:29:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:80, 81 %, 87.00 W 
+[2026-08-05T01:34:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 12: train=0.0188 val=0.0258 lr=1.41e-04 errs:0 gpu:79, 82 %, 77.45 W 
+[2026-08-05T01:39:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 92 %, 85.35 W 
+[2026-08-05T01:44:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 95.95 W 
+[2026-08-05T01:49:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 96.49 W 
+[2026-08-05T01:54:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 96.89 W 
+[2026-08-05T01:59:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 86.94 W 
+[2026-08-05T02:04:06Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 97.01 W 
+[2026-08-05T02:09:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 87.02 W 
+[2026-08-05T02:14:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 96.00 W 
+[2026-08-05T02:19:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 92 %, 95.79 W 
+[2026-08-05T02:24:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 92 %, 96.61 W 
+[2026-08-05T02:29:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 86.90 W 
+[2026-08-05T02:34:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 86.88 W 
+[2026-08-05T02:39:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 94.54 W 
+[2026-08-05T02:44:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 86.13 W 
+[2026-08-05T02:49:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 92 %, 96.38 W 
+[2026-08-05T02:54:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 92 %, 86.61 W 
+[2026-08-05T02:59:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:82, 93 %, 96.91 W 
+[2026-08-05T03:04:07Z] suite:UP stage:di 04 aug 2026 03:42:45 UTC TRAIN c16 NO-ADV (tendency + FSS loss) last:epoch 13: train=0.0188 val=0.0257 lr=1.22e-04 errs:0 gpu:80, 81 %, 81.93 W 
+[2026-08-05T03:09:07Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:75, 6 %, 45.46 W 
+[2026-08-05T03:14:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 88 %, 79.47 W 
+[2026-08-05T03:19:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:80, 88 %, 93.62 W 
+[2026-08-05T03:24:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 80.05 W 
+[2026-08-05T03:29:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 88.00 W 
+[2026-08-05T03:34:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 88 %, 81.13 W 
+[2026-08-05T03:39:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 90 %, 86.52 W 
+[2026-08-05T03:44:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 83.21 W 
+[2026-08-05T03:49:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 92.10 W 
+[2026-08-05T03:54:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 82.31 W 
+[2026-08-05T03:59:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 95.00 W 
+[2026-08-05T04:04:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 92 %, 94.75 W 
+[2026-08-05T04:09:08Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 83.13 W 
+[2026-08-05T04:14:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 94.42 W 
+[2026-08-05T04:19:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 93.81 W 
+[2026-08-05T04:24:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 92 %, 83.90 W 
+[2026-08-05T04:29:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:81, 91 %, 93.67 W 
+[2026-08-05T04:34:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:80, 91 %, 91.96 W 
+[2026-08-05T04:39:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:78, 79 %, 82.69 W 
+[2026-08-05T04:44:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0187 val=0.0258 lr=1.04e-04 errs:0 gpu:77, 77 %, 80.88 W 
+[2026-08-05T04:49:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 84.35 W 
+[2026-08-05T04:54:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 83.51 W 
+[2026-08-05T04:59:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 84.24 W 
+[2026-08-05T05:04:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 83.11 W 
+[2026-08-05T05:09:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 83.75 W 
+[2026-08-05T05:14:09Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 82.36 W 
+[2026-08-05T05:19:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 81.01 W 
+[2026-08-05T05:24:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 94.71 W 
+[2026-08-05T05:29:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:80, 91 %, 93.42 W 
+[2026-08-05T05:34:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:80, 92 %, 84.68 W 
+[2026-08-05T05:39:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 93.77 W 
+[2026-08-05T05:44:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 93.87 W 
+[2026-08-05T05:49:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 83.61 W 
+[2026-08-05T05:54:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 92 %, 81.96 W 
+[2026-08-05T05:59:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 91 %, 94.39 W 
+[2026-08-05T06:04:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:80, 91 %, 88.72 W 
+[2026-08-05T06:09:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:81, 92 %, 94.41 W 
+[2026-08-05T06:14:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:78, 77 %, 79.72 W 
+[2026-08-05T06:19:10Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 0: train=0.0173 val=0.0221 lr=2.99e-04 errs:0 gpu:78, 79 %, 74.52 W 
+[2026-08-05T06:24:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 83.70 W 
+[2026-08-05T06:29:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:80, 92 %, 94.16 W 
+[2026-08-05T06:34:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 93.69 W 
+[2026-08-05T06:39:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 81.93 W 
+[2026-08-05T06:44:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 89.25 W 
+[2026-08-05T06:49:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 92 %, 83.08 W 
+[2026-08-05T06:54:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 93 %, 94.07 W 
+[2026-08-05T06:59:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 93.22 W 
+[2026-08-05T07:04:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 82.55 W 
+[2026-08-05T07:09:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 82.34 W 
+[2026-08-05T07:14:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 82.32 W 
+[2026-08-05T07:19:11Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 84.03 W 
+[2026-08-05T07:24:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 94.91 W 
+[2026-08-05T07:29:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 83.86 W 
+[2026-08-05T07:34:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 82.66 W 
+[2026-08-05T07:39:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 83.46 W 
+[2026-08-05T07:44:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:81, 91 %, 95.97 W 
+[2026-08-05T07:49:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:78, 78 %, 74.87 W 
+[2026-08-05T07:54:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 1: train=0.0162 val=0.0220 lr=2.95e-04 errs:0 gpu:77, 76 %, 80.78 W 
+[2026-08-05T07:59:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 93.12 W 
+[2026-08-05T08:04:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 91.34 W 
+[2026-08-05T08:09:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 94.92 W 
+[2026-08-05T08:14:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 84.31 W 
+[2026-08-05T08:19:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:80, 91 %, 89.59 W 
+[2026-08-05T08:24:12Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:80, 92 %, 84.55 W 
+[2026-08-05T08:29:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 94.67 W 
+[2026-08-05T08:34:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 81.88 W 
+[2026-08-05T08:39:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 83.82 W 
+[2026-08-05T08:44:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 85.28 W 
+[2026-08-05T08:49:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 87.38 W 
+[2026-08-05T08:54:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 86.33 W 
+[2026-08-05T08:59:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 94.91 W 
+[2026-08-05T09:04:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 96.51 W 
+[2026-08-05T09:09:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 91 %, 92.71 W 
+[2026-08-05T09:14:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 92.01 W 
+[2026-08-05T09:19:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:81, 92 %, 83.63 W 
+[2026-08-05T09:24:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:78, 77 %, 74.59 W 
+[2026-08-05T09:29:13Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 2: train=0.0159 val=0.0219 lr=2.89e-04 errs:0 gpu:78, 78 %, 78.18 W 
+[2026-08-05T09:34:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 84.40 W 
+[2026-08-05T09:39:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 92 %, 84.09 W 
+[2026-08-05T09:44:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 92 %, 82.40 W 
+[2026-08-05T09:49:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 92 %, 84.22 W 
+[2026-08-05T09:54:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 94.61 W 
+[2026-08-05T09:59:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 84.29 W 
+[2026-08-05T10:04:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 93.27 W 
+[2026-08-05T10:09:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 96.29 W 
+[2026-08-05T10:14:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 94.15 W 
+[2026-08-05T10:19:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 97.00 W 
+[2026-08-05T10:24:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 90.24 W 
+[2026-08-05T10:29:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 92 %, 89.46 W 
+[2026-08-05T10:34:14Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 93 %, 94.80 W 
+[2026-08-05T10:39:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 96.60 W 
+[2026-08-05T10:44:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 92 %, 83.07 W 
+[2026-08-05T10:49:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 80.61 W 
+[2026-08-05T10:54:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:81, 91 %, 94.59 W 
+[2026-08-05T10:59:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:78, 78 %, 77.63 W 
+[2026-08-05T11:04:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 3: train=0.0157 val=0.0215 lr=2.81e-04 errs:0 gpu:78, 78 %, 81.47 W 
+[2026-08-05T11:09:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:82, 91 %, 83.15 W 
+[2026-08-05T11:14:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 92 %, 86.89 W 
+[2026-08-05T11:19:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 92 %, 84.04 W 
+[2026-08-05T11:24:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 81.97 W 
+[2026-08-05T11:29:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:80, 91 %, 83.48 W 
+[2026-08-05T11:34:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 80.86 W 
+[2026-08-05T11:39:15Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 92 %, 94.98 W 
+[2026-08-05T11:44:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:82, 90 %, 81.36 W 
+[2026-08-05T11:49:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 83.45 W 
+[2026-08-05T11:54:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 94.91 W 
+[2026-08-05T11:59:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 83.49 W 
+[2026-08-05T12:04:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 84.17 W 
+[2026-08-05T12:09:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 94.67 W 
+[2026-08-05T12:14:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 83.84 W 
+[2026-08-05T12:19:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 82.53 W 
+[2026-08-05T12:24:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 90 %, 94.87 W 
+[2026-08-05T12:29:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:81, 91 %, 83.79 W 
+[2026-08-05T12:34:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:78, 77 %, 82.14 W 
+[2026-08-05T12:39:16Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 4: train=0.0156 val=0.0217 lr=2.71e-04 errs:0 gpu:78, 77 %, 80.65 W 
+[2026-08-05T12:44:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 93 %, 95.01 W 
+[2026-08-05T12:49:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 95.06 W 
+[2026-08-05T12:54:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 90.04 W 
+[2026-08-05T12:59:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 94.68 W 
+[2026-08-05T13:04:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 81.83 W 
+[2026-08-05T13:09:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 83.58 W 
+[2026-08-05T13:14:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 92 %, 94.83 W 
+[2026-08-05T13:19:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 95.63 W 
+[2026-08-05T13:24:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 95.31 W 
+[2026-08-05T13:29:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 84.13 W 
+[2026-08-05T13:34:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 95.83 W 
+[2026-08-05T13:39:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 94.53 W 
+[2026-08-05T13:44:17Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 83.54 W 
+[2026-08-05T13:49:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 94.46 W 
+[2026-08-05T13:54:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:82, 91 %, 83.90 W 
+[2026-08-05T13:59:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 94.96 W 
+[2026-08-05T14:04:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:81, 91 %, 95.60 W 
+[2026-08-05T14:09:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:78, 77 %, 83.58 W 
+[2026-08-05T14:14:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 5: train=0.0154 val=0.0216 lr=2.59e-04 errs:0 gpu:78, 78 %, 82.57 W 
+[2026-08-05T14:19:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 84.89 W 
+[2026-08-05T14:24:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 86.99 W 
+[2026-08-05T14:29:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 96.50 W 
+[2026-08-05T14:34:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 94.45 W 
+[2026-08-05T14:39:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 95.15 W 
+[2026-08-05T14:44:18Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:81, 91 %, 95.24 W 
+[2026-08-05T14:49:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 89.99 W 
+[2026-08-05T14:54:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 92 %, 83.94 W 
+[2026-08-05T14:59:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 95.29 W 
+[2026-08-05T15:04:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 90 %, 83.36 W 
+[2026-08-05T15:09:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 84.43 W 
+[2026-08-05T15:14:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 84.60 W 
+[2026-08-05T15:19:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 91.16 W 
+[2026-08-05T15:24:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 93.93 W 
+[2026-08-05T15:29:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 91 %, 84.57 W 
+[2026-08-05T15:34:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:82, 92 %, 84.32 W 
+[2026-08-05T15:39:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:81, 91 %, 83.21 W 
+[2026-08-05T15:44:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:78, 78 %, 82.10 W 
+[2026-08-05T15:49:19Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 6: train=0.0153 val=0.0214 lr=2.46e-04 errs:0 gpu:79, 77 %, 81.88 W 
+[2026-08-05T15:54:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 94.35 W 
+[2026-08-05T15:59:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 94.86 W 
+[2026-08-05T16:04:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 95.31 W 
+[2026-08-05T16:09:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 91.09 W 
+[2026-08-05T16:14:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 94.94 W 
+[2026-08-05T16:19:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 94.08 W 
+[2026-08-05T16:24:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 83.94 W 
+[2026-08-05T16:29:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 90 %, 95.25 W 
+[2026-08-05T16:34:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 95.71 W 
+[2026-08-05T16:39:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 86.18 W 
+[2026-08-05T16:44:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 85.35 W 
+[2026-08-05T16:49:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 90.90 W 
+[2026-08-05T16:54:20Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 95.29 W 
+[2026-08-05T16:59:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 95.41 W 
+[2026-08-05T17:04:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 88.52 W 
+[2026-08-05T17:09:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 92 %, 84.13 W 
+[2026-08-05T17:14:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:82, 91 %, 84.46 W 
+[2026-08-05T17:19:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:79, 77 %, 81.76 W 
+[2026-08-05T17:24:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 7: train=0.0152 val=0.0218 lr=2.30e-04 errs:0 gpu:79, 78 %, 82.07 W 
+[2026-08-05T17:29:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 92 %, 83.50 W 
+[2026-08-05T17:34:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 84.07 W 
+[2026-08-05T17:39:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 83.58 W 
+[2026-08-05T17:44:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 93 %, 85.82 W 
+[2026-08-05T17:49:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 89.72 W 
+[2026-08-05T17:54:21Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 92 %, 84.74 W 
+[2026-08-05T17:59:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 84.64 W 
+[2026-08-05T18:04:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 92 %, 81.52 W 
+[2026-08-05T18:09:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:83, 91 %, 84.60 W 
+[2026-08-05T18:14:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 92 %, 84.05 W 
+[2026-08-05T18:19:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 92 %, 95.43 W 
+[2026-08-05T18:24:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 83.59 W 
+[2026-08-05T18:29:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 85.27 W 
+[2026-08-05T18:34:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 84.67 W 
+[2026-08-05T18:39:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 95.02 W 
+[2026-08-05T18:44:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 91 %, 83.46 W 
+[2026-08-05T18:49:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:82, 90 %, 95.77 W 
+[2026-08-05T18:54:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:79, 78 %, 78.27 W 
+[2026-08-05T18:59:22Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 8: train=0.0152 val=0.0212 lr=2.14e-04 errs:0 gpu:79, 78 %, 82.57 W 
+[2026-08-05T19:04:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:82, 91 %, 84.08 W 
+[2026-08-05T19:09:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:82, 92 %, 85.50 W 
+[2026-08-05T19:14:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.16 W 
+[2026-08-05T19:19:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 96.33 W 
+[2026-08-05T19:24:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 90 %, 91.82 W 
+[2026-08-05T19:29:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.87 W 
+[2026-08-05T19:34:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 88.32 W 
+[2026-08-05T19:39:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 92 %, 84.51 W 
+[2026-08-05T19:44:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.40 W 
+[2026-08-05T19:49:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.94 W 
+[2026-08-05T19:54:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 86.06 W 
+[2026-08-05T19:59:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 92 %, 87.66 W 
+[2026-08-05T20:04:23Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.47 W 
+[2026-08-05T20:09:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 96.89 W 
+[2026-08-05T20:14:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:82, 91 %, 84.96 W 
+[2026-08-05T20:19:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 91 %, 97.44 W 
+[2026-08-05T20:24:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:83, 90 %, 92.02 W 
+[2026-08-05T20:29:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:79, 76 %, 81.58 W 
+[2026-08-05T20:34:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 9: train=0.0151 val=0.0221 lr=1.96e-04 errs:0 gpu:79, 77 %, 76.03 W 
+[2026-08-05T20:39:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:83, 91 %, 96.44 W 
+[2026-08-05T20:44:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 92 %, 88.52 W 
+[2026-08-05T20:49:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 97.22 W 
+[2026-08-05T20:54:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 85.96 W 
+[2026-08-05T20:59:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 97.28 W 
+[2026-08-05T21:04:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 86.02 W 
+[2026-08-05T21:09:24Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 92 %, 85.95 W 
+[2026-08-05T21:14:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 92 %, 96.64 W 
+[2026-08-05T21:19:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 96.38 W 
+[2026-08-05T21:24:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 86.84 W 
+[2026-08-05T21:29:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 95.66 W 
+[2026-08-05T21:34:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 90.39 W 
+[2026-08-05T21:39:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 92 %, 96.17 W 
+[2026-08-05T21:44:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 90.68 W 
+[2026-08-05T21:49:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 83.35 W 
+[2026-08-05T21:54:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 88.43 W 
+[2026-08-05T21:59:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:82, 91 %, 85.40 W 
+[2026-08-05T22:04:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 10: train=0.0150 val=0.0214 lr=1.78e-04 errs:0 gpu:78, 77 %, 83.49 W 
+[2026-08-05T22:09:25Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:79, 69 %, 82.92 W 
+[2026-08-05T22:14:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 84.85 W 
+[2026-08-05T22:19:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 87.06 W 
+[2026-08-05T22:24:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 97.13 W 
+[2026-08-05T22:29:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 85.40 W 
+[2026-08-05T22:34:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 96.38 W 
+[2026-08-05T22:39:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:81, 92 %, 96.60 W 
+[2026-08-05T22:44:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 96.78 W 
+[2026-08-05T22:49:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 84.78 W 
+[2026-08-05T22:54:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 96.12 W 
+[2026-08-05T22:59:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:81, 92 %, 85.01 W 
+[2026-08-05T23:04:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 89.25 W 
+[2026-08-05T23:09:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 84.88 W 
+[2026-08-05T23:14:26Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 90 %, 96.96 W 
+[2026-08-05T23:19:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 96.07 W 
+[2026-08-05T23:24:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 91 %, 84.80 W 
+[2026-08-05T23:29:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:81, 91 %, 98.08 W 
+[2026-08-05T23:34:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:82, 92 %, 96.54 W 
+[2026-08-05T23:39:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 11: train=0.0149 val=0.0212 lr=1.59e-04 errs:0 gpu:79, 76 %, 82.35 W 
+[2026-08-05T23:44:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:80, 91 %, 95.14 W 
+[2026-08-05T23:49:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 96.11 W 
+[2026-08-05T23:54:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 93 %, 96.96 W 
+[2026-08-05T23:59:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 95.45 W 
+[2026-08-06T00:04:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:81, 91 %, 84.88 W 
+[2026-08-06T00:09:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 85.42 W 
+[2026-08-06T00:14:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 96.75 W 
+[2026-08-06T00:19:27Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 92 %, 96.68 W 
+[2026-08-06T00:24:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 83.84 W 
+[2026-08-06T00:29:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 85.47 W 
+[2026-08-06T00:34:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 96.06 W 
+[2026-08-06T00:39:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 90 %, 96.37 W 
+[2026-08-06T00:44:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 93.56 W 
+[2026-08-06T00:49:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:81, 91 %, 88.49 W 
+[2026-08-06T00:54:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:82, 91 %, 84.78 W 
+[2026-08-06T00:59:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:81, 91 %, 96.82 W 
+[2026-08-06T01:04:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:81, 91 %, 96.21 W 
+[2026-08-06T01:09:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:81, 92 %, 96.95 W 
+[2026-08-06T01:14:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 12: train=0.0149 val=0.0214 lr=1.41e-04 errs:0 gpu:78, 78 %, 83.93 W 
+[2026-08-06T01:19:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 94.20 W 
+[2026-08-06T01:24:28Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 85.51 W 
+[2026-08-06T01:29:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 90 %, 83.77 W 
+[2026-08-06T01:34:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 92.80 W 
+[2026-08-06T01:39:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 96.19 W 
+[2026-08-06T01:44:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:82, 91 %, 85.47 W 
+[2026-08-06T01:49:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:82, 91 %, 96.47 W 
+[2026-08-06T01:54:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 90 %, 84.79 W 
+[2026-08-06T01:59:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 84.16 W 
+[2026-08-06T02:04:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 96.12 W 
+[2026-08-06T02:09:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 84.76 W 
+[2026-08-06T02:14:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 95.53 W 
+[2026-08-06T02:19:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 92 %, 95.31 W 
+[2026-08-06T02:24:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 95.77 W 
+[2026-08-06T02:29:29Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 84.06 W 
+[2026-08-06T02:34:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 92 %, 92.56 W 
+[2026-08-06T02:39:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 96.54 W 
+[2026-08-06T02:44:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:81, 91 %, 92.01 W 
+[2026-08-06T02:49:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 13: train=0.0148 val=0.0211 lr=1.22e-04 errs:0 gpu:78, 78 %, 82.89 W 
+[2026-08-06T02:54:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:80, 91 %, 89.05 W 
+[2026-08-06T02:59:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 92 %, 83.16 W 
+[2026-08-06T03:04:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 88.93 W 
+[2026-08-06T03:09:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:80, 91 %, 83.51 W 
+[2026-08-06T03:14:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 82.39 W 
+[2026-08-06T03:19:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 94.53 W 
+[2026-08-06T03:24:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 93 %, 93.68 W 
+[2026-08-06T03:29:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 82.16 W 
+[2026-08-06T03:34:30Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 82.83 W 
+[2026-08-06T03:39:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 93 %, 94.48 W 
+[2026-08-06T03:44:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 94.27 W 
+[2026-08-06T03:49:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:80, 93 %, 83.52 W 
+[2026-08-06T03:54:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 94.09 W 
+[2026-08-06T03:59:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 83.69 W 
+[2026-08-06T04:04:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:80, 93 %, 82.69 W 
+[2026-08-06T04:09:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:80, 91 %, 83.51 W 
+[2026-08-06T04:14:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:81, 91 %, 95.43 W 
+[2026-08-06T04:19:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:79, 79 %, 78.33 W 
+[2026-08-06T04:24:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 14: train=0.0147 val=0.0218 lr=1.04e-04 errs:0 gpu:77, 78 %, 77.02 W 
+[2026-08-06T04:29:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 92 %, 95.00 W 
+[2026-08-06T04:34:31Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 91 %, 95.57 W 
+[2026-08-06T04:39:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 95.31 W 
+[2026-08-06T04:44:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 91 %, 83.75 W 
+[2026-08-06T04:49:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 83.53 W 
+[2026-08-06T04:54:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 92 %, 82.56 W 
+[2026-08-06T04:59:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 85.93 W 
+[2026-08-06T05:04:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 83.47 W 
+[2026-08-06T05:09:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 91 %, 87.45 W 
+[2026-08-06T05:14:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 84.21 W 
+[2026-08-06T05:19:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 91 %, 86.62 W 
+[2026-08-06T05:24:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 85.49 W 
+[2026-08-06T05:29:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 92 %, 82.41 W 
+[2026-08-06T05:34:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 94.53 W 
+[2026-08-06T05:39:32Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 91 %, 94.59 W 
+[2026-08-06T05:44:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:81, 93 %, 86.42 W 
+[2026-08-06T05:49:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:80, 91 %, 82.97 W 
+[2026-08-06T05:54:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:79, 78 %, 75.66 W 
+[2026-08-06T05:59:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 15: train=0.0147 val=0.0215 lr=8.61e-05 errs:0 gpu:77, 77 %, 82.79 W 
+[2026-08-06T06:04:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 82.14 W 
+[2026-08-06T06:09:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 82.71 W 
+[2026-08-06T06:14:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 84.64 W 
+[2026-08-06T06:19:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 94.04 W 
+[2026-08-06T06:24:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 84.86 W 
+[2026-08-06T06:29:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 93.76 W 
+[2026-08-06T06:34:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 81.71 W 
+[2026-08-06T06:39:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 94.69 W 
+[2026-08-06T06:44:33Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 87.83 W 
+[2026-08-06T06:49:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 94.48 W 
+[2026-08-06T06:54:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 86.18 W 
+[2026-08-06T06:59:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 83.60 W 
+[2026-08-06T07:04:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 90.91 W 
+[2026-08-06T07:09:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 92 %, 90.42 W 
+[2026-08-06T07:14:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 83.23 W 
+[2026-08-06T07:19:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 82.59 W 
+[2026-08-06T07:24:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:80, 91 %, 95.07 W 
+[2026-08-06T07:29:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:79, 78 %, 83.99 W 
+[2026-08-06T07:34:34Z] suite:UP stage:wo 05 aug 2026 03:09:03 UTC TRAIN c16 NO-FSS (advection + tendency, per-pixel loss) last:epoch 16: train=0.0146 val=0.0215 lr=6.96e-05 errs:0 gpu:77, 76 %, 78.59 W 
+[2026-08-06T07:39:34Z] suite:UP stage:do 06 aug 2026 07:37:57 UTC EVAL FULL last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:64, 2 %, 41.81 W 
+[2026-08-06T07:44:34Z] suite:UP stage:do 06 aug 2026 07:37:57 UTC EVAL FULL last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:61, 13 %, 40.58 W 
+[2026-08-06T07:49:35Z] suite:UP stage:do 06 aug 2026 07:37:57 UTC EVAL FULL last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:61, 3 %, 40.12 W 
+[2026-08-06T07:54:35Z] suite:UP stage:do 06 aug 2026 07:52:28 UTC EVAL NO-ADV last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:61, 2 %, 39.52 W 
+[2026-08-06T07:59:35Z] suite:UP stage:do 06 aug 2026 07:52:28 UTC EVAL NO-ADV last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:60, 2 %, 39.59 W 
+[2026-08-06T08:04:35Z] suite:UP stage:do 06 aug 2026 07:52:28 UTC EVAL NO-ADV last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:60, 2 %, 40.01 W 
+[2026-08-06T08:09:35Z] suite:UP stage:do 06 aug 2026 08:06:53 UTC EVAL NO-FSS last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:60, 2 %, 39.81 W 
+[2026-08-06T08:14:35Z] suite:UP stage:do 06 aug 2026 08:06:53 UTC EVAL NO-FSS last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:60, 2 %, 39.29 W 
+[2026-08-06T08:19:35Z] suite:UP stage:do 06 aug 2026 08:06:53 UTC EVAL NO-FSS last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:60, 2 %, 39.22 W 
+[2026-08-06T08:24:35Z] suite:ENDED stage:do 06 aug 2026 08:20:57 UTC ALL DONE last:epoch 17: train=0.0146 val=0.0215 lr=5.44e-05 errs:0 gpu:50, 23 %, 21.35 W 
+[2026-08-06T08:24:35Z] SUITE COMPLETE

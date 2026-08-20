@@ -1,0 +1,4 @@
+# The root .gitignore blanks *.log, which silently drops the eval/exp logs that
+# ARE the evidence for every DELTA write-up in here (the June batch had to be
+# force-added). Re-include them for this tree only.
+!*.log

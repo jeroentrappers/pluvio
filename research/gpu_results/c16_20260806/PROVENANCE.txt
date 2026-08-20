@@ -1,0 +1,20 @@
+asusprime
+ 09:11:16 up 9 min,  1 user,  load average: 0.00, 0.02, 0.02
+Description:	Ubuntu 22.04.5 LTS
+NVIDIA GeForce RTX 2060, 595.71.05
+--- md5 ---
+222ca9ee682b1c26631cefb080d530e5  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c15_0724.pt
+da62e7827110938fdc8bfb53b6f4855f  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c15.pt
+688b5630de5e61c15043f06e072dea2c  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c16_full.pt
+6fa362e5d27c51412b044ea5d54b2af3  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c16_noadv.pt
+ca258878237f4de3728413bd9c09a5d9  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c16_nofss.pt
+a05d53b6ad0b5463c9f19dc8f6b054ee  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_v2.pt
+b5faea68eb92cd8cb2310609afa48c26  /home/jeroentrappers/pluvio/checkpoints/nowcast_ro_c15_0724.pt
+61a037fea8a654559c6219c030cc46bf  /home/jeroentrappers/pluvio/checkpoints/nowcast_ro_c15.pt
+1eb75f6f6d0a728e11d13cccf779f23e  /home/jeroentrappers/pluvio/checkpoints/nowcast_ro_v2.pt
+3c7691145ab4cba1e37e81bbf425d138  /home/jeroentrappers/pluvio/checkpoints/smoke_mm.pt
+0a331f7ba5dbe15b7158f535234196f2  /home/jeroentrappers/pluvio/checkpoints/smoke_ro.pt
+3049b95dea9383370e23e53998ee7028  /home/jeroentrappers/pluvio/model/train_seamless.py
+a0ea2c618d1f9546b0b19b488c719eed  /home/jeroentrappers/pluvio/model/seamless_dataset.py
+f356f9294869dfb557db52916c4464d6  /home/jeroentrappers/pluvio/model/eval_nowcast.py
+aec25833c83c915aea66660eb3f70b7e  /home/jeroentrappers/pluvio/tools/add_nowcast_channels.py

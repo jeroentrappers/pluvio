@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.seamless import SeamlessNet, num_params  # noqa: E402
-from model.seamless_dataset import SeamlessDataset, issue_time_split  # noqa: E402  (added below)
+from model.seamless_dataset import DEFAULT_LEADS, SeamlessDataset, issue_time_split  # noqa: E402
 
 LOG = logging.getLogger("pluvio.train_seamless")
 
@@ -50,6 +50,28 @@ def precip_loss(pred: torch.Tensor, target: torch.Tensor, delta: float = 1.0,
     w = torch.clamp(1.0 + target, max=weight_cap)
     loss = F.huber_loss(lp, lt, delta=delta, reduction="none")
     return (w * loss).mean()
+
+
+def multiscale_loss(pred: torch.Tensor, target: torch.Tensor,
+                    scales: tuple[int, ...] = (3, 5, 11)) -> torch.Tensor:
+    """Neighbourhood-pooled structure term, aligned with the eval's scale-aware FSS.
+
+    A per-pixel loss (``precip_loss``) is minimised by the conditional *mean*, so under
+    positional uncertainty it hedges → a blurred field that wins MAE but loses FSS to
+    optical-flow advection. This term compares **average-pooled** (stride-1, same-size)
+    log1p-rate fields at several neighbourhood widths, so getting the rain *fraction* right
+    over 3/9/15 km blobs is rewarded even when the exact pixel is off — i.e. it pays for
+    sharpness/placement, not smoothing. Added to ``precip_loss`` with a small weight so the
+    point accuracy the model already wins isn't sacrificed. Scales mirror eval FSS px (1,3,5),
+    plus a wider one for the meso field. Differentiable and cheap (avg_pool2d)."""
+    lp, lt = torch.log1p(pred), torch.log1p(target)
+    terms = []
+    for k in scales:
+        pad = k // 2
+        pf = F.avg_pool2d(lp, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
+        tf = F.avg_pool2d(lt, kernel_size=k, stride=1, padding=pad, count_include_pad=False)
+        terms.append(F.mse_loss(pf, tf))
+    return torch.stack(terms).mean()
 
 
 def quantile_loss(pred_q: torch.Tensor, target: torch.Tensor, quantiles,
@@ -123,6 +145,15 @@ def main(argv=None) -> int:
     p.add_argument("--val-frac", type=float, default=0.2)
     p.add_argument("--history-steps", type=int, default=6,
                    help="radar-history input frames; 0 = pure downscaling (ERA5 pretraining)")
+    p.add_argument("--leads", default="",
+                   help="comma lead-mins to train on; empty = the full seamless set. "
+                        "Restrict to '0,10,...,120' for a nowcast-only run.")
+    p.add_argument("--advection", action="store_true",
+                   help="feed the optical-flow advection prior + growth/decay tendency as input "
+                        "channels (needs tools/add_nowcast_channels.py run on the zarr first)")
+    p.add_argument("--fss-weight", type=float, default=0.0,
+                   help="weight on the multi-scale (FSS-aligned) structure loss added to the "
+                        "per-pixel Huber; 0 disables. ~0.3 sharpens without wrecking MAE.")
     p.add_argument("--aux-at-valid-time", action="store_true",
                    help="Stage B: read the ERA5/aux anchor at the valid-time (issue+lead) "
                         "as a perfect-forecast proxy the outlook head downscales")
@@ -159,11 +190,14 @@ def main(argv=None) -> int:
     sel = args.aux_channels.strip().lower()
     aux_channels = [] if sel == "none" else (
         None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
-    train_ds = SeamlessDataset(args.zarr, time_range=(lo, cut), require_rain_fraction=0.0,
-                               history_steps=args.history_steps, aux_at_valid_time=args.aux_at_valid_time,
-                               aux_channels=aux_channels)
-    val_ds = SeamlessDataset(args.zarr, time_range=(cut, hi), history_steps=args.history_steps,
-                             aux_at_valid_time=args.aux_at_valid_time, aux_channels=aux_channels)
+    leads = [int(x) for x in args.leads.split(",") if x.strip()] or DEFAULT_LEADS
+    ds_kw = dict(history_steps=args.history_steps, aux_at_valid_time=args.aux_at_valid_time,
+                 aux_channels=aux_channels, leads_min=leads, use_advection=args.advection)
+    # NB: require_rain_fraction left at None (not 0.0). A 0.0 threshold filters nothing yet
+    # forces _build_index to read every candidate's truth frame — ~405k disk reads, ~2 h once
+    # opera_rate is evicted from page cache. None yields the identical index in seconds.
+    train_ds = SeamlessDataset(args.zarr, time_range=(lo, cut), **ds_kw)
+    val_ds = SeamlessDataset(args.zarr, time_range=(cut, hi), **ds_kw)
     LOG.info("train=%d val=%d | %d channels | device=%s", len(train_ds), len(val_ds), train_ds.n_channels, device)
 
     quantiles = tuple(float(q) for q in args.quantiles.split(",") if q.strip()) or None
@@ -172,6 +206,10 @@ def main(argv=None) -> int:
     if quantiles:
         LOG.info("probabilistic outlook head: quantiles=%s (CRPS-consistent pinball loss)", quantiles)
         loss_fn = lambda pred, y: quantile_loss(pred, y, quantiles)  # noqa: E731
+    elif args.fss_weight > 0:
+        fw = args.fss_weight
+        loss_fn = lambda pred, y: precip_loss(pred, y) + fw * multiscale_loss(pred, y)  # noqa: E731
+        LOG.info("loss = precip_loss + %.3g * multiscale_loss (FSS-aligned structure term)", fw)
     else:
         loss_fn = precip_loss
     LOG.info("SeamlessNet params: %s", f"{num_params(model):,}")

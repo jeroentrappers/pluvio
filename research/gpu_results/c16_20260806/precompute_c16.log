@@ -1,0 +1,98 @@
+2026-08-02 20:38:16,473 INFO pluvio.add_nowcast_channels zarr=nowcast_mm_c15_0724_v2.zarr n=39454 grid=256x256 nowcast_leads=[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120] dt=15min
+2026-08-02 20:38:16,803 INFO pluvio.add_nowcast_channels computing 39454 issues on 14 workers …
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+2026-08-02 20:39:20,338 INFO pluvio.add_nowcast_channels   1000/39454
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+2026-08-02 20:40:12,954 INFO pluvio.add_nowcast_channels   2000/39454
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+2026-08-02 20:41:05,934 INFO pluvio.add_nowcast_channels   3000/39454
+/home/pv/lib/python3.10/site-packages/pysteps/utils/cleansing.py:242: UserWarning: Singular matrix during outlier detection
+  warnings.warn(f"{err} during outlier detection")
+2026-08-02 20:41:55,243 INFO pluvio.add_nowcast_channels   4000/39454
+2026-08-02 20:42:54,522 INFO pluvio.add_nowcast_channels   5000/39454
+2026-08-02 20:43:55,101 INFO pluvio.add_nowcast_channels   6000/39454
+2026-08-02 20:44:48,241 INFO pluvio.add_nowcast_channels   7000/39454
+2026-08-02 20:45:36,723 INFO pluvio.add_nowcast_channels   8000/39454
+2026-08-02 20:46:32,370 INFO pluvio.add_nowcast_channels   9000/39454
+2026-08-02 20:47:28,687 INFO pluvio.add_nowcast_channels   10000/39454
+2026-08-02 20:48:23,348 INFO pluvio.add_nowcast_channels   11000/39454
+2026-08-02 20:49:20,238 INFO pluvio.add_nowcast_channels   12000/39454
+2026-08-02 20:50:06,870 INFO pluvio.add_nowcast_channels   13000/39454
+2026-08-02 20:51:09,769 INFO pluvio.add_nowcast_channels   14000/39454
+2026-08-02 20:52:08,772 INFO pluvio.add_nowcast_channels   15000/39454
+2026-08-02 20:53:07,108 INFO pluvio.add_nowcast_channels   16000/39454
+2026-08-02 20:54:04,101 INFO pluvio.add_nowcast_channels   17000/39454
+2026-08-02 20:55:06,124 INFO pluvio.add_nowcast_channels   18000/39454
+2026-08-02 20:56:02,442 INFO pluvio.add_nowcast_channels   19000/39454
+2026-08-02 20:56:54,114 INFO pluvio.add_nowcast_channels   20000/39454
+2026-08-02 20:57:55,487 INFO pluvio.add_nowcast_channels   21000/39454
+2026-08-02 20:58:51,870 INFO pluvio.add_nowcast_channels   22000/39454
+2026-08-02 20:59:55,189 INFO pluvio.add_nowcast_channels   23000/39454
+2026-08-02 21:00:51,466 INFO pluvio.add_nowcast_channels   24000/39454
+2026-08-02 21:01:56,160 INFO pluvio.add_nowcast_channels   25000/39454
+2026-08-02 21:02:52,271 INFO pluvio.add_nowcast_channels   26000/39454
+2026-08-02 21:03:50,093 INFO pluvio.add_nowcast_channels   27000/39454
+2026-08-02 21:04:43,209 INFO pluvio.add_nowcast_channels   28000/39454
+2026-08-02 21:05:41,061 INFO pluvio.add_nowcast_channels   29000/39454
+2026-08-02 21:06:38,236 INFO pluvio.add_nowcast_channels   30000/39454
+2026-08-02 21:07:36,284 INFO pluvio.add_nowcast_channels   31000/39454
+2026-08-02 21:08:36,817 INFO pluvio.add_nowcast_channels   32000/39454
+2026-08-02 21:09:37,210 INFO pluvio.add_nowcast_channels   33000/39454
+2026-08-02 21:10:43,150 INFO pluvio.add_nowcast_channels   34000/39454
+2026-08-02 21:11:44,938 INFO pluvio.add_nowcast_channels   35000/39454
+2026-08-02 21:12:48,886 INFO pluvio.add_nowcast_channels   36000/39454
+2026-08-02 21:13:38,963 INFO pluvio.add_nowcast_channels   37000/39454
+2026-08-02 21:14:30,525 INFO pluvio.add_nowcast_channels   38000/39454
+2026-08-02 21:15:16,091 INFO pluvio.add_nowcast_channels   39000/39454
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+Pysteps configuration file found at: /home/pv/lib/python3.10/site-packages/pysteps/pystepsrc
+
+2026-08-02 21:15:30,040 INFO pluvio.add_nowcast_channels done: added oflow_rate(39454, 13, 256, 256), rate_tendency(39454, 256, 256), oflow_leads(13) to nowcast_mm_c15_0724_v2.zarr

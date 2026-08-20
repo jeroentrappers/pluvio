@@ -52,6 +52,9 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--aux-channels", default="",
                    help="match training: 'none' = radar-only ablation, empty = auto-discover")
+    p.add_argument("--advection", action="store_true",
+                   help="match training: build inputs with the advection prior + tendency "
+                        "channels so the channel count matches an --advection checkpoint")
     args = p.parse_args(argv)
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -61,7 +64,7 @@ def main(argv=None) -> int:
     aux_channels = [] if sel == "none" else (
         None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
     ds = SeamlessDataset(args.zarr, time_range=(cut, hi), leads_min=NOWCAST_LEADS,
-                         aux_channels=aux_channels)
+                         aux_channels=aux_channels, use_advection=args.advection)
     Hsteps, dt_min = ds.history_steps, ds.history_step_min
 
     ck = torch.load(args.ckpt, map_location=dev, weights_only=False)
