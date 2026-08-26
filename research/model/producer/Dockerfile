@@ -11,13 +11,20 @@
 # `--producer model` path is a separate, GPU-side image.
 FROM python:3.13
 
+# ⚠️ PINNED. pysteps runs Lucas-Kanade on OpenCV, so these two decide the
+# advection field and therefore every nowcast lead this image produces. Rebuilding
+# unpinned on 2026-08-26 resolved pysteps 1.21.5 + opencv 5.0.0 and changed the cube
+# max from 7.47 to 32.15 mm/h on the SAME analysis and the same AIFS run — a 4x
+# swing from a rebuild alone. These values match what is deployed and what c17-C was
+# trained against; change them deliberately, with a re-verification, never by
+# rebuilding.
 RUN pip install --no-cache-dir \
-        numpy \
-        scipy \
+        "numpy==2.*" \
+        "scipy==1.17.*" \
         "rasterio==1.4.*" \
         pyproj \
-        pysteps \
-        opencv-python-headless \
+        "pysteps==1.21.1" \
+        "opencv-python-headless==4.13.*" \
         xarray \
         cfgrib \
         eccodes

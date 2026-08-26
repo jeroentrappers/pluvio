@@ -5,5 +5,10 @@
 FROM pluvio-cputrain:latest
 RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
  && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir scipy "rasterio==1.4.*" scikit-learn \
- && (pip install --no-cache-dir pysteps || echo "WARN: pysteps unavailable, using phasecorr fallback")
+# ⚠️ PINNED, and here it matters most: this image computes the pysteps optical-flow
+# BASELINE that every model generation is scored against. Unpinned, a rebuild moves
+# the bar itself, and c16-vs-c17-vs-c18 stop being comparable. Same pair as the
+# training env (asusprime: pysteps 1.21.1, opencv 4.13.0).
+RUN pip install --no-cache-dir "scipy==1.15.*" "rasterio==1.4.*" scikit-learn \
+        "opencv-python-headless==4.13.*" \
+ && (pip install --no-cache-dir "pysteps==1.21.1" || echo "WARN: pysteps unavailable, using phasecorr fallback")
