@@ -85,17 +85,80 @@ AUX_SOURCES: dict[str, str] = {
 STATIC_CHANNEL_KEYS = ("elevation_m", "landmask", "distance_to_coast_km")
 
 
-def _index_tiffs(root: pathlib.Path) -> list[tuple[dt.datetime, pathlib.Path]]:
-    """Sorted (timestamp, path) for date-organised crops named …<YYYYmmddTHHMM>_*.tiff."""
+def _index_tiffs(root: pathlib.Path, since: dt.datetime | None = None) -> list[tuple[dt.datetime, pathlib.Path]]:
+    """Sorted (timestamp, path) for date-organised crops named …<YYYYmmddTHHMM>_*.tiff.
+
+    ``since`` prunes the walk by directory before touching files. Crops live under
+    date-shaped directories — ``opera/RATE/YYYY/MM/DD/`` and ``mtg_li/AF/YYYYMMDD/``
+    — so a windowed build can skip whole years instead of stat-ing the archive. This
+    matters for live serving over CIFS: indexing 69k OPERA + 108k LI files to use
+    ~150 of them cost 28 s of every rolling rebuild. Pruning is a fast path only;
+    anything whose directory name we cannot parse is still walked, so a layout change
+    degrades to the old behaviour rather than silently dropping data.
+    """
     out = []
     if not root.exists():
         return out
-    for p in root.rglob("*.tiff"):
-        ts = _parse_ts(p.name)
-        if ts is not None:
-            out.append((ts, p))
+
+    def _prunable(d: pathlib.Path) -> bool:
+        """True if this directory provably holds only data older than `since`."""
+        if since is None:
+            return False
+        parts = [x for x in d.relative_to(root).parts]
+        if not parts:
+            return False
+        try:
+            if len(parts[0]) == 8 and parts[0].isdigit():        # YYYYMMDD (MTG)
+                day = dt.datetime.strptime(parts[0], "%Y%m%d").replace(tzinfo=dt.UTC)
+                return day < since - dt.timedelta(days=1)
+            if len(parts[0]) == 4 and parts[0].isdigit():        # YYYY/MM/DD (OPERA)
+                stamp = "".join(parts[:3])
+                fmt = {4: "%Y", 6: "%Y%m", 8: "%Y%m%d"}.get(len(stamp))
+                if fmt is None:
+                    return False
+                d0 = dt.datetime.strptime(stamp, fmt).replace(tzinfo=dt.UTC)
+                # Only prune when the whole unit is behind the window.
+                span = {4: dt.timedelta(days=366), 6: dt.timedelta(days=31),
+                        8: dt.timedelta(days=1)}[len(stamp)]
+                return d0 + span < since
+        except ValueError:
+            return False
+        return False
+
+    stack = [root]
+    while stack:
+        d = stack.pop()
+        try:
+            entries = list(d.iterdir())
+        except OSError:
+            continue
+        for e in entries:
+            if e.is_dir():
+                if not _prunable(e):
+                    stack.append(e)
+            elif e.name.endswith(".tiff"):
+                ts = _parse_ts(e.name)
+                if ts is not None and (since is None or ts >= since):
+                    out.append((ts, e))
     out.sort()
     return out
+
+
+def _parse_window(v: str) -> dt.datetime | None:
+    """Parse --start/--end as either YYYY-MM-DD or an ISO datetime.
+
+    Date-only granularity made a "last 8 hours" rolling window actually span 8-32 h
+    depending on the time of day, which for live serving is the difference between
+    reprojecting ~30 issues and ~130. Accepting a datetime lets the caller ask for
+    what it means.
+    """
+    if not v:
+        return None
+    try:
+        return dt.datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=dt.UTC)
+    except ValueError:
+        d = dt.datetime.fromisoformat(v)
+        return d if d.tzinfo else d.replace(tzinfo=dt.UTC)
 
 
 def _latest_le(index, ts: dt.datetime, max_age_min: int):
@@ -139,7 +202,10 @@ def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None
           aux_vars: list[str] | None = None, static_path: pathlib.Path | None = None):
     import zarr
 
-    opera_idx = _index_tiffs(STORAGE / "opera" / "RATE")
+    # Prune the walk to the requested window. `start` minus a day of slack keeps
+    # boundary frames (history needs frames before the first issue).
+    since = (start - dt.timedelta(days=1)) if start else None
+    opera_idx = _index_tiffs(STORAGE / "opera" / "RATE", since=since)
     if not opera_idx:
         LOG.error("no OPERA RATE crops under %s", STORAGE / "opera/RATE")
         return
@@ -167,7 +233,8 @@ def build(out_path: pathlib.Path, cadence_min: int, leads_min, limit: int | None
     LOG.info("building %d issue-times × %d leads → %s", n, len(leads), out_path)
 
     sources = AUX_SOURCES if not aux_vars else {k: v for k, v in AUX_SOURCES.items() if k in aux_vars}
-    aux_idx = {} if no_aux else {var: _index_tiffs(STORAGE / src) for var, src in sources.items()}
+    aux_idx = ({} if no_aux else
+               {var: _index_tiffs(STORAGE / src, since=since) for var, src in sources.items()})
 
     root = zarr.open_group(str(out_path), mode="w")
     root.create_array("issue_time", shape=(n,), dtype="int64")[:] = [int(t.timestamp()) for t, _ in issues]
@@ -237,16 +304,16 @@ def main(argv=None) -> int:
     p.add_argument("--aux-vars", default="", help="comma subset of aux channels to include (e.g. li_flash); empty=all")
     p.add_argument("--static", default="", help="path to static.npz (elevation/landmask/dist); "
                                                 "default = data/static.npz, then model/static.npz")
-    p.add_argument("--start", default="", help="restrict to OPERA issues >= YYYY-MM-DD (multimodal window)")
-    p.add_argument("--end", default="", help="restrict to OPERA issues < YYYY-MM-DD")
+    p.add_argument("--start", default="", help="restrict to OPERA issues >= YYYY-MM-DD or an ISO datetime")
+    p.add_argument("--end", default="", help="restrict to OPERA issues < YYYY-MM-DD or an ISO datetime")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     STORAGE = pathlib.Path(args.storage)
     leads = [int(x) for x in args.leads.split(",") if x.strip()] or list(DEFAULT_LEADS)
-    start = dt.datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=dt.UTC) if args.start else None
-    end = dt.datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=dt.UTC) if args.end else None
+    start = _parse_window(args.start)
+    end = _parse_window(args.end)
     aux_vars = [v.strip() for v in args.aux_vars.split(",") if v.strip()] or None
     build(pathlib.Path(args.out), args.cadence_min, leads, args.limit, args.max_age_min,
           no_aifs=args.no_aifs, no_aux=args.no_aux, start=start, end=end, aux_vars=aux_vars,

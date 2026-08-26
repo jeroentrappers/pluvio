@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import logging
 import pathlib
 import sys
@@ -56,10 +57,17 @@ BE_SHAPE = (100, 100)
 OPERA_DT_MIN = 15  # OPERA analysis cadence
 
 
-def _analysis_to_belgium(rates_analysis: np.ndarray) -> np.ndarray:
-    """Reproject (n, H, W) fields from the KNMI-stereo analysis grid onto the
-    backend's regular Belgium lat/lon grid (same transform as infer_latest)."""
-    from scipy.interpolate import griddata
+@functools.lru_cache(maxsize=1)
+def _belgium_triangulation():
+    """Delaunay triangulation of the analysis grid + the Belgium target points.
+
+    Both grids are FIXED for a given PLUVIO_GRID_N, so the triangulation is
+    constant across leads and across runs. `griddata` rebuilds it on every call,
+    which cost 68 s of a 88 s producer run (107 leads x one triangulation of 65k
+    points). Building it once and reusing it via LinearNDInterpolator is the same
+    interpolation, ~30x faster.
+    """
+    from scipy.spatial import Delaunay
 
     from model.geo import grid_latlon
 
@@ -70,10 +78,21 @@ def _analysis_to_belgium(rates_analysis: np.ndarray) -> np.ndarray:
     be_lat = np.linspace(bn, bs, bh)  # row 0 = north
     be_LON, be_LAT = np.meshgrid(be_lon, be_lat)
     pts = np.column_stack([glon.ravel(), glat.ravel()])
+    tri = Delaunay(pts)
+    targets = np.column_stack([be_LON.ravel(), be_LAT.ravel()])
+    return tri, targets, (bh, bwid)
+
+
+def _analysis_to_belgium(rates_analysis: np.ndarray) -> np.ndarray:
+    """Reproject (n, H, W) fields from the KNMI-stereo analysis grid onto the
+    backend's regular Belgium lat/lon grid (same transform as infer_latest)."""
+    from scipy.interpolate import LinearNDInterpolator
+
+    tri, targets, (bh, bwid) = _belgium_triangulation()
     out = np.zeros((rates_analysis.shape[0], bh, bwid), dtype="float32")
     for i in range(rates_analysis.shape[0]):
-        g = griddata(pts, rates_analysis[i].ravel(), (be_LON, be_LAT),
-                     method="linear", fill_value=0.0)
+        interp = LinearNDInterpolator(tri, rates_analysis[i].ravel(), fill_value=0.0)
+        g = interp(targets).reshape(bh, bwid)
         out[i] = np.clip(np.nan_to_num(g, nan=0.0), 0.0, None).astype("float32")
     return out
 

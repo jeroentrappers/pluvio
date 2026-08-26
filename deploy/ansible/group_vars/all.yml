@@ -97,7 +97,10 @@ producer_max_age_min: 90
 producer_grid_n: 256
 producer_zarr_dir: /opt/pluvio/zarr          # rolling live store for the model path
 producer_model_checkpoint: nowcast_mm_c17_c_exceed.pt
-producer_live_window_hours: 30
+# 8 h, not 30: the model needs 6 history frames (90 min) and the LK motion estimate
+# 10 (150 min), so 8 h is ~3x the requirement with slack for late/missing frames.
+# Reprojection is linear in issues -- 30 h cost 74 s per rebuild, 8 h costs ~15 s.
+producer_live_window_hours: 8
 producer_li_max_age_min: 60                       # skip if the latest OPERA is staler
 
 # .env contents rendered onto the box (see roles/app/templates/env.j2).

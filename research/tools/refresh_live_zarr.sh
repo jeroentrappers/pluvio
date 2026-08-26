@@ -9,9 +9,12 @@
 # tooling that produced the training store, so serving and training assemble
 # channels through the same code.
 #
-# Rolling window, not the full archive: the model only needs ~6 history frames
-# (90 min) plus the ~10 frames pysteps uses for its motion estimate. WINDOW_HOURS
-# keeps a comfortable margin while holding the rebuild to seconds of reprojection.
+# Rolling window, not the full archive: the model needs 6 history frames (90 min at
+# cadence-15) and add_nowcast_channels' LK motion estimate uses 10 (150 min). 8 h is
+# ~3x that, so it absorbs missing frames and late arrivals while keeping the rebuild
+# small. The first version used 30 h, which reprojected 152 issues to serve one --
+# 74 s of the 112 s rebuild. Reprojection is linear in issues, so this is the single
+# cheapest latency win available.
 #
 # Runs inside pluvio-producer-model:latest (torch + zarr + pysteps).
 set -uo pipefail
@@ -20,14 +23,16 @@ STAGE="${LIVE_STAGE:-/stage}"
 STORAGE="${LIVE_STORAGE:-/mnt/storagebox}"
 OUT="${LIVE_ZARR:-$STAGE/live.zarr}"
 STATIC="${LIVE_STATIC:-$STAGE/static.npz}"
-WINDOW_HOURS="${LIVE_WINDOW_HOURS:-30}"
+WINDOW_HOURS="${LIVE_WINDOW_HOURS:-8}"
 LEADS="${LIVE_LEADS:-0,10,20,30,40,50,60,70,80,90,100,110,120}"
 LI_MAX_AGE_MIN="${LIVE_LI_MAX_AGE_MIN:-60}"
 
 log() { echo "$(date -u +%FT%TZ) refresh_live_zarr: $*"; }
 
-START=$(date -u -d "${WINDOW_HOURS} hours ago" +%Y-%m-%d)
-END=$(date -u -d "tomorrow" +%Y-%m-%d)
+# ISO datetimes, not dates: date granularity made an "8 hour" window span 8-32 h
+# depending on time of day, i.e. up to 4x the reprojection work.
+START=$(date -u -d "${WINDOW_HOURS} hours ago" +%Y-%m-%dT%H:%M)
+END=$(date -u -d "1 hour" +%Y-%m-%dT%H:%M)
 
 # ── Lightning staleness gate ────────────────────────────────────────────────
 # c17-C consumes `li_flash`. The LI crops encode "no flashes" and "no data"
