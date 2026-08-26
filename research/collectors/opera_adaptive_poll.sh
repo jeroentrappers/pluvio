@@ -10,8 +10,8 @@
 # after the expected publication, so it stays synced if OPERA's lag drifts.
 #
 # Loop, per 15-min slot:
-#   1. compute the next un-collected slot and its expected publish time
-#      (slot + learned lag + margin)
+#   1. compute the next un-collected slot and wake EARLY of the expected publish
+#      time (slot + learned lag - EARLY_S)
 #   2. sleep until then
 #   3. cheap HEAD probe on the exact object key — no download, no docker
 #   4. on hit: trigger opera-forward.service (the existing collector; this script
@@ -19,6 +19,21 @@
 #      into an EMA
 #   5. on miss: retry every RETRY_S, up to MAX_WAIT_S past the slot, then give up
 #      on that slot WITHOUT polluting the EMA (a missing frame is not a lag signal)
+#
+# ⚠️ Why we wake EARLY rather than just after the estimate. The first version woke at
+# slot + lag + 30 s, and if the frame was already published it recorded "observed
+# lag" = its own wake time. Feeding that back gave
+#     new = (7*lag + 3*(lag + margin))/10 = lag + 0.3*margin
+# i.e. the estimate ratcheted up by exactly 9 s every cycle, unbounded — measured
+# drifting 610 -> 884 s in three hours while OPERA's true lag stayed ~10 min, which
+# pushed served issue age from ~13 min back to ~27. The estimator was measuring the
+# schedule instead of the data.
+#
+# Waking EARLY_S before the estimate means the frame is normally still absent on the
+# first probe, so the miss->hit transition is a genuine observation of publication
+# time (precise to RETRY_S). If it IS already present on the first probe we were
+# late, and cannot tell by how much — so we pull the estimate earlier by EARLY_S
+# rather than recording a number we know is only an upper bound.
 #
 # State: LAG_FILE holds the EMA in seconds; delete it to reset to DEFAULT_LAG_S.
 set -uo pipefail
@@ -29,8 +44,8 @@ SERVICE="${OPERA_SERVICE:-opera-forward.service}"
 PRODUCT="${OPERA_PROBE_PRODUCT:-RATE}"
 SLOT_MIN=15              # OPERA analysis cadence
 DEFAULT_LAG_S=610        # 10.1 min, the measured publication lag
-MARGIN_S=30              # wake a little after the expected instant
-RETRY_S=60               # re-probe interval on a miss
+EARLY_S=120              # wake BEFORE the expected instant — see the feedback note
+RETRY_S=20               # re-probe interval; also the precision of the lag estimate
 MAX_WAIT_S=1500          # give up 25 min past the slot (frame likely absent)
 EMA_ALPHA_NUM=3          # ema = (7*ema + 3*observed)/10 — slow, so one odd
 EMA_ALPHA_DEN=10         # frame can't yank the schedule around
@@ -84,7 +99,7 @@ while true; do
   [ "$slot" -le "$last_done" ] && slot=$(( slot + SLOT_MIN * 60 ))
 
   lag=$(read_lag)
-  target=$(( slot + lag + MARGIN_S ))
+  target=$(( slot + lag - EARLY_S ))
   wait_s=$(( target - now ))
   if [ "$wait_s" -gt 0 ]; then
     log "slot $(date -u -d "@$slot" +%H:%M) — sleeping ${wait_s}s until expected publish"
@@ -92,7 +107,9 @@ while true; do
   fi
 
   hit=0
+  probes=0
   while :; do
+    probes=$((probes + 1))
     if probe "$slot"; then hit=1; break; fi
     now=$(date -u +%s)
     if [ $(( now - slot )) -ge "$MAX_WAIT_S" ]; then
@@ -104,9 +121,20 @@ while true; do
 
   if [ "$hit" = 1 ]; then
     observed=$(( $(date -u +%s) - slot ))
-    log "slot $(date -u -d "@$slot" +%H:%M) published — triggering $SERVICE (observed lag ${observed}s)"
+    log "slot $(date -u -d "@$slot" +%H:%M) published — triggering $SERVICE (observed ${observed}s, probes=${probes})"
     systemctl start --no-block "$SERVICE" || log "WARN: failed to start $SERVICE"
-    write_lag "$observed"
+    if [ "$probes" -gt 1 ]; then
+      # Genuine miss->hit transition: `observed` really is publication time.
+      write_lag "$observed"
+    else
+      # Present on the very first probe — we woke late. `observed` is only an upper
+      # bound, so recording it would ratchet the estimate upward forever (the exact
+      # feedback bug noted above). Step earlier and re-measure next slot.
+      old=$(read_lag); new=$(( old - EARLY_S ))
+      [ "$new" -lt "$LAG_MIN_S" ] && new=$LAG_MIN_S
+      echo "$new" > "$LAG_FILE"
+      log "lag: first-probe hit (woke late) — stepping estimate ${old}s -> ${new}s to re-measure"
+    fi
   fi
   last_done=$slot
 done
