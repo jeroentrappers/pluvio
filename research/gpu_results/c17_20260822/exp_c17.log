@@ -42,3 +42,41 @@
 2026-08-23 01:07:25,526 INFO pluvio.train_seamless epoch 4: train=0.0174 val=0.0238 lr=2.71e-04
 2026-08-23 03:51:09,848 INFO pluvio.train_seamless epoch 5: train=0.0172 val=0.0206 lr=2.59e-04
 2026-08-23 06:34:32,375 INFO pluvio.train_seamless epoch 6: train=0.0171 val=0.0219 lr=2.46e-04
+2026-08-23 09:18:08,148 INFO pluvio.train_seamless epoch 7: train=0.0170 val=0.0217 lr=2.30e-04
+2026-08-23 12:01:41,766 INFO pluvio.train_seamless epoch 8: train=0.0170 val=0.0250 lr=2.14e-04
+2026-08-23 14:45:10,160 INFO pluvio.train_seamless epoch 9: train=0.0169 val=0.0209 lr=1.96e-04
+2026-08-23 14:45:10,160 INFO pluvio.train_seamless early stop: no val improvement in 4 epochs (best=0.0206)
+2026-08-23 14:45:10,160 INFO pluvio.train_seamless done. best val=0.0206 → checkpoints/nowcast_mm_c17_c_exceed.pt
+=== Sun Aug 23 12:45:11 PM UTC 2026 EVAL c17-C ===
+=== Sun Aug 23 12:58:13 PM UTC 2026 TRAIN c17-B (static + EXCEEDANCE loss, NO advection) ===
+2026-08-23 14:58:18,681 INFO pluvio.seamless_dataset indexed 702931 samples | leads 0..120 | 10 channels
+2026-08-23 14:58:19,537 INFO pluvio.seamless_dataset indexed 171985 samples | leads 0..120 | 10 channels
+2026-08-23 14:58:19,538 INFO pluvio.train_seamless train=702931 val=171985 | 10 channels | device=cuda
+2026-08-23 14:58:19,717 INFO pluvio.train_seamless loss = precip_loss + 0.3 * multiscale_loss(mode=exceedance) (FSS-aligned structure term)
+2026-08-23 14:58:19,718 INFO pluvio.train_seamless SeamlessNet params: 666,339
+2026-08-23 14:58:20,393 INFO pluvio.train_seamless optim=AdamW wd=0.0001 augment=True patience=4 cosine=True
+/home/jeroentrappers/pluvio/model/train_seamless.py:260: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" else None
+2026-08-23 17:39:03,064 INFO pluvio.train_seamless epoch 0: train=0.0216 val=0.0233 lr=2.99e-04
+2026-08-23 20:19:50,462 INFO pluvio.train_seamless epoch 1: train=0.0195 val=0.0226 lr=2.95e-04
+2026-08-23 23:00:40,463 INFO pluvio.train_seamless epoch 2: train=0.0191 val=0.0227 lr=2.89e-04
+2026-08-24 01:41:38,223 INFO pluvio.train_seamless epoch 3: train=0.0189 val=0.0230 lr=2.81e-04
+2026-08-24 04:22:30,409 INFO pluvio.train_seamless epoch 4: train=0.0188 val=0.0222 lr=2.71e-04
+2026-08-24 07:03:24,967 INFO pluvio.train_seamless epoch 5: train=0.0186 val=0.0306 lr=2.59e-04
+2026-08-24 09:44:09,576 INFO pluvio.train_seamless epoch 6: train=0.0185 val=0.0222 lr=2.46e-04
+2026-08-24 12:25:00,210 INFO pluvio.train_seamless epoch 7: train=0.0184 val=0.0223 lr=2.30e-04
+2026-08-24 15:05:57,304 INFO pluvio.train_seamless epoch 8: train=0.0184 val=0.0219 lr=2.14e-04
+2026-08-24 17:46:43,182 INFO pluvio.train_seamless epoch 9: train=0.0183 val=0.0220 lr=1.96e-04
+2026-08-24 20:27:38,817 INFO pluvio.train_seamless epoch 10: train=0.0182 val=0.0296 lr=1.78e-04
+2026-08-24 23:08:34,642 INFO pluvio.train_seamless epoch 11: train=0.0182 val=0.0220 lr=1.59e-04
+2026-08-25 01:49:32,759 INFO pluvio.train_seamless epoch 12: train=0.0181 val=0.0218 lr=1.41e-04
+2026-08-25 04:30:22,520 INFO pluvio.train_seamless epoch 13: train=0.0180 val=0.0220 lr=1.22e-04
+2026-08-25 07:11:23,479 INFO pluvio.train_seamless epoch 14: train=0.0180 val=0.0216 lr=1.04e-04
+2026-08-25 09:52:25,490 INFO pluvio.train_seamless epoch 15: train=0.0179 val=0.0228 lr=8.61e-05
+2026-08-25 12:33:13,963 INFO pluvio.train_seamless epoch 16: train=0.0179 val=0.0217 lr=6.96e-05
+2026-08-25 15:14:13,106 INFO pluvio.train_seamless epoch 17: train=0.0179 val=0.0218 lr=5.44e-05
+2026-08-25 17:55:02,752 INFO pluvio.train_seamless epoch 18: train=0.0178 val=0.0218 lr=4.07e-05
+2026-08-25 17:55:02,752 INFO pluvio.train_seamless early stop: no val improvement in 4 epochs (best=0.0216)
+2026-08-25 17:55:02,752 INFO pluvio.train_seamless done. best val=0.0216 → checkpoints/nowcast_mm_c17_b_noadv.pt
+=== Tue Aug 25 03:55:03 PM UTC 2026 EVAL c17-B ===
+=== Tue Aug 25 04:08:14 PM UTC 2026 ALL DONE ===

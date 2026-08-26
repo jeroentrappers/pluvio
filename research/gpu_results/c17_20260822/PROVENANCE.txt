@@ -1,0 +1,11 @@
+asusprime
+ 08:32:57 up 5 days, 23:31,  1 user,  load average: 0,77, 0,41, 0,16
+Description:	Ubuntu 22.04.5 LTS
+NVIDIA GeForce RTX 2060, 595.71.05
+--- md5 ---
+422e44dfd9634a79f5d05c4c5a192db9  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c17_a_static.pt
+c57c3e9921cccf3bbd88aff964e4677c  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c17_b_noadv.pt
+ff419ddb92939214cb775d1b4872f937  /home/jeroentrappers/pluvio/checkpoints/nowcast_mm_c17_c_exceed.pt
+9b45fba6d049568fc8f15cc2e4c99890  /home/jeroentrappers/pluvio/run_c17.sh
+0d05ee730fd7b681ec77bf0ac31efa00  /home/jeroentrappers/pluvio/model/train_seamless.py
+e772d80e4626516f310fef8a63c70ab6  /home/jeroentrappers/pluvio/model/eval_nowcast.py

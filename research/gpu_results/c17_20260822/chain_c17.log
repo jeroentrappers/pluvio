@@ -1,0 +1,7 @@
+2026-08-20T15:07:14Z waiting for precompute to finish...
+2026-08-20T16:09:18Z precompute process gone
+oflow_rate (68361, 13, 256, 256) float16
+last oflow finite=100.0% max=234 | tendency finite=100.0%
+OK
+2026-08-20T16:09:18Z starting run_c17.sh under sleep inhibitor
+2026-08-20T16:09:18Z run_c17.sh exited rc=0
