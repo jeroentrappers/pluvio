@@ -137,7 +137,26 @@ def produce_model(zarr_path: str, leads, max_age_min: int, ckpt: str):
     from model.seamless import SeamlessNet
     from model.seamless_dataset import SeamlessDataset
 
-    ds = SeamlessDataset(zarr_path, leads_min=leads, build_index=False)
+    # Rebuild the EXACT input recipe the checkpoint was trained with. Checkpoints
+    # written since 2026-08 record it; without this the dataset re-derives the layout
+    # (auto-discovering every aux and static array in the live zarr) and silently
+    # assembles a different channel stack than training used — which is how a served
+    # model can look healthy and forecast nonsense.
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+    ds = SeamlessDataset(
+        zarr_path, leads_min=leads, build_index=False,
+        history_steps=ck.get("history_steps", 6),
+        aux_channels=ck.get("aux_channels"),          # None on a legacy ckpt → auto
+        include_static=bool(ck.get("static_channels")) if "static_channels" in ck else True,
+        use_advection=bool(ck.get("advection", False)))
+    if ds.n_channels != ck["in_channels"]:
+        raise RuntimeError(
+            f"channel mismatch: checkpoint expects {ck['in_channels']}, this zarr assembles "
+            f"{ds.n_channels} (aux={ds.aux_channels}, static={ds.static_channels}, "
+            f"history={ds.history_steps}, advection={ds.use_advection}). "
+            f"Checkpoint recipe: aux={ck.get('aux_channels')}, "
+            f"static={ck.get('static_channels')}, history={ck.get('history_steps')}, "
+            f"advection={ck.get('advection')}.")
     issue_idx = ds.latest_issue_idx()
     issue_dt = datetime.fromtimestamp(int(ds._issue_epoch[issue_idx]), tz=timezone.utc)
     age_min = (datetime.now(timezone.utc) - issue_dt).total_seconds() / 60
@@ -151,7 +170,6 @@ def produce_model(zarr_path: str, leads, max_age_min: int, ckpt: str):
     if any(h is None for h in history_idx):
         raise RuntimeError("no radar history for the latest issue — cannot infer")
 
-    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
     quantiles = ck.get("quantiles")  # None for a deterministic checkpoint
     net = SeamlessNet(in_channels=ck["in_channels"], base_channels=ck["base_channels"],
                       quantiles=tuple(quantiles) if quantiles else None)
