@@ -110,8 +110,15 @@ pluvio_env:
   PLUVIO_CACHE_STALE_AFTER_SECONDS: "2700"
   PLUVIO_API_HOST: 0.0.0.0
   PLUVIO_API_PORT: "8000"
-  # The trained UNet is served via the precomputed field written by the hetz1
-  # inference step (research/model/infer_latest.py → /opt/pluvio/serve). The
-  # worker's model_band reads it and falls back to the KMI stub if missing/stale.
-  PLUVIO_MODEL_VERSION: unet-0.1
+  # Provenance string the API reports. Stale values here are actively misleading:
+  # it still read `unet-0.1` (the 2026-05 nowcast-only UNet served via
+  # infer_latest.py) while the producer had moved on to the c17-C hybrid.
+  #
+  # c17c-hybrid-0.1 = nowcast_mm_c17_c_exceed.pt on leads 0-120 min (12ch: 6 radar
+  # history + li_flash + oflow_rate + rate_tendency + 3 static; exceedance-pooled
+  # structure loss) spliced into the classical pysteps⊕AIFS cube for 3-240 h. First
+  # checkpoint to pass the roadmap promotion gate: beats real pysteps on MAE,
+  # CSI@0.1, CSI@1 and FSS at 3/9/15 km at all 12 served leads (gpu_results/
+  # c17_20260822/DELTA_c17.md). Bump this whenever the served producer changes.
+  PLUVIO_MODEL_VERSION: c17c-hybrid-0.1
   PLUVIO_CORS_ORIGINS: ""

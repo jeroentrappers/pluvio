@@ -20,7 +20,7 @@ services:
       PLUVIO_CACHE_ROOT: /data/forecasts
       # Allow the app's origin(s); empty disables CORS. Set for web builds.
       PLUVIO_CORS_ORIGINS: ${PLUVIO_CORS_ORIGINS:-}
-      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-unet-0.1}
+      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-c17c-hybrid-0.1}
     volumes:
       - cache:/data/forecasts
     # Bind to loopback only — Traefik (when in the `prod` profile) routes
@@ -45,7 +45,7 @@ services:
     command: ["pluvio-worker", "schedule"]
     environment:
       PLUVIO_CACHE_ROOT: /data/forecasts
-      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-unet-0.1}
+      PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-c17c-hybrid-0.1}
       # The hetz1 producers write forecast fields here every cycle (mounted
       # read-only below); model_band serves them and falls back to the KMI stub
       # if missing/stale. FORECAST_NPZ (full 0–240 h cube with source tags +
