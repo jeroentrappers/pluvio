@@ -11,7 +11,18 @@ Wants=network-online.target
 Type=oneshot
 # Storage Box mounted read-only (input); serve dir read-write (output, shared
 # with the backend worker which reads it).
+# ⚠️ PLUVIO_GRID_N was previously unset here, so the producer ran the ANALYSIS grid
+# at geo.py's 100x100 default (~7-8 km/cell) while all research and training ran at
+# 256 (~2.8 km). geo.py's own note says 7-8 km is "coarser than a convective cell
+# (1-5 km), which directly bounds the heavy-rain claim" -- and it showed: on the
+# 2026-08-26 10:30 analysis the same code produced a cube max of 1.24 mm/h at the
+# default grid versus 4.78 mm/h at 256, against an observed analysis peak of 5.41.
+# Convective peaks were being smeared away before they ever reached the PWA. The
+# SERVED grid is unchanged (BE_SHAPE stays 100x100); this only sets the resolution
+# the advection and AIFS blend are computed on before regridding. It is also
+# mandatory for the learned model, whose checkpoints are resolution-specific.
 ExecStart=/usr/bin/docker run --rm \
+  -e PLUVIO_GRID_N={{ producer_grid_n | default(256) }} \
   -v {{ producer_storage_dir }}:{{ producer_storage_dir }}:ro \
   -v {{ producer_serve_dir }}:{{ producer_serve_dir }} \
   pluvio-producer:latest \
