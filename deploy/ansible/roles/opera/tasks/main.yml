@@ -108,3 +108,19 @@
     enabled: true
     state: restarted
     daemon_reload: true
+
+- name: Ensure the opera-forward drop-in dir exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/opera-forward.service.d
+    state: directory
+    mode: "0755"
+
+- name: Chain the forecast producer to successful collection
+  ansible.builtin.template:
+    src: opera-forward-onsuccess.conf.j2
+    dest: /etc/systemd/system/opera-forward.service.d/onsuccess.conf
+    mode: "0644"
+  notify: reload systemd
+
+- name: Apply the drop-in now
+  ansible.builtin.meta: flush_handlers

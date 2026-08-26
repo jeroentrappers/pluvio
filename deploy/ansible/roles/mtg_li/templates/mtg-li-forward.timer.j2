@@ -1,10 +1,18 @@
-# Managed by Ansible. LI accumulated products land every ~10 min; scan every
-# 15 min (the collector skips windows already on disk).
+# Managed by Ansible. LI accumulated products land every ~10 min with only a
+# ~2-7 min publication lag (measured 2026-08-26), so the old *:07/15 scan was
+# polling SLOWER than the data arrived — a 10-min cadence sampled every 15 min
+# drifts, leaving frames waiting up to a full slot. Scanning every
+# {{ mtg_li_interval_min }} min bounds the wait instead; the collector skips
+# windows already on disk, so extra runs are cheap.
+#
+# Unlike OPERA we cannot cheaply probe for availability: the EUMETSAT Data Store
+# needs authenticated eumdac queries, so there is no free HEAD-probe equivalent to
+# pluvio-opera-adaptive. Frequency is the lever here, not prediction.
 [Unit]
-Description=Pluvio MTG-LI lightning forward collection (every 15 min)
+Description=Pluvio MTG-LI lightning forward collection (every {{ mtg_li_interval_min }} min)
 
 [Timer]
-OnCalendar=*:07/15
+OnCalendar=*:02/{{ mtg_li_interval_min }}
 Persistent=true
 
 [Install]

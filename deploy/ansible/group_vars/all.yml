@@ -53,6 +53,9 @@ mtg_li_app_dir: /opt/mtg-li
 mtg_li_data_dir: /mnt/storagebox/mtg_li
 mtg_li_env_file: /opt/mtg-li/eumdac.env
 mtg_li_products: "AF"
+# LI lands every ~10 min at ~2-7 min lag; the old 15-min scan was slower than the
+# data arrived. 5 min bounds the wait (collector skips what is already on disk).
+mtg_li_interval_min: 5
 mtg_li_min_free_gb: 50
 
 # ERA5 reanalysis (public ARCO-ERA5 Zarr on GCS → Storage Box). The decades-deep

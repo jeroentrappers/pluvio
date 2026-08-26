@@ -1,0 +1,12 @@
+# Managed by Ansible. Run the forecast producer the moment new truth lands, rather
+# than waiting for its own {{ producer_interval_min }}-min timer.
+#
+# Collection is already synced to OPERA's ~10.3-min publication lag by
+# pluvio-opera-adaptive; chaining here removes the last phase error. Measured
+# 2026-08-26: served issue age fell from 26-28 min to 13 min, which is the floor
+# (10.3 min publication + ~2.5 min collect-and-forecast).
+#
+# The producer's own timer stays as a fallback — it is idempotent, so whichever
+# fires first simply wins.
+[Unit]
+OnSuccess=pluvio-producer.service

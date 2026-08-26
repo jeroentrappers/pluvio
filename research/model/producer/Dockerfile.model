@@ -1,0 +1,49 @@
+# Learned-model seamless producer — `produce_forecast.py --producer model`.
+#
+# Superset of the classical producer image: same geo/reproject/pysteps stack, plus
+# **torch** (CPU) for SeamlessNet inference and **zarr** for the live store the
+# model path reads through SeamlessDataset.
+#
+# One image deliberately covers BOTH serving steps:
+#   1. refresh the rolling live zarr  (tools/build_seamless_zarr + add_nowcast_channels)
+#   2. run inference                  (model/produce_forecast --producer model)
+#
+# ⚠️ pysteps is not optional here. `add_nowcast_channels` derives `oflow_rate` via
+# `model.classical.optical_flow_nowcast`, which silently degrades to a
+# phase-correlation fallback when pysteps is missing. c17-C was trained on the
+# pysteps LK advection prior, so a fallback at serving time would feed the net a
+# channel it has never seen — train/serve skew that no error would surface.
+#
+# CPU-only torch: the 2060 lives on asusprime, hetz1 has no GPU. 12ch × 256² × 13
+# leads is a fraction of a second per issue on CPU, so there is nothing to gain.
+# Build context = research/ (so model/ and tools/ are in scope).
+FROM python:3.13
+
+RUN pip install --no-cache-dir \
+        numpy \
+        scipy \
+        "rasterio==1.4.*" \
+        pyproj \
+        pysteps \
+        opencv-python-headless \
+        xarray \
+        cfgrib \
+        eccodes \
+        zarr \
+        h5py
+
+# CPU wheel explicitly — the default index pulls the CUDA build (~2.5 GB of
+# nvidia-* deps) which is dead weight on a GPU-less box.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+
+# Fail the build loudly rather than at the first timer run.
+RUN python -c "import torch, zarr, pysteps, rasterio, h5py; \
+print('torch', torch.__version__, '| zarr', zarr.__version__, '| cuda', torch.cuda.is_available())"
+
+COPY model/ /app/model/
+COPY tools/ /app/tools/
+
+WORKDIR /app
+ENV PYTHONPATH=/app
+# No ENTRYPOINT: this image is invoked with an explicit module per step
+# (tools.build_seamless_zarr, tools.add_nowcast_channels, model.produce_forecast).
