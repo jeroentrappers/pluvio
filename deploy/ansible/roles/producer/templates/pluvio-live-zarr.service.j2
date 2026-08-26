@@ -1,0 +1,32 @@
+# Managed by Ansible. Rebuild the rolling live seamless zarr that the learned
+# producer infers from. Triggered OnSuccess from opera-forward (i.e. when new truth
+# actually lands), not on a timer — collection is already synced to OPERA's
+# publication lag by pluvio-opera-adaptive, so this inherits that freshness free.
+#
+# On failure (stale lightning, missing frames, build error) the chain stops here and
+# pluvio-producer.service runs instead, so the product degrades to the classical
+# pysteps⊕AIFS forecast rather than serving a model fed bad channels.
+[Unit]
+Description=Pluvio live seamless zarr refresh (for the learned producer)
+After=network-online.target mnt-storagebox.mount
+Wants=network-online.target
+OnSuccess=pluvio-producer-model.service
+OnFailure=pluvio-producer.service
+
+[Service]
+Type=oneshot
+# Storage Box read-only; the zarr dir is the only writable mount. Deliberately NO
+# code mounts: the image carries model/ and tools/, and a stale stage mount
+# shadowing them is what silently broke the first attempt (the mounted tools dir
+# lacked add_nowcast_channels, so oflow/tendency could not be derived).
+ExecStart=/usr/bin/docker run --rm \
+  -e PLUVIO_GRID_N={{ producer_grid_n | default(256) }} \
+  -e LIVE_STAGE=/stage \
+  -e LIVE_ZARR=/zarr/live.zarr \
+  -e LIVE_WINDOW_HOURS={{ producer_live_window_hours | default(30) }} \
+  -e LIVE_LI_MAX_AGE_MIN={{ producer_li_max_age_min | default(60) }} \
+  -v {{ producer_storage_dir }}:{{ producer_storage_dir }}:ro \
+  -v /opt/pluvio/stage:/stage \
+  -v {{ producer_zarr_dir }}:/zarr \
+  pluvio-producer-model:latest bash /app/tools/refresh_live_zarr.sh
+TimeoutStartSec=900

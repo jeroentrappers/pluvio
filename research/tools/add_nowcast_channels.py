@@ -47,6 +47,22 @@ HISTORY_TOL_S = 300          # a frame counts as "K steps back" within ±5 min
 _G: dict = {}                # per-worker state (zarr handles), keyed after fork
 
 
+
+def _create(root, name, **kw):
+    """Create an array, working on both zarr major versions.
+
+    zarr 2 exposes ``Group.create_dataset``; zarr 3 replaced it with
+    ``Group.create_array`` and removed the old name. The two tools in this pipeline
+    were written against different majors — build_seamless_zarr.py uses
+    create_array (zarr 3), this used create_dataset (zarr 2) — which is why the
+    training flow needed tools/zarr_v3_to_v2.py wedged between them. Serving runs
+    both steps in ONE image, so dispatch instead of pinning: the serving path then
+    needs no v3→v2 conversion at all.
+    """
+    fn = getattr(root, "create_array", None) or root.create_dataset
+    return fn(name, **kw)
+
+
 def _sorted_history(issue_epoch: np.ndarray, step_s: int):
     """For each issue index, the list of prior issue indices (oldest→newest, incl. self)
     that form a contiguous ~step_s cadence chain, up to MOTION_WINDOW long. Chain breaks
@@ -144,13 +160,13 @@ def main(argv=None) -> int:
     # (re)create the derived arrays (zarr v2 API; overwrite replaces any prior version).
     # chunks=(1, ...) → each issue is its own chunk, so worker processes write disjoint
     # chunks concurrently with no locking.
-    root.create_dataset("oflow_leads", shape=(len(now_leads),), dtype="int16",
+    _create(root, "oflow_leads", shape=(len(now_leads),), dtype="int16",
                         overwrite=True)[:] = now_leads
     for name, shape, chunks in (
         ("oflow_rate", (n, len(now_leads), H, W), (1, len(now_leads), H, W)),
         ("rate_tendency", (n, H, W), (1, H, W)),
     ):
-        root.create_dataset(name, shape=shape, chunks=chunks, dtype="float16", overwrite=True)
+        _create(root, name, shape=shape, chunks=chunks, dtype="float16", overwrite=True)
 
     hist = _sorted_history(issue_epoch, step_s)
     idxs = list(range(n if args.limit is None else min(args.limit, n)))

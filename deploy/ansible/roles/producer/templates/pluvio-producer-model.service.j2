@@ -1,0 +1,30 @@
+# Managed by Ansible. The GATED learned producer (roadmap §"promotion gate").
+# c17-C passed the gate on 2026-08-25: it beats real pysteps on MAE, CSI@0.1,
+# CSI@1 and FSS at 3/9/15 km at all 12 served leads.
+#
+# produce_forecast.py rebuilds the input stack from the recipe recorded IN the
+# checkpoint (aux/static channels, history steps, advection flag) and hard-fails on
+# any mismatch, so a live zarr that gained or lost a channel cannot silently feed
+# the net a different stack than it trained on.
+#
+# OnFailure → the classical producer, so any model-path problem degrades to the
+# pysteps⊕AIFS baseline instead of leaving the artifact stale.
+[Unit]
+Description=Pluvio learned seamless-forecast producer (c17-C)
+After=network-online.target
+OnFailure=pluvio-producer.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm \
+  -e PLUVIO_GRID_N={{ producer_grid_n | default(256) }} \
+  -v {{ producer_zarr_dir }}:/zarr:ro \
+  -v /opt/pluvio/stage/checkpoints:/ckpt:ro \
+  -v {{ producer_serve_dir }}:{{ producer_serve_dir }} \
+  pluvio-producer-model:latest python -m model.produce_forecast \
+  --producer model \
+  --zarr /zarr/live.zarr \
+  --checkpoint /ckpt/{{ producer_model_checkpoint }} \
+  --out {{ producer_serve_dir }}/model_forecast.npz \
+  --max-age-min {{ producer_max_age_min }}
+TimeoutStartSec=600
