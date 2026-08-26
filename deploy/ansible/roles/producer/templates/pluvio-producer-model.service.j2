@@ -2,6 +2,10 @@
 # c17-C passed the gate on 2026-08-25: it beats real pysteps on MAE, CSI@0.1,
 # CSI@1 and FSS at 3/9/15 km at all 12 served leads.
 #
+# HYBRID, not `model`: c17-C is gated on 0-120 min only, so it is spliced into just
+# those leads while the classical pysteps⊕AIFS cube covers 3-240 h. Hence the
+# storagebox mount — the classical half still needs OPERA history and AIFS.
+#
 # produce_forecast.py rebuilds the input stack from the recipe recorded IN the
 # checkpoint (aux/static channels, history steps, advection flag) and hard-fails on
 # any mismatch, so a live zarr that gained or lost a channel cannot silently feed
@@ -18,11 +22,13 @@ OnFailure=pluvio-producer.service
 Type=oneshot
 ExecStart=/usr/bin/docker run --rm \
   -e PLUVIO_GRID_N={{ producer_grid_n | default(256) }} \
+  -v {{ producer_storage_dir }}:{{ producer_storage_dir }}:ro \
   -v {{ producer_zarr_dir }}:/zarr:ro \
   -v /opt/pluvio/stage/checkpoints:/ckpt:ro \
   -v {{ producer_serve_dir }}:{{ producer_serve_dir }} \
   pluvio-producer-model:latest python -m model.produce_forecast \
-  --producer model \
+  --producer hybrid \
+  --storage {{ producer_storage_dir }} \
   --zarr /zarr/live.zarr \
   --checkpoint /ckpt/{{ producer_model_checkpoint }} \
   --out {{ producer_serve_dir }}/model_forecast.npz \
