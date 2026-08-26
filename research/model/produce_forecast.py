@@ -187,9 +187,57 @@ def produce_model(zarr_path: str, leads, max_age_min: int, ckpt: str):
     return rates, source, confidence_for_leads(leads), f"seamless:{pathlib.Path(ckpt).stem}", issue_dt
 
 
+
+def produce_hybrid(storage: pathlib.Path, zarr_path: str, leads, max_age_min: int, ckpt: str):
+    """Learned nowcast spliced into the classical full-horizon cube.
+
+    c17-C is a **nowcast** model: trained on leads 0-120 min and gated only there
+    (it beats real pysteps on MAE, CSI@0.1, CSI@1 and FSS at 3/9/15 km at all 12
+    served leads). It has never seen a lead beyond 2 h. Serving it as the whole
+    0-240 h cube would claim day-5 skill it was never evaluated for -- and in
+    practice just crashes, because the live zarr carries only the nowcast leads
+    (`KeyError: 180`).
+
+    So: take the classical pysteps⊕AIFS cube for the full horizon, then overwrite
+    the leads the model actually covers. Every lead is then served by whichever
+    producer is verified for it, and `source` stays honest per lead.
+    """
+    rates, source, conf, engine_c, issue_dt = produce_classical(storage, leads, max_age_min)
+
+    import zarr
+    zleads = {int(x) for x in zarr.open_group(zarr_path, mode="r")["leads_min"][:]}
+    model_leads = [l for l in leads if l in zleads]
+    if not model_leads:
+        LOG.warning("live zarr covers none of the serving leads — classical only")
+        return rates, source, conf, f"{engine_c}(model:none)", issue_dt
+
+    m_rates, m_source, m_conf, engine_m, m_issue = produce_model(
+        zarr_path, model_leads, max_age_min, ckpt)
+
+    # Both producers must describe the SAME analysis, or we would splice a learned
+    # nowcast from one issue time onto an outlook from another.
+    skew_min = abs((m_issue - issue_dt).total_seconds()) / 60
+    if skew_min > OPERA_DT_MIN:
+        raise RuntimeError(
+            f"issue-time skew {skew_min:.0f} min between model ({m_issue.isoformat()}) "
+            f"and classical ({issue_dt.isoformat()}) — refusing to splice")
+
+    idx = {l: i for i, l in enumerate(leads)}
+    for j, l in enumerate(model_leads):
+        i = idx[l]
+        rates[i] = m_rates[j]
+        source[i] = m_source[j]
+        conf[i] = m_conf[j]
+    LOG.info("hybrid: model on %d leads (%d-%d min), classical on the remaining %d",
+             len(model_leads), min(model_leads), max(model_leads), len(leads) - len(model_leads))
+    return rates, source, conf, f"hybrid:{engine_m}+{engine_c}", issue_dt
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--producer", choices=["classical", "model"], default="classical")
+    p.add_argument("--producer", choices=["classical", "model", "hybrid"], default="classical",
+                   help="hybrid = learned nowcast (0-120 min, the gated regime) spliced "
+                        "into the classical cube for the rest of the 0-240 h horizon")
     p.add_argument("--storage", default="/mnt/storagebox",
                    help="root with opera/ aifs/ (classical producer)")
     p.add_argument("--zarr", default="/opt/pluvio/zarr/seamless.zarr",
@@ -206,6 +254,9 @@ def main(argv=None) -> int:
     leads = list(SERVE_LEADS)
     if args.producer == "classical":
         rates_a, source, conf, engine, issue_dt = produce_classical(storage, leads, args.max_age_min)
+    elif args.producer == "hybrid":
+        rates_a, source, conf, engine, issue_dt = produce_hybrid(
+            storage, args.zarr, leads, args.max_age_min, args.checkpoint)
     else:
         rates_a, source, conf, engine, issue_dt = produce_model(
             args.zarr, leads, args.max_age_min, args.checkpoint)

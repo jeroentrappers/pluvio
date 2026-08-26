@@ -8,6 +8,16 @@
 #   1. refresh the rolling live zarr  (tools/build_seamless_zarr + add_nowcast_channels)
 #   2. run inference                  (model/produce_forecast --producer model)
 #
+# ⚠️ VERSIONS ARE PINNED, and the pins matter more than they look. c17-C's
+# `oflow_rate` channel is the pysteps Lucas-Kanade advection prior, and pysteps runs
+# LK on OpenCV. Trained on asusprime with pysteps 1.21.1 + opencv 4.13.0; an
+# unpinned build today resolved pysteps 1.21.5 + opencv 5.0.0 and the SAME classical
+# code then produced a 4x different cube max (7.47 vs 32.15 mm/h on the same
+# analysis and the same AIFS run). Serving the model on those versions would feed it
+# an advection prior computed differently from the one it learned — silent skew, no
+# error. Keep these aligned with the training env; re-pin deliberately, never by
+# rebuilding.
+#
 # ⚠️ pysteps is not optional here. `add_nowcast_channels` derives `oflow_rate` via
 # `model.classical.optical_flow_nowcast`, which silently degrades to a
 # phase-correlation fallback when pysteps is missing. c17-C was trained on the
@@ -20,12 +30,12 @@
 FROM python:3.13
 
 RUN pip install --no-cache-dir \
-        numpy \
-        scipy \
+        "numpy==2.*" \
+        "scipy==1.15.*" \
         "rasterio==1.4.*" \
         pyproj \
-        pysteps \
-        opencv-python-headless \
+        "pysteps==1.21.1" \
+        "opencv-python-headless==4.13.*" \
         xarray \
         cfgrib \
         eccodes \
