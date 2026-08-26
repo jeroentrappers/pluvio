@@ -1,0 +1,21 @@
+# Managed by Ansible. Adaptive OPERA poller: learns the composite publication lag
+# (~10 min after each :00/:15/:30/:45 valid time) and triggers opera-forward the
+# moment a frame lands, instead of a blind fixed cadence that missed frames by up
+# to 15 min. Scheduling only — the fetch stays in opera-forward.service.
+[Unit]
+Description=Pluvio adaptive OPERA poller (syncs collection to publication)
+After=network-online.target mnt-storagebox.mount
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ opera_app_dir }}/opera_adaptive_poll.sh
+Environment=OPERA_LAG_FILE=/var/lib/pluvio/opera_lag_s
+Environment=OPERA_SERVICE=opera-forward.service
+Restart=always
+RestartSec=30
+# It only probes S3 and calls systemctl; no need for the storagebox itself.
+StateDirectory=pluvio
+
+[Install]
+WantedBy=multi-user.target

@@ -77,3 +77,34 @@
     path: "{{ opera_data_dir }}/.backfill_launched"
     state: touch
     mode: "0644"
+
+# ── Adaptive poller ─────────────────────────────────────────────────────────
+# OPERA is valid at :00/:15/:30/:45 but publishes ~10 min later (measured
+# 2026-08-26: 10.1 min, stable to the second across consecutive frames). The
+# fixed *:03/15 timer therefore missed each frame by up to 15 min — observed
+# serving a 28-min-old analysis while a 14-min-old one was already in the bucket.
+# This poller learns the lag and triggers the collector as soon as a frame lands.
+# The timer above is deliberately KEPT as a fallback: it is idempotent (skips
+# files already on disk), so the poller simply gets there first.
+- name: Copy adaptive poller script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/collectors/opera_adaptive_poll.sh"
+    dest: "{{ opera_app_dir }}/opera_adaptive_poll.sh"
+    mode: "0755"
+
+- name: Install adaptive poller unit
+  ansible.builtin.template:
+    src: pluvio-opera-adaptive.service.j2
+    dest: /etc/systemd/system/pluvio-opera-adaptive.service
+    mode: "0644"
+  notify: reload systemd
+
+- name: Apply systemd unit changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + (re)start the adaptive poller
+  ansible.builtin.systemd:
+    name: pluvio-opera-adaptive.service
+    enabled: true
+    state: restarted
+    daemon_reload: true
