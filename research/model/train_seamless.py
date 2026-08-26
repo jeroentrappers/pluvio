@@ -192,6 +192,12 @@ def main(argv=None) -> int:
     p.add_argument("--aux-at-valid-time", action="store_true",
                    help="Stage B: read the ERA5/aux anchor at the valid-time (issue+lead) "
                         "as a perfect-forecast proxy the outlook head downscales")
+    p.add_argument("--static", action=argparse.BooleanOptionalAction, default=True,
+                   help="include the static_* terrain channels when the zarr has them "
+                        "(default). --no-static ablates them, which is the only way to test "
+                        "terrain against a given objective: c17-A tested static under the "
+                        "rate-pooled loss, where blurring was nearly free, so a placement "
+                        "signal could have been masked.")
     p.add_argument("--aux-channels", default="",
                    help="comma aux-channel names to feed the model; 'none' = radar-only "
                         "ablation (ignore lightning/GII even if present in the zarr); "
@@ -227,7 +233,8 @@ def main(argv=None) -> int:
         None if not sel else [s.strip() for s in args.aux_channels.split(",") if s.strip()])
     leads = [int(x) for x in args.leads.split(",") if x.strip()] or DEFAULT_LEADS
     ds_kw = dict(history_steps=args.history_steps, aux_at_valid_time=args.aux_at_valid_time,
-                 aux_channels=aux_channels, leads_min=leads, use_advection=args.advection)
+                 aux_channels=aux_channels, leads_min=leads, use_advection=args.advection,
+                 include_static=args.static)
     # NB: require_rain_fraction left at None (not 0.0). A 0.0 threshold filters nothing yet
     # forces _build_index to read every candidate's truth frame — ~405k disk reads, ~2 h once
     # opera_rate is evicted from page cache. None yields the identical index in seconds.
