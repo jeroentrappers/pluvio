@@ -128,7 +128,25 @@ weighted wins intensity — the 'local' hybrid lands between rather than above, 
 window idea (average only sweeps near the lowest beam) does not beat committing to one
 regime per threshold.
 
+## Gauge adjustment: a null result on our product
+
+Appendix B implemented verbatim and scored honestly (adjust with one network, score on
+the other; same-network rows are in-sample and labelled):
+
+| scored on | adjusted with | thr 0.1 | thr 0.5 | thr 1.0 | bias@wet |
+|---|---|---|---|---|---|
+| BE (4,281) | NL (clean) | 0.444 | 0.385 | 0.328 | +1.08 |
+| BE | none | 0.445 | 0.376 | 0.337 | +0.16 |
+| NL (11,664) | BE (clean) | 0.461 | 0.377 | 0.330 | +0.09 |
+| NL | none | 0.457 | 0.372 | 0.338 | −0.06 |
+
+Cross-network adjustment moves CSI by ±0.01 and worsens the wet bias. Conclusion:
+**RTCOR's remaining >=0.5 mm/h lead is not its gauge adjustment reaching us** — it is
+the radar chain itself (1 km grid vs our ~3 km, the full Hazenberg VPR with melting-
+layer classification, per-radar attenuation tuning, and the advection-accumulation
+product). Consistent with the original decomposition (adjustment worth 0.01-0.09 CSI
+to RTCOR itself, on its own 1 km product).
+
 ## In flight
 
-Cross-network gauge adjustment (adjust NL score BE and vice versa); 10-min accumulation
-scoring; local-window sensitivity on train days only.
+10-min accumulation scoring; local-window sensitivity on train days only.
