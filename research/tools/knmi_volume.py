@@ -152,3 +152,66 @@ def fetch(radar: str, stamp: str) -> pathlib.Path | None:
     except Exception as exc:
         LOG.warning("no KNMI volume %s %s (%s)", radar, stamp, exc)
         return None
+
+
+def read_all_sweeps(path: pathlib.Path, max_elangle: float = 12.0):
+    """Every sweep up to max_elangle, with the polarimetric moments RTCOR's chain needs.
+
+    RTCOR does not use one low sweep. It merges all elevations by a per-voxel quality
+    index, corrects attenuation from K_dp, and fits a vertical profile of reflectivity
+    to extrapolate to the ground — none of which is possible from a single sweep. KNMI
+    volumes carry 16 scans and the full dual-pol set, so the raw material is here.
+
+    Returns a list of dicts sorted by elevation: dbz, dbz_v, zdr (= Z - Zv), rhohv, kdp,
+    phidp, cpa (each (n_az, n_rng) or None), az, rng, elangle, site. The 90 deg birdbath is excluded
+    since it carries no horizontal information.
+    """
+    import h5py
+
+    out = []
+    with h5py.File(path, "r") as f:
+        loc = f["radar1"].attrs["radar_location"]
+        name = f["radar1"].attrs.get("radar_name", b"").decode().lower()
+        site = (float(loc[0]), float(loc[1]), ANTENNA_HEIGHT_M.get(
+            "nlhrw" if "herwijnen" in name else "nldhl" if "helder" in name else "", 0.0))
+        for key in f:
+            if not key.startswith("scan") or "scan_elevation" not in f[key].attrs:
+                continue
+            g = f[key]
+            el = float(g.attrs["scan_elevation"][0])
+            if el > max_elangle or el >= 89.0:
+                continue
+            naz = int(g.attrs["scan_number_azim"][0])
+            nrng = int(g.attrs["scan_number_range"][0])
+            moments = {}
+            # ZDR is not stored: KNMI writes Z (horizontal) and Zv separately, so
+            # differential reflectivity is Z - Zv. CPA (clutter phase alignment) is one
+            # of the five fuzzy-logic clutter variables RTCOR uses and is only available
+            # from the Dutch radars.
+            for name_out, name_in in (("dbz", "Z"), ("dbz_v", "Zv"), ("rhohv", "RhoHV"),
+                                      ("kdp", "KDP"), ("phidp", "PhiDP"), ("cpa", "CPA")):
+                ds = f"scan_{name_in}_data"
+                cal = _calib(g, name_in)
+                if ds not in g or cal is None:
+                    moments[name_out] = None
+                    continue
+                raw = np.asarray(g[ds]).astype("float32")
+                val = cal[0] * raw + cal[1]
+                val[raw == 0] = np.nan
+                moments[name_out] = val
+            if moments["dbz"] is None:
+                continue
+            moments["zdr"] = (moments["dbz"] - moments["dbz_v"]
+                              if moments["dbz_v"] is not None else None)
+            out.append(dict(
+                **moments, elangle=el,
+                az=(np.arange(naz) * float(g.attrs["scan_azim_bin"][0])) % 360.0,
+                rng=(np.arange(nrng) + 0.5) * float(g.attrs["scan_range_bin"][0]) * 1000.0,
+                site=site))
+    # Several scans share 0.3 deg (different PRFs / ranges); keep the longest per angle.
+    best = {}
+    for s in out:
+        k = round(s["elangle"], 2)
+        if k not in best or len(s["rng"]) > len(best[k]["rng"]):
+            best[k] = s
+    return [best[k] for k in sorted(best)]

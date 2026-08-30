@@ -54,7 +54,9 @@ def _key() -> str:
 def _tar_for(stamp: str) -> pathlib.Path | None:
     """Download the daily tar whose 08:05->08:00 window contains `stamp`."""
     t = dt.datetime.strptime(stamp[:13], "%Y%m%dT%H%M")
-    start = t.date() if t.hour >= 8 else t.date() - dt.timedelta(days=1)
+    # The tar windows run 08:05 -> 08:00 next day, so exactly 08:00 belongs to the
+    # PREVIOUS day's tar while 08:05 starts the new one.
+    start = t.date() if (t.hour, t.minute) > (8, 0) else t.date() - dt.timedelta(days=1)
     end = start + dt.timedelta(days=1)
     fn = (f"RAD25_OPER_R___TARRRT__L2__{start:%Y%m%d}T080500_"
           f"{end:%Y%m%d}T080000_0001.tar")
@@ -100,25 +102,61 @@ def _rowcol(bounds, shape):
     return row, col
 
 
-def rate(stamp: str, bounds, shape):
-    """RTCOR rain rate (mm/h) on the analysis grid, or None."""
+def _calibrated(group):
+    """Apply a KNMI `GEO=a*PV+b` calibration, blanking its missing/out-of-image codes."""
+    import re
+
+    c = group["calibration"].attrs
+    form = c["calibration_formulas"]
+    form = form.decode() if isinstance(form, bytes) else str(form)
+    m = re.match(r"GEO=([-\d.eE+]+)\*PV\+([-\d.eE+]+)", form.strip())
+    a, b = float(m.group(1)), float(m.group(2))
+    raw = np.asarray(group["image_data"]).astype("float32")
+    out = a * raw + b
+    for key in ("calibration_missing_data", "calibration_out_of_image"):
+        for code in np.atleast_1d(c.get(key, [])):
+            out[raw == float(code)] = np.nan
+    return out
+
+
+def _regrid(field, bounds, shape):
+    row, col = _rowcol(bounds, shape)
+    ok = (row >= 0) & (row < NROW) & (col >= 0) & (col < NCOL)
+    out = np.full(shape, np.nan, "float32")
+    out[ok] = field[row[ok], col[ok]]
+    return out
+
+
+def fields(stamp: str, bounds, shape):
+    """All three RTCOR layers on the analysis grid, or None.
+
+    Returns dict(rate=mm/h, adjust_db=gauge adjustment applied in dB, quality=0..1).
+    The product ships the adjustment it applied (`image3`, ADJUSTMENT_FACTOR_[DB]), so
+    the UNADJUSTED radar-only field is recoverable as rate / 10**(adjust_db/10). That
+    separation is what tells us whether RTCOR's edge over us is its radar chain or its
+    gauge correction — two very different things to replicate.
+    """
+    import io
     import h5py
 
     tar = _tar_for(stamp)
     if tar is None:
         return None
-    idx = _index(str(tar))
-    member = idx.get(f"{stamp[:8]}{stamp[9:13]}")
+    member = _index(str(tar)).get(f"{stamp[:8]}{stamp[9:13]}")
     if member is None:
         return None
     with tarfile.open(tar) as t:
         buf = t.extractfile(member).read()
-    with h5py.File(__import__("io").BytesIO(buf), "r") as f:
-        raw = np.asarray(f["image1"]["image_data"]).astype("float32")
-    mm5 = np.where((raw == MISSING) | (raw == OUT_OF_IMAGE), np.nan, raw * 0.01)
+    with h5py.File(io.BytesIO(buf), "r") as f:
+        mm5 = _calibrated(f["image1"])
+        adj = _calibrated(f["image3"]) if "image3" in f else np.zeros_like(mm5)
+        qual = _calibrated(f["image2"]) if "image2" in f else np.ones_like(mm5)
+    return dict(rate=_regrid(mm5, bounds, shape) * 12.0,      # mm per 5 min -> mm/h
+                adjust_db=_regrid(adj, bounds, shape),
+                quality=_regrid(qual, bounds, shape))
 
-    row, col = _rowcol(bounds, shape)
-    ok = (row >= 0) & (row < NROW) & (col >= 0) & (col < NCOL)
-    out = np.full(shape, np.nan, "float32")
-    out[ok] = mm5[row[ok], col[ok]]
-    return out * 12.0        # mm per 5 min -> mm/h
+
+def rate(stamp: str, bounds, shape):
+    """RTCOR rain rate (mm/h) on the analysis grid, or None."""
+    got = fields(stamp, bounds, shape)
+    return None if got is None else got["rate"]
