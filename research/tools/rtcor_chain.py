@@ -337,47 +337,43 @@ def vpr_correction_db(h_km, vpr, sigma_km=None):
 
 
 def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
-    """Merge all sweeps of one radar onto the grid. Returns (dbz, Q_r).
+    """Merge all sweeps of one radar onto the grid. Returns (dbz, Q_r, h_eff).
 
     Modes via PLUVIO_SWEEP_MERGE:
       "weighted" — Eqs. 1-2 verbatim: quality-weighted mean in linear Z.
       "best"     — per pixel, the highest-Q_T sweep speaks.
-      "lowest" (default) — the lowest sweep with a valid (clutter-free) voxel speaks;
-                 higher sweeps only fill where lower ones have nothing.
+      "lowest"   — the lowest sweep with a valid (clutter-free) voxel speaks; higher
+                   sweeps only fill where lower ones have nothing.
+      "local" (default) — quality-weighted mean over ONLY the sweeps whose beam sits
+                   within LOCAL_DH_M of the lowest usable one at that pixel. Deep rain
+                   keeps the multi-sweep intensity stability that made "weighted" win
+                   at >=0.5 mm/h; shallow drizzle keeps "lowest"'s immunity to
+                   dry-aloft dilution, because higher sweeps fall outside the window.
 
-    Why the default deviates from the paper, measured on 2026-08-30 0730 (nlhrw wet
-    fraction; old lowest-sweep product = 1.33%):
-      weighted  0.63%  — higher sweeps above shallow rain contribute legitimate
-                         dry-aloft readings at Q_H ~ 0.7-0.9 and drag wet cells under
-                         the threshold.
-      best      0.46%  — WORSE, and diagnostic: Eq. A5 deliberately punishes the lowest
-                         500 m (residual clutter), so near the radar a higher DRY sweep
-                         out-scores the lowest one and erases drizzle that lives
-                         entirely below 1 km.
-      lowest-only 1.24% — matches the old product.
-    "lowest" is the beam-geometry rule already validated against gauges in composite
-    v2, now applied WITHIN a radar with the chain's QC doing the cleaning. Q_r still
-    combines per Eq. 2 for cross-radar weighting.
+    Measured on 2026-08-30 0730 (nlhrw wet fraction; old lowest-sweep product = 1.33%):
+      weighted 0.63% — dry-aloft sweeps at Q_H ~0.7-0.9 drag wet cells under threshold;
+      best     0.46% — worse: Eq. A5 punishes the lowest 500 m by design, so near the
+                       radar a higher DRY sweep out-scores the lowest and erases
+                       drizzle living below 1 km;
+      lowest   0.94-1.24% — matches the old product's behaviour.
+    Q_r always combines per Eq. 2; h_eff is the beam height of the lowest usable sweep.
     """
     import os as _os
-    mode = _os.environ.get("PLUVIO_SWEEP_MERGE", "lowest")
-    num = np.zeros(shape, "float64")
-    den = np.zeros(shape, "float64")
-    one_minus_q = np.ones(shape, "float64")
-    best_q = np.zeros(shape, "float64")
-    best_z = np.zeros(shape, "float64")
-    low_z = np.full(shape, np.nan, "float64")     # sweeps arrive sorted by elevation
-    low_h = np.full(shape, np.inf, "float64")     # measurement height of the value used
+    mode = _os.environ.get("PLUVIO_SWEEP_MERGE", "local")
+    LOCAL_DH_M = 800.0
+
     site = sweeps[0]["site"]
+    alt0 = site[2] if len(site) > 2 else 0.0
     vpr = estimate_vpr(sweeps)
+
+    parts = []            # (gz = grid(Q*Z), gq = grid(Q), gh = grid(beam height))
     for sw in sweeps:
         dbz, q_t = process_sweep(sw)
-        # Sect. 3.4: extrapolate to the ground with the volume's own apparent profile.
+        # Sect. 3.4: extrapolate toward the ground with the fitted idealized profile.
         # Convective voxels (>40 dBZ) are left alone — vertical mixing invalidates the
         # stratiform profile there, which is also what the paper does.
         if vpr is not None:
-            alt = site[2] if len(site) > 2 else 0.0
-            h_km = (beam_height_m(sw["rng"], sw["elangle"], alt)[None, :] - alt) / 1000.0
+            h_km = (beam_height_m(sw["rng"], sw["elangle"], alt0)[None, :] - alt0) / 1000.0
             sigma = (sw["rng"][None, :] / 1000.0) * np.radians(1.0) / 2.355   # km
             corr, unc = vpr_correction_db(np.broadcast_to(h_km, dbz.shape), vpr,
                                           np.broadcast_to(sigma, dbz.shape))
@@ -385,36 +381,55 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
             dbz = np.where(apply, dbz + corr, dbz)
             q_t = q_t * np.where(apply, q_gauss(corr, C0_DB) * q_gauss(unc, C0_DB), 1.0)
         z_lin = np.where(np.isfinite(dbz), 10.0 ** (dbz / 10.0), 0.0)
-        # grid Q*Z and Q separately so the ratio is a true weighted mean per cell
-        gz = polar_to_grid(q_t * z_lin, sw["az"], sw["rng"], site, shape, bounds,
-                           elangle=sw["elangle"], max_beam_m=1e9)
-        gq = polar_to_grid(q_t, sw["az"], sw["rng"], site, shape, bounds,
-                           elangle=sw["elangle"], max_beam_m=1e9)
-        gz = np.nan_to_num(gz, nan=0.0)
-        gq = np.nan_to_num(gq, nan=0.0)
-        num += gz
-        den += gq
-        one_minus_q *= (1.0 - np.clip(gq, 0.0, 1.0))
-        take = gq > best_q
-        # gz carries Q*Z, so recover this sweep's own Z for the winner slot
-        best_z = np.where(take, gz / np.maximum(gq, 1e-12), best_z)
-        best_q = np.where(take, gq, best_q)
-        fill = (~np.isfinite(low_z)) & (gq > 0)
-        low_z = np.where(fill, gz / np.maximum(gq, 1e-12), low_z)
-        alt0 = site[2] if len(site) > 2 else 0.0
+        gz = np.nan_to_num(polar_to_grid(q_t * z_lin, sw["az"], sw["rng"], site, shape,
+                                         bounds, elangle=sw["elangle"], max_beam_m=1e9), nan=0.0)
+        gq = np.nan_to_num(polar_to_grid(q_t, sw["az"], sw["rng"], site, shape, bounds,
+                                         elangle=sw["elangle"], max_beam_m=1e9), nan=0.0)
         h_ray = beam_height_m(sw["rng"], sw["elangle"], alt0)
-        gh = polar_to_grid(np.broadcast_to(h_ray[None, :], sw["dbz"].shape).astype("float32"),
+        gh = polar_to_grid(np.broadcast_to(h_ray[None, :], dbz.shape).astype("float32"),
                            sw["az"], sw["rng"], site, shape, bounds,
                            elangle=sw["elangle"], max_beam_m=1e9)
-        low_h = np.where(fill & np.isfinite(gh), gh, low_h)
-    z_q = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
-    if mode == "best":
-        z_q = np.where(best_q > 0, best_z, np.nan)
+        gh = np.where(np.isfinite(gh), gh, np.inf)
+        parts.append((gz, gq, gh))
+
+    num = sum(gz for gz, _, _ in parts)
+    den = sum(gq for _, gq, _ in parts)
+    one_minus_q = np.ones(shape, "float64")
+    for _, gq, _ in parts:
+        one_minus_q *= (1.0 - np.clip(gq, 0.0, 1.0))
+    # lowest usable sweep per pixel: sweeps are sorted by elevation, first hit wins
+    low_z = np.full(shape, np.nan, "float64")
+    low_h = np.full(shape, np.inf, "float64")
+    for gz, gq, gh in parts:
+        fill = (~np.isfinite(low_z)) & (gq > 0)
+        low_z = np.where(fill, gz / np.maximum(gq, 1e-12), low_z)
+        low_h = np.where(fill, gh, low_h)
+
+    if mode == "weighted":
+        z_q = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
+    elif mode == "best":
+        best_q = np.zeros(shape, "float64")
+        best_z = np.full(shape, np.nan, "float64")
+        for gz, gq, _ in parts:
+            take = gq > best_q
+            best_z = np.where(take, gz / np.maximum(gq, 1e-12), best_z)
+            best_q = np.where(take, gq, best_q)
+        z_q = best_z
     elif mode == "lowest":
         z_q = low_z
-    dbz_q = np.where(np.isfinite(z_q) & (z_q > 0), 10.0 * np.log10(np.maximum(z_q, 1e-12)), np.nan)
+    else:                                       # "local"
+        lnum = np.zeros(shape, "float64")
+        lden = np.zeros(shape, "float64")
+        for gz, gq, gh in parts:
+            sel = (gq > 0) & (gh <= low_h + LOCAL_DH_M)
+            lnum += np.where(sel, gz, 0.0)
+            lden += np.where(sel, gq, 0.0)
+        z_q = np.where(lden > 0, lnum / np.maximum(lden, 1e-12), np.nan)
+
+    dbz_q = np.where(np.isfinite(z_q) & (z_q > 0),
+                     10.0 * np.log10(np.maximum(z_q, 1e-12)), np.nan)
     q_r = np.where(den > 0, 1.0 - one_minus_q, 0.0)
-    return dbz_q, q_r, np.where(np.isfinite(low_h) & (low_h < np.inf), low_h, np.nan)
+    return dbz_q, q_r, np.where(low_h < np.inf, low_h, np.nan)
 
 
 def gabella(dbz, tr1_db=6.0, n_p=6, tr2=1.3):
