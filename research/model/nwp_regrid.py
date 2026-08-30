@@ -59,7 +59,7 @@ def rate_mm_per_h(tp_lo: np.ndarray, tp_hi: np.ndarray, hours: float) -> np.ndar
 
 
 def reproject_to_analysis_grid(src_path, band: int = 1, resampling: str = "bilinear",
-                               src_crs=None) -> np.ndarray:
+                               src_crs=None, nodata_as_zero: bool = False) -> np.ndarray:
     """Reproject any georeferenced raster (OPERA LAEA COG, MTG EPSG:4326 GeoTIFF,
     AIFS lat/lon …) onto the 100×100 analysis grid. CRS-agnostic — reads the
     source CRS from the file and warps to the KNMI-stereographic destination
@@ -67,7 +67,13 @@ def reproject_to_analysis_grid(src_path, band: int = 1, resampling: str = "bilin
 
     `src_crs` overrides the file's CRS — needed for ERA5 NetCDF, whose GDAL
     subdatasets carry a valid geotransform but no CRS tag (it's plain WGS84
-    lat/lon, so pass "EPSG:4326")."""
+    lat/lon, so pass "EPSG:4326").
+
+    `nodata_as_zero` treats source nodata as a real 0 before warping. Set it for
+    OPERA RATE/ACRR, where nodata means "no rain" rather than "not measured" —
+    without it an interpolating resampler erodes ~88% of the rain (see below).
+    Leave it False for MTG/AIFS/ERA5, where nodata genuinely means missing and
+    filling zeros would invent data."""
     import rasterio
     from rasterio.warp import Resampling, reproject
 
@@ -77,17 +83,42 @@ def reproject_to_analysis_grid(src_path, band: int = 1, resampling: str = "bilin
     dst = np.full((h, w), np.nan, dtype="float32")
     rs = getattr(Resampling, resampling)
     with rasterio.open(src_path) as src:
-        reproject(
-            source=rasterio.band(src, band),
-            destination=dst,
-            src_transform=src.transform,
-            src_crs=src_crs or src.crs,
-            dst_transform=dst_transform,
-            dst_crs=dst_crs,
-            resampling=rs,
-            src_nodata=src.nodata,
-            dst_nodata=np.nan,
-        )
+        if nodata_as_zero:
+            # ⚠️ OPERA RATE encodes NO RAIN as nodata (-9999000), so ~92% of the tiff
+            # is "nodata" that actually means zero. Warping that with an interpolating
+            # resampler makes every target cell touching a nodata source pixel nodata
+            # too, which ERODES rain areas from their edges and deletes small ones
+            # outright. Measured on 20260830T0730: 7031 raw wet pixels inside the
+            # analysis bbox produced just 357 wet cells (12%); filling nodata with 0
+            # first gives 2860, matching the ~3100 expected from 2 km -> 3 km.
+            arr = src.read(band).astype("float32")
+            nod = src.nodata
+            if nod is not None:
+                arr = np.where(arr == nod, 0.0, arr)
+            arr = np.where(np.isfinite(arr), arr, 0.0)
+            reproject(
+                source=arr,
+                destination=dst,
+                src_transform=src.transform,
+                src_crs=src_crs or src.crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=rs,
+                src_nodata=None,
+                dst_nodata=np.nan,
+            )
+        else:
+            reproject(
+                source=rasterio.band(src, band),
+                destination=dst,
+                src_transform=src.transform,
+                src_crs=src_crs or src.crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=rs,
+                src_nodata=src.nodata,
+                dst_nodata=np.nan,
+            )
     return dst
 
 
