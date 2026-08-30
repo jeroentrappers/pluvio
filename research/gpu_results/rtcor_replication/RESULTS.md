@@ -83,8 +83,26 @@ gauges it is scored on here. The BE rows are clean for all products.
    textures of NaN-bounded fields (filling with zeros manufactures clutter at echo
    edges).
 
+## Lowest-sweep merge, 5 days (VPR still v1)
+
+| CSI, halo 0 | old | chain-weighted | **chain-lowest** | RTCOR |
+|---|---|---|---|---|
+| NL thr 0.1 | 0.465 | 0.491 | **0.508** | 0.573 |
+| NL thr 0.5 | 0.400 | 0.414 | 0.396 | 0.583 |
+| BE thr 0.1 | 0.441 | 0.445 | **0.463** | 0.490 |
+| BE thr 0.5 | 0.371 | 0.412 | 0.396 | 0.523 |
+
+At the trace threshold the lowest merge is the best configuration yet — **Belgium is
+within 0.03 of RTCOR**, and Belgium is the clean comparison (RTCOR's NL rows carry its
+in-sample gauge advantage). At >=0.5 mm/h weighted still edges lowest; the two modes
+trade FAR against POD and neither closes the intensity-threshold gap alone.
+
+Belgian intensity at wet gauges: gauge 1.79 | old 1.16 | **chain 1.39** | RTCOR 1.18 —
+the chain is now closer to gauge truth than RTCOR itself on the clean domain.
+
 ## In flight
 
-Lowest-mode 5-day eval; Aug-30 eight-radar composite (all sources, corrected merge);
-cross-network gauge adjustment (adjust with NL, score BE and vice versa — same-network
-numbers are in-sample and will be labelled).
+VPR-v2 5-day eval (idealized profile + melting-layer detection); Aug-30 eight-radar
+composite with height-aware cross-radar merge; cross-network gauge adjustment; 10-min
+accumulation scoring (gauges integrate 10 min — an instantaneous rate is not the same
+quantity, and RTCOR ships accumulations).
