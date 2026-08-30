@@ -100,9 +100,35 @@ trade FAR against POD and neither closes the intensity-threshold gap alone.
 Belgian intensity at wet gauges: gauge 1.79 | old 1.16 | **chain 1.39** | RTCOR 1.18 —
 the chain is now closer to gauge truth than RTCOR itself on the clean domain.
 
+## Four-arm standings, 5-day protocol (3,920 NL / 1,080 BE gauge-times)
+
+Best of our four chain configurations per cell, bootstrap CI on (best − RTCOR):
+
+| domain/halo | thr | our best arm | CSI | RTCOR | verdict |
+|---|---|---|---|---|---|
+| NL h0 | 0.1 | lowest (VPR1+gab) | 0.508 | 0.573 | RTCOR [−.094,−.037] |
+| NL h1 | 0.1 | lowest (VPR1+gab) | **0.490** | 0.472 | **tie, we edge** [−.003,+.039] |
+| NL h0 | 1.0 | weighted (VPR1+gab) | 0.405 | 0.591 | RTCOR |
+| BE h0 | 0.1 | lowest (VPR1+gab) | **0.463** | 0.490 | **tie** [−.072,+.013] |
+| BE h1 | 0.1 | lowest (VPR1+gab) | **0.464** | 0.481 | **tie** [−.057,+.019] |
+| BE h0 | 1.0 | lowest (VPR1+gab) | **0.368** | 0.433 | **tie** [−.173,+.038] |
+| BE h0 | 2.0 | weighted (VPR1+gab) | **0.365** | 0.412 | **tie** [−.180,+.089] |
+| BE h0 | 0.5 | weighted (VPR1+gab) | 0.412 | 0.523 | RTCOR |
+
+**At the trace threshold we now tie RTCOR everywhere, and Belgium — the clean domain,
+where RTCOR has no in-sample gauge advantage — is a statistical tie at three of four
+intensity levels (halo 0).** RTCOR keeps a genuine 0.07–0.19 CSI lead at >=0.5 mm/h,
+which is precisely where its spatial gauge adjustment and accumulation product operate.
+
+Arm-level findings: VPR v2 fixes the intensity bias exactly (mean@wet 2.66 vs RTCOR's
+2.67, truth 1.82 at halo 1) but the added rain raises FAR and does not convert to CSI;
+removing Gabella likewise trades wet-area for FAR. VPR1+Gabella remains the CSI-best
+per-radar configuration. No single sweep-merge mode dominates: lowest wins trace,
+weighted wins intensity — the 'local' hybrid lands between rather than above, so the
+window idea (average only sweeps near the lowest beam) does not beat committing to one
+regime per threshold.
+
 ## In flight
 
-VPR-v2 5-day eval (idealized profile + melting-layer detection); Aug-30 eight-radar
-composite with height-aware cross-radar merge; cross-network gauge adjustment; 10-min
-accumulation scoring (gauges integrate 10 min — an instantaneous rate is not the same
-quantity, and RTCOR ships accumulations).
+Cross-network gauge adjustment (adjust NL score BE and vice versa); 10-min accumulation
+scoring; local-window sensitivity on train days only.
