@@ -128,8 +128,20 @@ def q_gauss(correction_db, half_db):
 
 
 def q_height(h_km):
-    """Eq. A5."""
-    return sigmoid(h_km, 0.0, H_L) - 0.05 / 0.95 * sigmoid(h_km, H_H, H_M)
+    """Eq. A5 — with the formula taken from the paper's stated BEHAVIOUR, not its typography.
+
+    The PDF extraction reads "QH = S(h,0,hl) − 0.05/0.95 · S(h,hh,hm)", but that
+    expression cannot satisfy the paper's own endpoints: since S(h, 4.0, 1.0) = 0.05 at
+    h = 4 by definition of S, the subtractive form gives QH(4 km) ≈ 1 − 0.0526·0.05 ≈
+    1.0 where the text demands "decreases to approximately 0.05 at hh = 4.0 km".
+    Measured consequence of implementing the typography: behel carried Q = 0.95 at
+    200 km range (beam ~3.4 km), so distant overshooting radars outvoted near ones with
+    legitimate dry-aloft readings and composite POD collapsed to 0.35.
+
+    The product of the two sigmoids reproduces every stated property: rising through
+    the lowest 500 m, ~0.95 plateau from 0.5-1 km, 0.05 at 4 km, →0 above.
+    """
+    return sigmoid(h_km, 0.0, H_L) * sigmoid(h_km, H_H, H_M)
 
 
 def q_range(r_km, r_max_km):
@@ -330,6 +342,42 @@ def single_radar(sweeps, shape, bounds, polar_to_grid):
     rate = dbz_to_rate(dbz)
     rate = np.where(np.isfinite(dbz), rate, np.where(q_r > 0, 0.0, np.nan))
     return rate, q_r
+
+
+def composite_winner(per_radar, shape, consensus_frac=0.5):
+    """Winner-takes-all by quality, with a quality-gated consensus.
+
+    The alternative to Eq. 1-2 averaging across RADARS. Weighted averaging dilutes rain
+    with legitimate dry-aloft readings from overshooting radars (a distant radar's beam
+    at 2 km sees nothing in shallow rain, carries Q~0.6, and halves the wet cell). Here
+    the highest-quality radar speaks for the cell, and only radars with comparable
+    quality (>= consensus_frac * winner's) get a veto: if all of them say dry, the cell
+    is dry. Radars looking far above the winner have low Q and therefore no vote —
+    which is exactly the flaw of the naive consensus gate from composite v2, repaired
+    with the chain's own quality index.
+    """
+    rates = np.stack([np.nan_to_num(r, nan=np.nan) for r, _ in per_radar])
+    qs = np.stack([np.where(np.isfinite(r), q, 0.0) for r, q in per_radar])
+    n = len(per_radar)
+    best = np.argmax(qs, axis=0)
+    qmax = np.take_along_axis(qs, best[None], 0)[0]
+    out = np.take_along_axis(rates, best[None], 0)[0]
+    out = np.where(qmax > 0, out, np.nan)
+    voters = qs >= np.maximum(consensus_frac * qmax, 1e-6)[None]
+    n_vote = voters.sum(0)
+    wet_votes = (voters & (np.nan_to_num(rates, nan=0.0) > 0.1)).sum(0)
+    out = np.where((n_vote > 1) & (wet_votes == 0) & (out > 0.1), 0.0, out)
+    return out.astype("float32"), qmax.astype("float32")
+
+
+def speckle(rate, min_neighbours=4):
+    """Our validated isolated-cell filter (composite v2): rain is spatially coherent."""
+    w = (np.nan_to_num(rate, nan=0.0) > 0.1).astype("int8")
+    p = np.pad(w, 1)
+    neigh = sum(p[i:i + w.shape[0], j:j + w.shape[1]]
+                for i in range(3) for j in range(3)) - w
+    return np.where(neigh >= min_neighbours, rate,
+                    np.where(np.isfinite(rate), 0.0, np.nan))
 
 
 def composite(per_radar, shape):
