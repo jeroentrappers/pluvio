@@ -15,7 +15,7 @@ Two arms, both trained to early-stop convergence on the 24-month window:
 | 30 | 0.591 | 0.588 | 0.845 | 0.842 |
 | 60 | 0.444 | 0.437 | 0.723 | 0.718 |
 | 90 | 0.390 | 0.387 | 0.667 | 0.664 |
-| 120 | 0.345 | 0.340 | 0.613 | 0.652 |
+| 120 | 0.345 | 0.340 | 0.613 | 0.608 |
 
 c18-D shares c17-C's recipe, so this is close to a reproduction, and it lands
 marginally BELOW it at every lead past 0. **c17-C stays deployed; nothing to promote.**
