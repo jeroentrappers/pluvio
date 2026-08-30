@@ -148,7 +148,8 @@ def dbz_to_rate(dbz: np.ndarray) -> np.ndarray:
     return out
 
 
-def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0):
+def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0,
+                  max_beam_m=2000.0):
     """Georeference polar bins and bin them onto a regular lat/lon grid.
 
     wradlib handles the spherical geometry (earth curvature + 4/3 refraction), which
@@ -170,11 +171,22 @@ def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0)
     lats = lonlat[..., 1].ravel()
     vals = np.asarray(rate).ravel()
 
+    # ⚠️ Beam-height mask. A radar measures a beam that CLIMBS with range: earth
+    # curvature plus 4/3 refraction put the 0.3 deg beam ~2.5 km up at 150 km and
+    # ~4 km at 200 km. Echo up there is mid-level cloud, melting layer or overshoot,
+    # NOT surface rain — but converting it with Marshall-Palmer paints light rain
+    # over the whole outer disc. Measured before masking: 17.75% wet area against
+    # OPERA's 3.02% on the same footprint, with maxima already agreeing (4.53 vs
+    # 5.21 mm/h), i.e. right intensities smeared over far too much area.
+    heights = xyz[..., 2].ravel() - alt0
+    too_high = heights > max_beam_m
+
     w, s, e, n = bounds
     h, wd = grid_shape
     col = ((lons - w) / (e - w) * wd).astype("int64")
     row = ((n - lats) / (n - s) * h).astype("int64")
-    ok = np.isfinite(vals) & (col >= 0) & (col < wd) & (row >= 0) & (row < h)
+    ok = (np.isfinite(vals) & ~too_high
+          & (col >= 0) & (col < wd) & (row >= 0) & (row < h))
 
     # Mean of contributing bins per cell. Near the radar many bins fall in one cell;
     # far out, cells may get none and stay NaN (genuinely unobserved, not dry).
@@ -195,6 +207,10 @@ def main(argv=None) -> int:
     p.add_argument("--radar", default="bejab")
     p.add_argument("--compare-opera", action="store_true",
                    help="score against the OPERA RATE composite at the same instant")
+    p.add_argument("--max-beam-m", type=float, default=2000.0,
+                   help="discard bins whose beam centre is above this height AGL. The "
+                        "beam climbs with range, so far bins sample cloud rather than "
+                        "surface rain.")
     p.add_argument("--no-declutter", action="store_true",
                    help="skip the Gabella clutter filter (to show what it removes)")
     p.add_argument("--grid-n", type=int, default=256)
@@ -232,7 +248,8 @@ def main(argv=None) -> int:
     from model.geo import GRID, bbox
     import os
     os.environ.setdefault("PLUVIO_GRID_N", str(args.grid_n))
-    grid = polar_to_grid(rate, az, rng, site, GRID, bbox(), elangle=el)
+    grid = polar_to_grid(rate, az, rng, site, GRID, bbox(), elangle=el,
+                         max_beam_m=args.max_beam_m)
     cov = np.isfinite(grid)
     LOG.info("gridded %s: %.1f%% cells covered, max %.2f mm/h", GRID, 100 * cov.mean(), np.nanmax(grid))
 
