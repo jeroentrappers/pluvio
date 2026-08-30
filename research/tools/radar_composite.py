@@ -55,7 +55,8 @@ SPECKLE_MIN_NEIGHBOURS = 4     # chosen on TRAIN days; see gpu_results/composite
 WET_MM_H = 0.1
 
 KNMI_RADARS = ("nlhrw", "nldhl")
-DWD_RADARS = ("deess", "denhb")
+from tools.dwd_volume import SITES as _DWD_SITES  # noqa: E402
+DWD_RADARS = tuple(_DWD_SITES)
 
 
 def beam_height_grid(site, bounds, shape, elangle_deg):
@@ -91,10 +92,12 @@ def wet_neighbours(grid, thr=WET_MM_H):
     return total - w
 
 
-def radar_field(radar, stamp, bounds, shape):
-    """One radar's rain-rate grid, from whichever source carries it."""
-    from tools.radar_single_site import dbz_to_rate, polar_to_grid
+def read_radar(radar, stamp):
+    """Raw lowest sweep from whichever feed carries this radar.
 
+    Split out from radar_field so the blockage code can reuse the source dispatch
+    without gridding a rain rate it does not need.
+    """
     if radar in KNMI_RADARS:
         from tools import knmi_volume
         path = knmi_volume.fetch(radar, stamp)
@@ -110,10 +113,20 @@ def radar_field(radar, stamp, bounds, shape):
     if path is None:
         return None
     try:
-        dbz, az, rng, site, el = reader(path)
+        return reader(path)
     except Exception as exc:
         LOG.warning("  %-6s unreadable at %s (%s)", radar, stamp, exc)
         return None
+
+
+def radar_field(radar, stamp, bounds, shape):
+    """One radar's rain-rate grid, from whichever source carries it."""
+    from tools.radar_single_site import dbz_to_rate, polar_to_grid
+
+    got = read_radar(radar, stamp)
+    if got is None:
+        return None
+    dbz, az, rng, site, el = got
     grid = polar_to_grid(dbz_to_rate(dbz), az, rng, site, shape, bounds,
                          elangle=el, max_beam_m=1e9)
     return grid, site, el

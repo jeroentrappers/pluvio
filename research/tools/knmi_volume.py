@@ -87,10 +87,9 @@ def read_lowest_sweep(path: pathlib.Path, rhohv_min: float = RHOHV_MIN):
         rbin_km = float(g.attrs["scan_range_bin"][0])
         loc = f["radar1"].attrs["radar_location"]
         lon, lat = float(loc[0]), float(loc[1])
-        # polar_to_grid expects (lon, lat, alt_m); KNMI records only the position, so
-        # take the antenna height from the file when present and fall back to 0 m.
-        alt = float(loc[2]) if len(loc) > 2 else float(
-            f["radar1"].attrs.get("radar_height", [0.0])[0])
+        name = f["radar1"].attrs.get("radar_name", b"").decode().lower()
+        alt = ANTENNA_HEIGHT_M.get(
+            "nlhrw" if "herwijnen" in name else "nldhl" if "helder" in name else "", 0.0)
 
     # Ray i is centred on i*abin: the data are stored from due north, and
     # scan_start_azim records where the ANTENNA began, not where row 0 sits.
@@ -105,6 +104,15 @@ DATASETS = {                       # radar -> (dataset, version, filename prefix
     "nldhl": ("radar_volume_denhelder", "2.0", "RAD_NL61_VOL_NA_"),
 }
 CACHE = pathlib.Path("/mnt/storagebox/knmi_vol")
+
+# KNMI's HDF5 records only lon/lat — there is no antenna height anywhere in the file
+# (checked radar1, geographic, overview and the scan groups). Beam blockage needs it:
+# defaulting to 0 m puts the beam at sea level, where any terrain clips it, and produced
+# an absurd 65% "blocked" for Herwijnen, which stands in the flattest part of the
+# Netherlands. These values are read from the ODIM /where/height published for the SAME
+# radars through the OPERA single-site feed, so they are the operators' own figures
+# rather than something looked up.
+ANTENNA_HEIGHT_M = {"nlhrw": 25.0, "nldhl": 55.0}
 
 
 def _api_key() -> str:

@@ -32,12 +32,31 @@ LOG = logging.getLogger("pluvio.dwd_volume")
 BASE = "https://opendata.dwd.de/weather/radar/sites"
 CACHE = pathlib.Path("/mnt/storagebox/dwd_vol")
 LOWEST_SWEEP = "05"                    # 0.50 deg — see the warning above
-SITES = {"deess": ("ess", "10410"), "denhb": ("nhb", "10605")}
+# The full DWD network. Names are prefixed "de" to match the OPERA single-site codes
+# so a radar can be requested by one name regardless of which feed carries it.
+SITES = {
+    "deasb": ("asb", "10103"), "deboo": ("boo", "10132"), "dedrs": ("drs", "10488"),
+    "deeis": ("eis", "10780"), "deess": ("ess", "10410"), "defbg": ("fbg", "10908"),
+    "defld": ("fld", "10440"), "dehnr": ("hnr", "10339"), "deisn": ("isn", "10873"),
+    "demem": ("mem", "10950"), "deneu": ("neu", "10557"), "denhb": ("nhb", "10605"),
+    "deoft": ("oft", "10629"), "depro": ("pro", "10392"), "deros": ("ros", "10169"),
+    "detur": ("tur", "10832"), "deumd": ("umd", "10356"),
+}
+
+
+_LISTING_CACHE: dict[str, str] = {}
 
 
 def _listing(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=90) as r:
-        return r.read().decode("utf-8", "replace")
+    """Directory listing, cached per process.
+
+    Each listing is ~1 MB and covers the whole 2-day window, so refetching it per file
+    would move hundreds of MB to answer questions already in hand.
+    """
+    if url not in _LISTING_CACHE:
+        with urllib.request.urlopen(url, timeout=90) as r:
+            _LISTING_CACHE[url] = r.read().decode("utf-8", "replace")
+    return _LISTING_CACHE[url]
 
 
 def fetch(radar: str, stamp: str, moment: str = "dbzh",
