@@ -3,8 +3,9 @@
 Builds on tools/radar_single_site (which proved the geometry and Z–R against gauges)
 by compositing several radars onto the shared analysis grid.
 
-Merge rule: **nearest radar wins**. Where discs overlap, the value is taken from the
-radar closest to that cell rather than the maximum or the mean. The reasoning:
+Merge rule: **lowest beam wins**. Where discs overlap, the value is taken from the
+radar whose beam centre is closest to the ground over that cell, rather than the
+maximum, the mean, or the nearest site. The reasoning:
 
   * `max` biases high wherever discs overlap — it picks whichever radar happens to
     see the most, which systematically inflates rain in overlap regions and is the
