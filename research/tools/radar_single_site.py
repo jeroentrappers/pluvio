@@ -361,3 +361,64 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def read_all_sweeps(path: pathlib.Path, max_elangle: float = 12.0):
+    """Every sweep of an ODIM polar volume, in the rtcor_chain contract.
+
+    The Belgian, French and other OPERA-feed radars ship ODIM files with datasets
+    dataset1..datasetN, one per elevation (BE bundles all elevations in one file per
+    parameter). This mirrors knmi_volume.read_all_sweeps so tools/rtcor_chain.py can
+    process those radars unchanged. Only the file's own parameter is available —
+    typically DBZH — so the polarimetric entries are None and the chain falls back
+    accordingly (no fuzzy classification, no K_dp attenuation).
+
+    `undetect` is a valid dry measurement and maps to the calibration floor; only
+    `nodata` becomes NaN (same reasoning as in knmi_volume/dwd_volume: encoding dry as
+    NaN removed every dry cell from evaluation and biased FAR).
+    """
+    import h5py
+
+    out = []
+    with h5py.File(path, "r") as f:
+        w = f["where"].attrs
+        site = (float(w["lon"]), float(w["lat"]), float(w.get("height", 0.0)))
+        for key in sorted(k for k in f if k.startswith("dataset")):
+            g = f[key]
+            try:
+                dw = g["where"].attrs
+                el = float(dw["elangle"])
+            except Exception:
+                continue
+            if el > max_elangle or el >= 89.0:
+                continue
+            nbins, nrays = int(dw["nbins"]), int(dw["nrays"])
+            rscale, rstart = float(dw["rscale"]), float(dw.get("rstart", 0.0))
+            a1gate = int(dw.get("a1gate", 0))
+            data = g.get("data1")
+            if data is None:
+                continue
+            what = data["what"].attrs
+            qty = what.get("quantity", b"")
+            qty = qty.decode() if isinstance(qty, bytes) else str(qty)
+            if qty not in ("DBZH", "TH"):
+                continue
+            raw = np.asarray(data["data"]).astype("float32")
+            gain, offset = float(what.get("gain", 1.0)), float(what.get("offset", 0.0))
+            dbz = offset + gain * raw
+            dbz[raw == float(what.get("nodata", 255))] = np.nan
+            dbz[raw == float(what.get("undetect", 0))] = offset  # dry, valid
+            if a1gate:
+                dbz = np.roll(dbz, -a1gate, axis=0)
+            out.append(dict(
+                dbz=dbz, dbz_v=None, zdr=None, rhohv=None, kdp=None, phidp=None,
+                cpa=None, elangle=el,
+                az=(np.arange(nrays) * (360.0 / nrays)) % 360.0,
+                rng=rstart + (np.arange(nbins) + 0.5) * rscale,
+                site=site))
+    best = {}
+    for sw in out:
+        k = round(sw["elangle"], 2)
+        if k not in best or len(sw["rng"]) > len(best[k]["rng"]):
+            best[k] = sw
+    return [best[k] for k in sorted(best)]

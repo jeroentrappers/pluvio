@@ -73,7 +73,14 @@ def fetch(radar: str, stamp: str, moment: str = "dbzh",
         return None
     site, wmo = SITES[radar]
     want = f"{stamp[:8]}{stamp[9:13]}"
-    url = f"{BASE}/sweep_vol_z/{site}/hdf5/filter_polarimetric/"
+    # DWD's layout differs per moment: filtered reflectivity sits under
+    # hdf5/filter_polarimetric, while RhoHV and ZDR exist ONLY as unfiltered/ with a
+    # "u" prefix on the moment name (urhohv, uzdr). filter_polarimetric 404s for them.
+    if moment in ("rhohv", "zdr"):
+        url = f"{BASE}/sweep_vol_{moment}/{site}/unfiltered/"
+        moment = "u" + moment
+    else:
+        url = f"{BASE}/sweep_vol_z/{site}/hdf5/filter_polarimetric/"
     try:
         html = _listing(url)
     except Exception as exc:
@@ -127,7 +134,14 @@ def read_sweep(path: pathlib.Path):
         raw = np.asarray(d["data"]).astype("float32")
         dbz = float(what["offset"]) + float(what["gain"]) * raw
         dbz[raw == float(what.get("nodata", 65535))] = np.nan
-        dbz[raw == float(what.get("undetect", 0))] = np.nan
+        # undetect = scanned and saw nothing = dry, a valid measurement (see the same
+        # fix in knmi_volume). Only for reflectivity; other moments stay NaN there.
+        qty = what.get("quantity", b"DBZH")
+        qty = qty.decode() if isinstance(qty, bytes) else str(qty)
+        if qty.upper().endswith("DBZH") or qty.upper().endswith("TH"):
+            dbz[raw == float(what.get("undetect", 0))] = -32.0
+        else:
+            dbz[raw == float(what.get("undetect", 0))] = np.nan
 
     # a1gate is the ray index that was sampled first; rays are stored in scan order,
     # so rotate back to make row 0 correspond to due north.
@@ -136,3 +150,37 @@ def read_sweep(path: pathlib.Path):
     az = (np.arange(nrays) * (360.0 / nrays)) % 360.0
     rng = rstart + (np.arange(nbins) + 0.5) * rscale
     return dbz, az, rng, (lon, lat, alt), el
+
+
+def read_all_sweeps(radar: str, stamp: str, sweeps=("05", "04", "03", "02")):
+    """Multi-sweep, multi-moment read for the chain — DWD's layout differs from KNMI's.
+
+    DWD publishes one FILE per (moment, sweep): reflectivity under sweep_vol_z, RhoHV
+    under sweep_vol_rhohv, ZDR under sweep_vol_zdr (all captured by fetch_dwd_sweeps.sh).
+    This joins them into the same list-of-dicts contract knmi_volume.read_all_sweeps
+    provides, so tools/rtcor_chain.py can process German radars unchanged. No K_dp and
+    no CPA are published, so attenuation falls back to none (the modified-Kraemer method
+    the paper uses for German radars is the TODO here) and the fuzzy classifier runs
+    with the CPA weight zeroed.
+    """
+    out = []
+    for sweep in sweeps:
+        base = fetch(radar, stamp, moment="dbzh", sweep=sweep)
+        if base is None:
+            continue
+        dbz, az, rng, site, el = read_sweep(base)
+        entry = dict(dbz=dbz, dbz_v=None, zdr=None, rhohv=None, kdp=None,
+                     phidp=None, cpa=None, az=az, rng=rng, elangle=el, site=site)
+        for name, moment in (("rhohv", "rhohv"), ("zdr", "zdr")):
+            p = fetch(radar, stamp, moment=moment, sweep=sweep)
+            if p is None:
+                continue
+            try:
+                m, maz, mrng, _, _ = read_sweep(p)
+            except Exception:
+                continue
+            if m.shape == dbz.shape:
+                entry[name] = m
+        out.append(entry)
+    out.sort(key=lambda s: s["elangle"])
+    return out

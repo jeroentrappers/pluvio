@@ -61,7 +61,18 @@ FUZZY_WEIGHTS = {              # paper weights; unused wradlib variables weighte
     "cpa": 0.20,   # clutter phase alignment (Hubbert et al. 2009)
     "phi": 0.0, "dop": 0.0, "map": 0.0,
 }
+# Overeem et al. 2020 (JTECH 37:1643) use wradlib's default trapezoids EXCEPT RhoHV:
+# 0.80-0.85 instead of wradlib's 0.95-0.98, "because values below 0.8 are generally
+# associated with nonmeteorological scatterers". With the wradlib default, ordinary rain
+# with RhoHV 0.90-0.95 collects clutter membership and the flag rate is far too high.
+FUZZY_TRPZ = {"rho2": [-9999.0, -9999.0, 0.80, 0.85]}
 RHOHV_MIN = 0.80               # fallback when the dual-pol set is incomplete
+# Bins below this hold no meaningful precipitation signal (Marshall-Palmer at -25 dBZ is
+# ~0.0004 mm/h). The clutter classifier must only judge bins WITH echo: DWD's
+# polarimetric moments come unfiltered and carry noise in echo-free bins, and running
+# the classifier there "removed" 99.5% of a dry scan — deleting the measurement that it
+# was dry. Dry bins keep their value and full Q_F.
+ECHO_MIN_DBZ = -25.0
 KE = 4.0 / 3.0 * 6371000.0
 
 
@@ -97,7 +108,7 @@ def fuzzy_meteo_score(sw):
     weights = dict(FUZZY_WEIGHTS)
     if sw.get("cpa") is None:
         weights["cpa"] = 0.0
-    prob, _ = classify.classify_echo_fuzzy(dat, weights=weights)
+    prob, _ = classify.classify_echo_fuzzy(dat, weights=weights, trpz=FUZZY_TRPZ)
     prob = np.asarray(prob)
     # Where the score is undefined (moments missing) there is no evidence either way:
     # keep the voxel and let RhoHV alone speak through Q_F.
@@ -159,19 +170,21 @@ def process_sweep(sw):
     alt = sw["site"][2] if len(sw["site"]) > 2 else 0.0
     h = beam_height_m(rng, sw["elangle"], alt)[None, :].repeat(dbz.shape[0], 0)
 
-    # 1. non-meteorological echo: RTCOR's fuzzy-logic classifier, RhoHV fallback
+    # 1. non-meteorological echo: RTCOR's fuzzy-logic classifier, RhoHV fallback.
+    # Only bins with echo are judged — see ECHO_MIN_DBZ above.
+    echo = np.isfinite(dbz) & (dbz > ECHO_MIN_DBZ)
     score = fuzzy_meteo_score(sw)
     if score is not None:
-        bad = np.isfinite(dbz) & (score < FUZZY_THRESHOLD)
+        bad = echo & (score < FUZZY_THRESHOLD)
         dbz[bad] = np.nan
-        q_f = sigmoid(score, F5, F95)          # Eq. A2 on the surviving voxels
+        q_f = np.where(echo, sigmoid(score, F5, F95), 1.0)   # Eq. A2 on echo only
     else:
         q_f = np.ones_like(dbz)
         if sw.get("rhohv") is not None:
             rho = sw["rhohv"]
-            bad = np.isfinite(rho) & (rho < RHOHV_MIN)
+            bad = echo & np.isfinite(rho) & (rho < RHOHV_MIN)
             dbz[bad] = np.nan
-            q_f = np.where(np.isfinite(rho), sigmoid(rho, F5, F95), 1.0)
+            q_f = np.where(echo & np.isfinite(rho), sigmoid(rho, F5, F95), 1.0)
 
     # 2. attenuation
     dbz, pia = attenuation_correct(dbz, sw.get("kdp"), rng, h)
@@ -249,7 +262,7 @@ def vpr_correction_db(h_km, vpr):
     at_h = np.interp(np.clip(h_km, mids[ok].min(), mids[ok].max()), mids[ok], prof[ok])
     corr = np.clip(ref - at_h, -VPR_MAX_DB, VPR_MAX_DB)
     unc = np.interp(np.clip(h_km, mids[ok].min(), mids[ok].max()),
-                    mids[ok], np.nan_to_num(spread, nan=3.0))
+                    mids[ok], np.nan_to_num(spread[ok], nan=3.0))
     return corr, unc
 
 
@@ -331,3 +344,23 @@ def composite(per_radar, shape):
         omq *= np.where(ok, 1.0 - q, 1.0)
     out = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
     return out.astype("float32"), (1.0 - omq).astype("float32")
+
+
+def read_sweeps_any(radar: str, stamp: str, max_elangle: float = 6.0):
+    """Multi-sweep read for ANY radar, dispatching on which feed carries it.
+
+    KNMI archive (nlhrw, nldhl): full dual-pol, back to 2019.
+    DWD opendata (de***): dbzh filtered + unfiltered RhoHV/ZDR, ~2-day window.
+    OPERA single-site capture (BE/FR/...): ODIM, DBZH only, 24-h window as captured.
+    """
+    from tools import knmi_volume as _kv
+    from tools import dwd_volume as _dv
+    from tools import radar_single_site as _rss
+
+    if radar in _kv.DATASETS:
+        path = _kv.fetch(radar, stamp)
+        return _kv.read_all_sweeps(path, max_elangle=max_elangle) if path else []
+    if radar in _dv.SITES:
+        return _dv.read_all_sweeps(radar, stamp)
+    path = _rss.find_volume(radar, stamp)
+    return _rss.read_all_sweeps(path, max_elangle=max_elangle) if path else []

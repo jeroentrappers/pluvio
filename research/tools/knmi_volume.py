@@ -71,7 +71,12 @@ def read_lowest_sweep(path: pathlib.Path, rhohv_min: float = RHOHV_MIN):
         a, b = cal
         raw = np.asarray(g["scan_Z_data"]).astype("float32")
         dbz = a * raw + b
-        dbz[raw == 0] = np.nan          # 0 is the no-data code in this profile
+        # PV=0 is "no echo detected", which is a MEASUREMENT (the radar looked and saw
+        # nothing), not missing data. Encoding it as NaN made dry-but-scanned cells
+        # indistinguishable from never-scanned ones, so composites covered only echo
+        # and every dry gauge silently dropped out of evaluation — biasing FAR. It maps
+        # to the calibration floor (~-31.5 dBZ), i.e. zero rain, and stays valid.
+        dbz[raw == 0] = a * 0 + b
 
         rho_cal = _calib(g, "RhoHV")
         if rho_cal is not None and "scan_RhoHV_data" in g:
@@ -197,7 +202,10 @@ def read_all_sweeps(path: pathlib.Path, max_elangle: float = 12.0):
                     continue
                 raw = np.asarray(g[ds]).astype("float32")
                 val = cal[0] * raw + cal[1]
-                val[raw == 0] = np.nan
+                if name_in == "Z" or name_in == "Zv":
+                    val[raw == 0] = cal[1]        # no echo = calibration floor, valid
+                else:
+                    val[raw == 0] = np.nan        # polarimetric moments undefined there
                 moments[name_out] = val
             if moments["dbz"] is None:
                 continue
