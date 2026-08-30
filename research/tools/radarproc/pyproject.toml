@@ -1,0 +1,21 @@
+# Radar processing environment — building our own composite from OPERA single-site
+# polar volumes. Separate from /opt/pluvio/research on purpose: that venv is used by
+# the 15-min cron running model/infer_latest.py, which writes model_nowcast.npz —
+# production's fallback artifact. Adding wradlib there could shift numpy/scipy and
+# perturb a serving path, which is the same class of problem as the pysteps/opencv
+# drift that changed a served forecast by 4x.
+[project]
+name = "pluvio-radarproc"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2,<3",
+    "scipy>=1.15,<1.16",
+    "h5py>=3.11",
+    "rasterio==1.4.*",
+    "pyproj>=3.6",
+    "xarray>=2024.6",
+    "netcdf4>=1.6",
+    "wradlib>=2.0",
+    "matplotlib>=3.9",
+]
