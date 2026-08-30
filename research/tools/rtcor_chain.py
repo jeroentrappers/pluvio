@@ -447,7 +447,38 @@ def single_radar_h(sweeps, shape, bounds, polar_to_grid):
     q_r = np.where(clutter, 0.0, q_r)
     rate = dbz_to_rate(dbz)
     rate = np.where(np.isfinite(dbz), rate, np.where(q_r > 0, 0.0, np.nan))
-    return rate, q_r
+    return rate, q_r, h_eff
+
+
+def composite_by_height(per_radar, shape, veto_dh_m=500.0):
+    """Cross-radar merge: lowest measurement height wins; veto by peers at that height.
+
+    The chain's own Q cannot arbitrate between radars: Eq. A5 deliberately punishes the
+    lowest 500 m, so a distant radar's beam at 0.8 km out-scores the local one at
+    0.3 km — measured on the eight-radar Aug-30 composite, both quality-weighted and
+    quality-winner merges collapse POD (0.60 / 0.34 against RTCOR's 0.91) because beams
+    that sit ABOVE shallow rain dilute or veto the radar that actually samples it.
+    Beam height IS monotone in the thing that matters, so this applies the composite-v2
+    rule (validated on gauges) to the chain's per-radar products: the radar measuring
+    closest to the ground speaks, and only radars measuring within veto_dh_m of it may
+    call the cell dry.
+
+    Input: list of (rate, q, h_eff) from single_radar_h. Returns (rate, q).
+    """
+    rates = np.stack([r for r, _, _ in per_radar])
+    qs = np.stack([np.where(np.isfinite(r), q, 0.0) for r, q, _ in per_radar])
+    hs = np.stack([np.where(np.isfinite(r) & (q > 0) & np.isfinite(h), h, np.inf)
+                   for r, q, h in per_radar])
+    pick = np.argmin(hs, axis=0)
+    h_win = np.take_along_axis(hs, pick[None], 0)[0]
+    out = np.take_along_axis(rates, pick[None], 0)[0]
+    q_out = np.take_along_axis(qs, pick[None], 0)[0]
+    out = np.where(h_win < np.inf, out, np.nan)
+    peers = hs <= (h_win + veto_dh_m)[None]
+    n_peer = peers.sum(0)
+    wet_peers = (peers & (np.nan_to_num(rates, nan=0.0) > 0.1)).sum(0)
+    out = np.where((n_peer > 1) & (wet_peers == 0) & (out > 0.1), 0.0, out)
+    return out.astype("float32"), q_out.astype("float32")
 
 
 def composite_winner(per_radar, shape, consensus_frac=0.5):
