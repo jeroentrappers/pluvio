@@ -1,37 +1,44 @@
 """Multi-radar composite: merge single-site QPE grids into one field.
 
-Builds on tools/radar_single_site (which proved the geometry and Z–R against gauges)
-by compositing several radars onto the shared analysis grid.
+Sources are unified here because no single feed is enough. Each has a different reach
+and a different packaging, and all three are needed to cover the domain:
 
-Merge rule: **lowest beam wins**. Where discs overlap, the value is taken from the
-radar whose beam centre is closest to the ground over that cell, rather than the
-maximum, the mean, or the nearest site. The reasoning:
+    tools.knmi_volume   nlhrw, nldhl        archive back to 2019   (KNMI open data)
+    tools.dwd_volume    deess, denhb        ~2-day rolling window  (opendata.dwd.de)
+    tools.radar_single_site  BE/FR/rest     24-h rolling cache     (OPERA single-site)
 
-  * `max` biases high wherever discs overlap — it picks whichever radar happens to
-    see the most, which systematically inflates rain in overlap regions and is the
-    easiest way to manufacture a fake improvement in POD.
-  * `mean` blends a good near-range sample with a poor far-range one, degrading the
-    better measurement.
-  * `nearest radar` looks equivalent but is not, and measurably hurt: at 20260830T0730
-    it produced CSI 0.500 where nlhrw alone scored 0.625, because it handed cells to
-    radars whose lowest sweep is 0.5 deg rather than 0.3 deg. Distance ignores
-    elevation angle; beam height does not.
+The OPERA cache cannot be backfilled, so anything relying on it alone can only ever be
+scored on days we happened to be capturing. The KNMI archive is what makes multi-day
+verification possible at all.
 
-  A real operational chain would also weight by blockage and a quality index, which
-  this does not yet do.
+⚠️ EVERY ONE of these sources hides the lowest sweep somewhere different, and getting it
+wrong composites an upper-level or vertical scan as if it were surface rain:
+FR stamps each elevation with its own time and put a 90 deg birdbath at the requested
+minute; KNMI puts the birdbath in `scan1`; DWD numbers sweeps non-monotonically with the
+lowest at `_05`, between 0.5 and 8.0 deg neighbours. Each reader resolves it explicitly.
 
-Scored the same way as the single-radar work: against KNMI rain gauges, never
-against OPERA, since OPERA is an estimate rather than truth.
+Merge rule, measured on held-out days rather than assumed:
 
-Usage:
-    python -m tools.radar_composite --time 20260830T0730 --radars nlhrw,nldhl
-    python -m tools.radar_composite --time 20260830T0730 --radars nlhrw,nldhl --compare
+  1. **lowest beam wins** — where discs overlap take the radar whose beam centre is
+     closest to the ground. `max` inflates rain in every overlap; `mean` blends a good
+     near-range sample with a poor far-range one; `nearest radar` ignores elevation
+     angle, and measurably lost.
+  2. **consensus gate** — where more than one radar covers a cell, a single radar
+     claiming rain against the others is not believed. This is what stops one bad radar
+     leaking into the field: over the Netherlands the ungated composite scored BELOW its
+     own best single radar (CSI 0.279 against 0.328) because Den Helder, a coastal site,
+     contributed sea clutter and anaprop.
+  3. **speckle removal** — a wet cell needs at least SPECKLE_MIN_NEIGHBOURS wet cells in
+     its 3x3. Real rain is spatially coherent; isolated cells are noise. This is the
+     single biggest gain: on held-out days it cut FAR from 0.729 to 0.599 at the trace
+     threshold while POD fell only 0.835 -> 0.802.
+
+Scored against rain gauges, never against OPERA, since OPERA is an estimate not truth.
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
 import logging
 import os
 import pathlib
@@ -43,19 +50,23 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 LOG = logging.getLogger("pluvio.radar_composite")
 
+MAX_RANGE_KM = 200.0
+SPECKLE_MIN_NEIGHBOURS = 4     # chosen on TRAIN days; see gpu_results/composite_v2
+WET_MM_H = 0.1
+
+KNMI_RADARS = ("nlhrw", "nldhl")
+DWD_RADARS = ("deess", "denhb")
+
 
 def beam_height_grid(site, bounds, shape, elangle_deg):
     """Beam-centre height (m AGL) over every grid cell, 4/3-earth refraction.
 
-    This is the right merge criterion, and distance is not. Measured 20260830T0730:
-    a "nearest radar wins" composite scored CSI 0.500 while nlhrw ALONE scored 0.625
-    — the merge handed cells to deess/denhb, whose lowest sweep is 0.5 deg against
-    nlhrw's 0.3, so they sample a higher (worse) part of the storm and dragged the
-    result below the best single radar. Beam height captures elevation angle AND
-    range together, which is what actually determines sample quality.
+    The right merge criterion, and distance is not: two radars at equal range can sample
+    very different heights if their lowest elevations differ (0.3 deg against 0.5 deg is
+    common), and it is height above the ground that decides how close the measurement is
+    to surface rain.
     """
-    r_km = site_grid_distance(site, bounds, shape)
-    r = r_km * 1000.0
+    r = site_grid_distance(site, bounds, shape) * 1000.0
     ke = 4.0 / 3.0 * 6371000.0
     el = np.radians(elangle_deg)
     return np.sqrt(r ** 2 + ke ** 2 + 2 * r * ke * np.sin(el)) - ke
@@ -72,36 +83,81 @@ def site_grid_distance(site, bounds, shape):
     return np.sqrt(dx ** 2 + dy ** 2)
 
 
-def build(stamp, radars, bounds, shape, max_range_km=200.0, max_beam_m=1e9):
-    """Composite the named radars for one timestamp. Returns (field, provenance)."""
-    from tools.radar_single_site import (find_volume, read_lowest_sweep, declutter,
-                                         dbz_to_rate, polar_to_grid)
+def wet_neighbours(grid, thr=WET_MM_H):
+    """Count of wet cells among each cell's 8 neighbours."""
+    w = (np.nan_to_num(grid, nan=0.0) > thr).astype("int8")
+    p = np.pad(w, 1)
+    total = sum(p[i:i + w.shape[0], j:j + w.shape[1]] for i in range(3) for j in range(3))
+    return total - w
 
-    best = np.full(shape, np.nan, "float32")
-    best_q = np.full(shape, np.inf, "float32")   # lower beam = better sample
-    prov = np.full(shape, -1, "int8")
-    used = []
-    for idx, r in enumerate(radars):
-        vol = find_volume(r, stamp)
-        if vol is None:
-            LOG.warning("  %-6s no volume at %s", r, stamp)
+
+def radar_field(radar, stamp, bounds, shape):
+    """One radar's rain-rate grid, from whichever source carries it."""
+    from tools.radar_single_site import dbz_to_rate, polar_to_grid
+
+    if radar in KNMI_RADARS:
+        from tools import knmi_volume
+        path = knmi_volume.fetch(radar, stamp)
+        reader = knmi_volume.read_lowest_sweep
+    elif radar in DWD_RADARS:
+        from tools import dwd_volume
+        path = dwd_volume.fetch(radar, stamp)
+        reader = dwd_volume.read_sweep
+    else:
+        from tools.radar_single_site import find_volume, read_lowest_sweep
+        path = find_volume(radar, stamp)
+        reader = read_lowest_sweep
+    if path is None:
+        return None
+    try:
+        dbz, az, rng, site, el = reader(path)
+    except Exception as exc:
+        LOG.warning("  %-6s unreadable at %s (%s)", radar, stamp, exc)
+        return None
+    grid = polar_to_grid(dbz_to_rate(dbz), az, rng, site, shape, bounds,
+                         elangle=el, max_beam_m=1e9)
+    return grid, site, el
+
+
+def build(stamp, radars, bounds, shape, max_range_km=MAX_RANGE_KM,
+          consensus=True, speckle=SPECKLE_MIN_NEIGHBOURS):
+    """Composite the named radars for one timestamp -> (field, provenance, used)."""
+    grids, dists, beams, used = [], [], [], []
+    for r in radars:
+        got = radar_field(r, stamp, bounds, shape)
+        if got is None:
             continue
-        dbz, az, rng, site, el = read_lowest_sweep(vol)
-        dbz, cfrac = declutter(dbz)
-        g = polar_to_grid(dbz_to_rate(dbz), az, rng, site, shape, bounds,
-                          elangle=el, max_beam_m=max_beam_m)
+        g, site, el = got
         d = site_grid_distance(site, bounds, shape)
-        q = beam_height_grid(site, bounds, shape, el)
-        # Accept only cells this radar can plausibly measure, and only where its beam
-        # is LOWER than that of any radar already written there.
-        take = np.isfinite(g) & (d <= max_range_km) & (q < best_q)
-        best[take] = g[take]
-        best_q[take] = q[take]
-        prov[take] = idx
+        grids.append(np.where(d <= max_range_km, g, np.nan))
+        dists.append(d)
+        beams.append(np.where(d <= max_range_km, beam_height_grid(site, bounds, shape, el), np.inf))
         used.append(r)
-        LOG.info("  %-6s el %.2f deg, declutter %.1f%%, contributes %d cells",
-                 r, el, 100 * cfrac, int(take.sum()))
-    return best, prov, used
+        LOG.info("  %-6s el %.2f deg", r, el)
+    if not used:
+        return np.full(shape, np.nan, "float32"), np.full(shape, -1, "int8"), []
+
+    stack = np.stack(grids)
+    bstack = np.stack(beams)
+    cov = np.isfinite(stack)
+    n_cov = cov.sum(0)
+
+    # 1. lowest beam wins
+    pick = np.argmin(np.where(cov, bstack, np.inf), axis=0)
+    out = np.take_along_axis(stack, pick[None], 0)[0]
+    out = np.where(n_cov > 0, out, np.nan)
+    prov = np.where(n_cov > 0, pick, -1).astype("int8")
+
+    # 2. consensus: one radar cannot outvote the others where they also see the cell
+    if consensus:
+        votes = np.nansum(np.where(cov, stack > WET_MM_H, 0), axis=0)
+        out = np.where((n_cov > 1) & (votes < n_cov), 0.0, out)
+
+    # 3. speckle: isolated wet cells are noise, not rain
+    if speckle:
+        out = np.where(wet_neighbours(out) >= speckle, out,
+                       np.where(np.isfinite(out), 0.0, np.nan))
+    return out, prov, used
 
 
 def main(argv=None) -> int:
@@ -109,78 +165,23 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--time", required=True)
     p.add_argument("--radars", default="nlhrw,nldhl")
-    p.add_argument("--max-range-km", type=float, default=200.0)
+    p.add_argument("--max-range-km", type=float, default=MAX_RANGE_KM)
+    p.add_argument("--speckle", type=int, default=SPECKLE_MIN_NEIGHBOURS)
+    p.add_argument("--no-consensus", action="store_true")
     p.add_argument("--grid-n", type=int, default=256)
-    p.add_argument("--compare", action="store_true",
-                   help="score composite, each single radar, and OPERA against gauges")
     args = p.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
     os.environ.setdefault("PLUVIO_GRID_N", str(args.grid_n))
 
     from model.geo import GRID, bbox
     bounds = bbox()
     radars = [r.strip() for r in args.radars.split(",") if r.strip()]
-
-    LOG.info("compositing %s at %s", radars, args.time)
-    comp, prov, used = build(args.time, radars, bounds, GRID, args.max_range_km)
+    comp, prov, used = build(args.time, radars, bounds, GRID, args.max_range_km,
+                             consensus=not args.no_consensus, speckle=args.speckle)
     cov = np.isfinite(comp)
-    LOG.info("composite: %.1f%% coverage, max %.2f mm/h, %d radars used",
-             100 * cov.mean(), np.nanmax(comp) if cov.any() else 0.0, len(used))
-    for i, r in enumerate(used):
-        LOG.info("  provenance %-6s %.1f%% of covered cells",
-                 r, 100 * (prov[cov] == i).mean() if cov.any() else 0)
-
-    if not args.compare:
-        return 0
-
-    from model.nwp_regrid import reproject_to_analysis_grid
-    from tools.gauge_validate import fetch_knmi_10min, read_gauges, sample, contingency
-    from tools.radar_single_site import (find_volume, read_lowest_sweep, declutter,
-                                         dbz_to_rate, polar_to_grid)
-
-    gp = fetch_knmi_10min(args.time)
-    if gp is None:
-        LOG.error("no gauge file for %s", args.time)
-        return 2
-    gauges = read_gauges(gp)
-
-    singles = {}
-    for r in used:
-        vol = find_volume(r, args.time)
-        dbz, az, rng, site, el = read_lowest_sweep(vol)
-        dbz, _ = declutter(dbz)
-        singles[r] = polar_to_grid(dbz_to_rate(dbz), az, rng, site, GRID, bounds,
-                                   elangle=el, max_beam_m=1e9)
-
-    day = f"{args.time[0:4]}/{args.time[4:6]}/{args.time[6:8]}"
-    oh = sorted(glob.glob(f"/mnt/storagebox/opera/RATE/{day}/{args.time}_RATE.tif*"))
-    opera = (np.nan_to_num(reproject_to_analysis_grid(pathlib.Path(oh[0]),
-                                                      nodata_as_zero=True), nan=0.0)
-             if oh else None)
-
-    fields = {"composite": comp, **singles}
-    if opera is not None:
-        fields["OPERA"] = opera
-
-    obs, est = [], {k: [] for k in fields}
-    for st, la, lo, o in gauges:
-        v = {k: sample(f, la, lo, bounds, GRID, halo=1) for k, f in fields.items()}
-        if not np.isfinite(v["composite"]):
-            continue
-        obs.append(o)
-        for k in fields:
-            est[k].append(v[k])
-    obs = np.array(obs)
-    if len(obs) < 10:
-        LOG.error("only %d comparable gauges", len(obs))
-        return 3
-    LOG.info("=== %d gauges, %d wet ===", len(obs), int((obs > 0.1).sum()))
-    for k in fields:
-        v = np.nan_to_num(np.array(est[k]), nan=0.0)
-        c = contingency(v, obs)
-        LOG.info("%-10s POD %.3f FAR %.3f CSI %.3f | MAE %.3f corr %.3f",
-                 k, c["pod"], c["far"], c["csi"], float(np.mean(np.abs(v - obs))),
-                 float(np.corrcoef(v, obs)[0, 1]) if v.std() > 0 else float("nan"))
+    LOG.info("composite: %.1f%% coverage, max %.2f mm/h, %d radars (%s)",
+             100 * cov.mean(), np.nanmax(comp) if cov.any() else 0.0, len(used), ",".join(used))
     return 0
 
 
