@@ -279,13 +279,36 @@ def vpr_correction_db(h_km, vpr):
 
 
 def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
-    """Quality-weighted merge of all sweeps of one radar onto the grid (Eqs. 1-2).
+    """Merge all sweeps of one radar onto the grid. Returns (dbz, Q_r).
 
-    Averaging is done in linear Z, as reflectivity should be. Returns (dbz, Q_r).
+    Modes via PLUVIO_SWEEP_MERGE:
+      "weighted" — Eqs. 1-2 verbatim: quality-weighted mean in linear Z.
+      "best"     — per pixel, the highest-Q_T sweep speaks.
+      "lowest" (default) — the lowest sweep with a valid (clutter-free) voxel speaks;
+                 higher sweeps only fill where lower ones have nothing.
+
+    Why the default deviates from the paper, measured on 2026-08-30 0730 (nlhrw wet
+    fraction; old lowest-sweep product = 1.33%):
+      weighted  0.63%  — higher sweeps above shallow rain contribute legitimate
+                         dry-aloft readings at Q_H ~ 0.7-0.9 and drag wet cells under
+                         the threshold.
+      best      0.46%  — WORSE, and diagnostic: Eq. A5 deliberately punishes the lowest
+                         500 m (residual clutter), so near the radar a higher DRY sweep
+                         out-scores the lowest one and erases drizzle that lives
+                         entirely below 1 km.
+      lowest-only 1.24% — matches the old product.
+    "lowest" is the beam-geometry rule already validated against gauges in composite
+    v2, now applied WITHIN a radar with the chain's QC doing the cleaning. Q_r still
+    combines per Eq. 2 for cross-radar weighting.
     """
+    import os as _os
+    mode = _os.environ.get("PLUVIO_SWEEP_MERGE", "lowest")
     num = np.zeros(shape, "float64")
     den = np.zeros(shape, "float64")
     one_minus_q = np.ones(shape, "float64")
+    best_q = np.zeros(shape, "float64")
+    best_z = np.zeros(shape, "float64")
+    low_z = np.full(shape, np.nan, "float64")     # sweeps arrive sorted by elevation
     site = sweeps[0]["site"]
     vpr = estimate_vpr(sweeps)
     for sw in sweeps:
@@ -311,7 +334,17 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
         num += gz
         den += gq
         one_minus_q *= (1.0 - np.clip(gq, 0.0, 1.0))
+        take = gq > best_q
+        # gz carries Q*Z, so recover this sweep's own Z for the winner slot
+        best_z = np.where(take, gz / np.maximum(gq, 1e-12), best_z)
+        best_q = np.where(take, gq, best_q)
+        fill = (~np.isfinite(low_z)) & (gq > 0)
+        low_z = np.where(fill, gz / np.maximum(gq, 1e-12), low_z)
     z_q = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
+    if mode == "best":
+        z_q = np.where(best_q > 0, best_z, np.nan)
+    elif mode == "lowest":
+        z_q = low_z
     dbz_q = np.where(np.isfinite(z_q) & (z_q > 0), 10.0 * np.log10(np.maximum(z_q, 1e-12)), np.nan)
     q_r = np.where(den > 0, 1.0 - one_minus_q, 0.0)
     return dbz_q, q_r
