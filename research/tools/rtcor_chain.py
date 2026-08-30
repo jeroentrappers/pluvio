@@ -440,11 +440,21 @@ def single_radar(sweeps, shape, bounds, polar_to_grid):
 
 
 def single_radar_h(sweeps, shape, bounds, polar_to_grid):
-    """Full single-radar chain -> (rate mm/h, Q_r, measurement height m ASL)."""
+    """Full single-radar chain -> (rate mm/h, Q_r, measurement height m ASL).
+
+    PLUVIO_GABELLA=0 disables the Cartesian Gabella step: its parameters (5x5 window,
+    six qualifying pixels, area/circumference 1.3 PIXELS) assume RTCOR's 1 km grid. On
+    our ~3 km grid a 15 km drizzle band is five pixels wide and gets classified as
+    clutter — measured: the filter removes a third of the wet area (1.26% -> 0.85%) on
+    a drizzle day. At this resolution the fuzzy polar QC plus the speckle filter cover
+    the same failure mode without the scale mismatch.
+    """
+    import os as _os
     dbz, q_r, h_eff = merge_sweeps(sweeps, shape, bounds, polar_to_grid)
-    clutter = gabella(dbz)
-    dbz = np.where(clutter, np.nan, dbz)
-    q_r = np.where(clutter, 0.0, q_r)
+    if _os.environ.get("PLUVIO_GABELLA", "1") != "0":
+        clutter = gabella(dbz)
+        dbz = np.where(clutter, np.nan, dbz)
+        q_r = np.where(clutter, 0.0, q_r)
     rate = dbz_to_rate(dbz)
     rate = np.where(np.isfinite(dbz), rate, np.where(q_r > 0, 0.0, np.nan))
     return rate, q_r, h_eff
