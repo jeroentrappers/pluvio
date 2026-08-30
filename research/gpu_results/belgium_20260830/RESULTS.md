@@ -79,3 +79,39 @@ rain over cluttered ground. Both numbers are optimistic until re-tested on other
 Days with real Belgian rain. Volume capture began 2026-08-30 and holds one day; the source
 is a 24-h rolling cache, so history cannot be recovered retrospectively — only accumulated.
 Disk allows ~16 more days before the MIN_FREE_GB guard stops collection.
+
+---
+
+# Four attempts to close the Belgian gap — all measured, none sufficient
+
+The Belgian bar is OPERA's 29-day CSI **0.210** (see BASELINES.md). Our BE composite sits
+at ~0.10. Each hypothesis below was a real candidate, and each was tested rather than
+argued:
+
+| # | hypothesis | result | CSI |
+|---|---|---|---|
+| 1 | merge rule: nearest radar -> lowest beam | no change | 0.096 |
+| 2 | behel ground clutter is the problem | MAE 0.151->0.056, corr 0.057->0.279 | 0.096 |
+| 3 | evaluating only :00/:30 wastes sample | 28 slots is all the volumes there are | 0.102 |
+| 4 | too few radars: 3 BE -> 12 within 300 km | **identical, to three decimals** | 0.102 |
+
+Attempt 4 is the informative failure. Adding nine radars including frave — the CLOSEST
+radar to Belgium's centre at 71.9 km — changed nothing, because lowest-beam-wins always
+awards Belgian cells to a Belgian radar at 0.3 deg and short range. Neighbours never win a
+cell, so under a winner-takes-all merge extra radars are inert over the interior. Getting
+value from them needs a weighted or quality-informed combination, not another entry in
+the radar list.
+
+## Why this cannot be settled today
+
+13 wet gauge-times, from 28 slots on one partial day. Nothing distinguishes a 0.10 from a
+0.21 at that sample size, and four consecutive negative results on the same 13 points is
+the signature of a data limit rather than a modelling one. Continuing to tune against
+them would be fitting noise — the same mistake the Z-R calibration already made once here.
+
+The composite is also structurally simpler than what it is being compared to: one lowest
+sweep with Marshall-Palmer, against OPERA's multi-elevation, quality-controlled,
+gauge-adjusted product. That gap is real work, not a parameter.
+
+**Blocked on data, not ideas.** Volume capture runs every 5 minutes; the source is a 24-h
+rolling cache so Belgian rain days accumulate but cannot be recovered retrospectively.

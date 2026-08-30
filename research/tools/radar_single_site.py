@@ -51,25 +51,86 @@ ZR_A, ZR_B = 200.0, 1.6
 DBZ_CAP = 55.0
 
 
-def find_volume(radar: str, stamp: str, param: str = "DBZH") -> pathlib.Path | None:
+def find_volume(radar: str, stamp: str, param: str = "DBZH",
+                window_min: int = 8) -> pathlib.Path | None:
     """Locate one radar/time/parameter volume in the date-partitioned archive.
 
     Globs only the specific day directory — the archive reaches millions of files
     on CIFS, so walking it is not an option (indexing 69k OPERA files already cost
     28 s before that lesson was learned).
+
+    Two packaging conventions exist and they need different handling:
+
+    * **All elevations in one file** (BE, NL, DE). The elevation token is a list,
+      e.g. ``behel@...@0.3_0.5_0.8_...@DBZH.h5``. read_lowest_sweep picks the lowest
+      sweep inside the file, so an exact timestamp match is enough.
+    * **One file per elevation** (FR). The token is a single angle and EACH ELEVATION
+      CARRIES ITS OWN TIMESTAMP, one minute apart:
+      ``frave@20260830T0000@90.0@...`` is the 90 deg birdbath while
+      ``frave@20260830T0004@0.4@...`` is the lowest sweep of the same volume.
+
+    An exact-stamp lookup against the second convention returns whichever elevation
+    happens to share that minute — for frave at 20260830T0730 that was the **90 degree
+    vertical scan**, which would have been composited as if it were surface rain. So
+    when the token is a single angle, search a +/-window_min window and take the
+    genuine lowest elevation.
     """
     day = f"{stamp[0:4]}/{stamp[4:6]}/{stamp[6:8]}"
+    want = _stamp_minutes(stamp)
+
     for cc in ("BE", "NL", "DE", "FR", "CH", "CZ"):
-        # Packaging differs per country and the parameter is NOT always the filename
-        # suffix: BE ends "@DBZH.h5" (one param per file), NL bundles everything into
-        # "@CCORH_DBZH_PHIDP_..._ZDR.h5", FR combines "@DBZH_TH_VRADH.h5". Match the
-        # parameter anywhere in the token rather than assuming it terminates the name.
-        hits = sorted(glob.glob(str(VOLUMES / day / cc / radar / f"{radar}@{stamp}@*.h5")))
-        for h in hits:
-            params = pathlib.Path(h).stem.rsplit("@", 1)[-1].split("_")
-            if param in params:
-                return pathlib.Path(h)
+        base = VOLUMES / day / cc / radar
+        # The parameter is NOT always the filename suffix: BE ends "@DBZH.h5" (one
+        # param per file), NL bundles everything into "@CCORH_DBZH_..._ZDR.h5", FR
+        # combines "@DBZH_TH_VRADH.h5". Match the parameter anywhere in the token.
+        exact = [h for h in sorted(glob.glob(str(base / f"{radar}@{stamp}@*.h5")))
+                 if param in pathlib.Path(h).stem.rsplit("@", 1)[-1].split("_")]
+        per_elev = any(_single_elevation(h) is not None for h in exact)
+
+        if exact and not per_elev:
+            return pathlib.Path(exact[0])
+
+        # Per-elevation packaging, or no exact hit at all: widen and take the lowest.
+        cands = []
+        for h in sorted(glob.glob(str(base / f"{radar}@{stamp[:9]}*@*.h5"))):
+            stem = pathlib.Path(h).stem
+            if param not in stem.rsplit("@", 1)[-1].split("_"):
+                continue
+            el = _single_elevation(h)
+            if el is None:
+                continue
+            try:
+                mins = _stamp_minutes(stem.split("@")[1])
+            except (IndexError, ValueError):
+                continue
+            if abs(mins - want) <= window_min:
+                cands.append((el, mins, h))
+        if cands:
+            cands.sort(key=lambda c: (c[0], abs(c[1] - want)))
+            return pathlib.Path(cands[0][2])
+        if exact:
+            return pathlib.Path(exact[0])
     return None
+
+
+def _stamp_minutes(stamp: str) -> int:
+    """YYYYmmddTHHMM -> minutes since midnight."""
+    return int(stamp[9:11]) * 60 + int(stamp[11:13])
+
+
+def _single_elevation(path: str) -> float | None:
+    """Elevation angle if the file holds ONE sweep, else None.
+
+    ``frave@...@0.4@DBZH_TH_VRADH.h5`` -> 0.4, while the multi-sweep
+    ``behel@...@0.3_0.5_0.8_...@DBZH.h5`` -> None because its token is a list.
+    """
+    parts = pathlib.Path(path).stem.split("@")
+    if len(parts) < 3:
+        return None
+    try:
+        return float(parts[2])
+    except ValueError:
+        return None
 
 
 def read_lowest_sweep(path: pathlib.Path):
