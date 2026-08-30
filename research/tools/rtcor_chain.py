@@ -367,6 +367,7 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
     best_q = np.zeros(shape, "float64")
     best_z = np.zeros(shape, "float64")
     low_z = np.full(shape, np.nan, "float64")     # sweeps arrive sorted by elevation
+    low_h = np.full(shape, np.inf, "float64")     # measurement height of the value used
     site = sweeps[0]["site"]
     vpr = estimate_vpr(sweeps)
     for sw in sweeps:
@@ -400,6 +401,12 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
         best_q = np.where(take, gq, best_q)
         fill = (~np.isfinite(low_z)) & (gq > 0)
         low_z = np.where(fill, gz / np.maximum(gq, 1e-12), low_z)
+        alt0 = site[2] if len(site) > 2 else 0.0
+        h_ray = beam_height_m(sw["rng"], sw["elangle"], alt0)
+        gh = polar_to_grid(np.broadcast_to(h_ray[None, :], sw["dbz"].shape).astype("float32"),
+                           sw["az"], sw["rng"], site, shape, bounds,
+                           elangle=sw["elangle"], max_beam_m=1e9)
+        low_h = np.where(fill & np.isfinite(gh), gh, low_h)
     z_q = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
     if mode == "best":
         z_q = np.where(best_q > 0, best_z, np.nan)
@@ -407,7 +414,7 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
         z_q = low_z
     dbz_q = np.where(np.isfinite(z_q) & (z_q > 0), 10.0 * np.log10(np.maximum(z_q, 1e-12)), np.nan)
     q_r = np.where(den > 0, 1.0 - one_minus_q, 0.0)
-    return dbz_q, q_r
+    return dbz_q, q_r, np.where(np.isfinite(low_h) & (low_h < np.inf), low_h, np.nan)
 
 
 def gabella(dbz, tr1_db=6.0, n_p=6, tr2=1.3):
@@ -428,7 +435,13 @@ def dbz_to_rate(dbz):
 
 def single_radar(sweeps, shape, bounds, polar_to_grid):
     """Full single-radar chain -> (rate mm/h, Q_r)."""
-    dbz, q_r = merge_sweeps(sweeps, shape, bounds, polar_to_grid)
+    rate, q_r, _ = single_radar_h(sweeps, shape, bounds, polar_to_grid)
+    return rate, q_r
+
+
+def single_radar_h(sweeps, shape, bounds, polar_to_grid):
+    """Full single-radar chain -> (rate mm/h, Q_r, measurement height m ASL)."""
+    dbz, q_r, h_eff = merge_sweeps(sweeps, shape, bounds, polar_to_grid)
     clutter = gabella(dbz)
     dbz = np.where(clutter, np.nan, dbz)
     q_r = np.where(clutter, 0.0, q_r)
