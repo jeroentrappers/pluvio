@@ -214,67 +214,125 @@ def process_sweep(sw):
 
 # --- Sect. 3.4: vertical profile of reflectivity ----------------------------------------
 VPR_REF_KM = 0.8       # extrapolate to this height ("ground" for a beam-broadened radar)
-VPR_MAX_DB = 10.0      # cap on the applied correction
+VPR_MAX_DB = 12.0      # cap on the applied correction
 VPR_CONV_DBZ = 40.0    # voxels above this are convective: no VPR correction (Sect. 3.4)
 
 
-def estimate_vpr(sweeps, r_min_km=20.0, r_max_km=120.0, dz_km=0.25, top_km=6.0):
-    """Apparent VPR from the volume itself: mean dBZ per height bin over all sweeps.
+def estimate_vpr(sweeps, r_min_km=20.0, r_max_km=100.0, dz_km=0.2, top_km=8.0):
+    """Idealized stratiform VPR fitted to the volume, Hazenberg-style.
 
-    Simplified from Hazenberg et al. (2013, 2014): the paper fits idealized stratiform /
-    undefined profiles with a polarimetric melting-layer detection; this takes the mean
-    apparent profile in an annulus where the beam is narrow enough to resolve structure,
-    which captures the two errors that matter most — bright-band inflation and the
-    fall-off into ice above it. Returns (heights_km, profile_db, spread_db) or None.
+    v1 used the raw apparent profile, which is nearly useless: beam broadening smears
+    the bright band flat (measured: 13-14 dBZ from 0.5-3 km on a stratiform morning, so
+    corrections were ~0 and the chain kept under-reading at range — exactly where RTCOR
+    keeps its POD edge). v2 fits the paper's idealized shape instead:
+
+        P(h) = 0                       below the melting layer      (rain, reference)
+        P(h) = triangular bump         inside it                    (bright band)
+        P(h) = -s * (h - ml_top)       above it                     (snow fall-off)
+
+    The melting layer comes from the polarimetric dip (Boodoo et al. 2010): rain and
+    dry snow have RhoHV ~0.99, melting hydrometeors drop it. Bright-band amplitude and
+    the snow slope s are fitted from the apparent profile, so the idealization is
+    anchored to this volume's own precipitation. The evaluated correction is
+    beam-weighted (Gaussian, 1 deg beam), which is what lets it stay meaningful at
+    ranges where the beam is a kilometre thick.
+
+    Returns an opaque dict for vpr_correction_db, or None (no stratiform echo).
     """
-    alt = sweeps[0]["site"][2] if len(sweeps[0]["site"]) > 2 else 0.0
     edges = np.arange(0.0, top_km + dz_km, dz_km)
-    sums = np.zeros(len(edges) - 1)
-    sq = np.zeros(len(edges) - 1)
-    cnt = np.zeros(len(edges) - 1)
+    mids = (edges[:-1] + edges[1:]) / 2.0
+    zsum = np.zeros(len(mids)); zcnt = np.zeros(len(mids))
+    rsum = np.zeros(len(mids)); rcnt = np.zeros(len(mids))
+    alt = sweeps[0]["site"][2] if len(sweeps[0]["site"]) > 2 else 0.0
     for sw in sweeps:
         rng = sw["rng"]
         sel = (rng >= r_min_km * 1000.0) & (rng <= r_max_km * 1000.0)
         if not sel.any():
             continue
         h_km = (beam_height_m(rng[sel], sw["elangle"], alt) - alt) / 1000.0
+        idx = np.clip(np.digitize(h_km, edges) - 1, 0, len(mids) - 1)
         dbz = sw["dbz"][:, sel]
-        ok = np.isfinite(dbz) & (dbz > 0.0) & (dbz < VPR_CONV_DBZ)
-        if not ok.any():
-            continue
-        idx = np.clip(np.digitize(h_km, edges) - 1, 0, len(cnt) - 1)
-        for j in range(len(cnt)):
-            col = ok[:, idx == j]
-            v = dbz[:, idx == j][col]
+        strat = np.isfinite(dbz) & (dbz > 5.0) & (dbz < VPR_CONV_DBZ)
+        rho = sw.get("rhohv")
+        rho = rho[:, sel] if rho is not None else None
+        for j in np.unique(idx):
+            col = idx == j
+            v = dbz[:, col][strat[:, col]]
             if v.size:
-                sums[j] += v.sum()
-                sq[j] += (v ** 2).sum()
-                cnt[j] += v.size
-    if (cnt > 50).sum() < 4:
+                zsum[j] += np.sum(10.0 ** (v / 10.0)); zcnt[j] += v.size
+            if rho is not None:
+                rv = rho[:, col][strat[:, col]]
+                rv = rv[np.isfinite(rv)]
+                if rv.size:
+                    rsum[j] += rv.sum(); rcnt[j] += rv.size
+    ok = zcnt > 100
+    if ok.sum() < 6:
         return None
-    prof = np.where(cnt > 50, sums / np.maximum(cnt, 1), np.nan)
-    # Uncertainty of the PROFILE ESTIMATE — the standard error of the bin mean — not the
-    # field's natural spatial variability. Confusing the two multiplies quality by
-    # q_gauss(~9 dB / 3 dB) ~ 0.002 everywhere and silently zeroes the whole product
-    # (measured: Q_r fell from 0.72 to 0.004 before this distinction was made).
-    std = np.sqrt(np.maximum(sq / np.maximum(cnt, 1)
-                             - (sums / np.maximum(cnt, 1)) ** 2, 0.0))
-    stderr = np.where(cnt > 50, std / np.sqrt(np.maximum(cnt, 1)), np.nan)
-    mids = (edges[:-1] + edges[1:]) / 2.0
-    return mids, prof, stderr
+    app_db = np.full(len(mids), np.nan)
+    app_db[ok] = 10.0 * np.log10(zsum[ok] / zcnt[ok])
+    rho_prof = np.where(rcnt > 100, rsum / np.maximum(rcnt, 1), np.nan)
+
+    # Melting layer: the RhoHV dip. Rain and dry snow sit ~0.99; melting drops it.
+    ml_peak = None
+    cand = np.where(np.isfinite(rho_prof) & (mids > 0.4) & (mids < 5.0))[0]
+    if cand.size:
+        dip = cand[np.argmin(rho_prof[cand])]
+        if rho_prof[dip] < 0.97:
+            ml_peak = mids[dip]
+    if ml_peak is None:
+        ml_peak = FREEZING_LEVEL_M / 1000.0        # no polarimetric dip visible
+    ml_bot, ml_top = ml_peak - 0.35, ml_peak + 0.35
+
+    # Anchor the idealization to the volume: rain level, bright-band amplitude, snow slope.
+    rain_sel = ok & (mids >= 0.4) & (mids < ml_bot)
+    snow_sel = ok & (mids > ml_top + 0.2) & (mids < ml_top + 3.5)
+    if not rain_sel.any() or snow_sel.sum() < 3:
+        return None
+    rain_db = np.nanmean(app_db[rain_sel])
+    bb_sel = ok & (mids >= ml_bot) & (mids <= ml_top)
+    bb_amp = float(np.clip((np.nanmax(app_db[bb_sel]) - rain_db) if bb_sel.any() else 0.0, 0.0, 7.0))
+    slope, icpt = np.polyfit(mids[snow_sel], app_db[snow_sel], 1)   # dB per km, <0 expected
+    slope = float(np.clip(slope, -10.0, -1.0))
+    snow_at_top = float(np.clip(icpt + slope * ml_top - rain_db, -3.0, 3.0))
+
+    # Idealized relative profile on a fine grid, then beam-weighted per (height, sigma).
+    hgrid = np.arange(0.0, top_km, 0.05)
+    prof = np.zeros_like(hgrid)
+    in_ml = (hgrid >= ml_bot) & (hgrid <= ml_top)
+    prof[in_ml] = bb_amp * (1.0 - np.abs(hgrid[in_ml] - ml_peak) / max(ml_peak - ml_bot, 1e-6))
+    above = hgrid > ml_top
+    prof[above] = snow_at_top + slope * (hgrid[above] - ml_top)
+    fit_res = app_db[snow_sel] - (icpt + slope * mids[snow_sel])
+    unc_db = float(np.clip(np.std(fit_res), 0.5, 6.0))
+    return dict(hgrid=hgrid, prof_db=prof, unc_db=unc_db,
+                ml=(ml_bot, ml_peak, ml_top), bb_amp=bb_amp, slope=slope)
 
 
-def vpr_correction_db(h_km, vpr):
-    """dB to ADD to a voxel at height h so it represents the reference height."""
-    mids, prof, spread = vpr
-    ok = np.isfinite(prof)
-    if ok.sum() < 3:
-        return np.zeros_like(h_km), np.zeros_like(h_km)
-    ref = np.interp(VPR_REF_KM, mids[ok], prof[ok])
-    at_h = np.interp(np.clip(h_km, mids[ok].min(), mids[ok].max()), mids[ok], prof[ok])
-    corr = np.clip(ref - at_h, -VPR_MAX_DB, VPR_MAX_DB)
-    unc = np.interp(np.clip(h_km, mids[ok].min(), mids[ok].max()),
-                    mids[ok], np.nan_to_num(spread[ok], nan=3.0))
+def vpr_correction_db(h_km, vpr, sigma_km=None):
+    """dB to ADD so a voxel at beam height h represents the rain layer.
+
+    The idealized profile is evaluated through a Gaussian beam of width sigma (km) —
+    at 100 km a 1 deg beam is ~1.7 km across, and ignoring that overstates bright-band
+    and snow corrections badly. Correction = -P_beam(h), capped at ±VPR_MAX_DB.
+    """
+    hg, pf = vpr["hgrid"], vpr["prof_db"]
+    lin = 10.0 ** (pf / 10.0)
+    h = np.asarray(h_km, "float64")
+    if sigma_km is None:
+        sigma_km = np.full_like(h, 0.3)
+    out = np.empty_like(h)
+    flat_h = h.ravel(); flat_s = np.clip(np.asarray(sigma_km, "float64").ravel(), 0.05, 2.0)
+    flat_o = out.ravel()
+    # quantize sigma so the convolution is done once per class, not per voxel
+    klass = np.clip(np.round(flat_s / 0.1).astype(int), 1, 20)
+    for k in np.unique(klass):
+        sig = k * 0.1
+        w = np.exp(-0.5 * ((hg[None, :] - hg[:, None]) / sig) ** 2)
+        pb = 10.0 * np.log10(np.maximum((w * lin[None, :]).sum(1) / w.sum(1), 1e-9))
+        sel = klass == k
+        flat_o[sel] = np.interp(np.clip(flat_h[sel], hg[0], hg[-1]), hg, pb)
+    corr = np.clip(-out, -VPR_MAX_DB, VPR_MAX_DB)
+    unc = np.full_like(h, vpr["unc_db"])
     return corr, unc
 
 
@@ -319,7 +377,9 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
         if vpr is not None:
             alt = site[2] if len(site) > 2 else 0.0
             h_km = (beam_height_m(sw["rng"], sw["elangle"], alt)[None, :] - alt) / 1000.0
-            corr, unc = vpr_correction_db(np.broadcast_to(h_km, dbz.shape), vpr)
+            sigma = (sw["rng"][None, :] / 1000.0) * np.radians(1.0) / 2.355   # km
+            corr, unc = vpr_correction_db(np.broadcast_to(h_km, dbz.shape), vpr,
+                                          np.broadcast_to(sigma, dbz.shape))
             apply = np.isfinite(dbz) & (dbz < VPR_CONV_DBZ)
             dbz = np.where(apply, dbz + corr, dbz)
             q_t = q_t * np.where(apply, q_gauss(corr, C0_DB) * q_gauss(unc, C0_DB), 1.0)
