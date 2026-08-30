@@ -61,6 +61,37 @@ Raw Marshall-Palmer (Z = 200 R^1.6) stays the operating point. The honest readin
 that 36 wet training pairs is far too few to fit anything; this should be revisited
 once the archive holds more rain days.
 
+## Multi-radar composite
+
+Four radars (nlhrw, nldhl, deess, denhb), merged by **lowest beam wins**, scored over
+770 gauge-times (133 wet) across the day:
+
+| | POD | FAR | CSI | MAE | corr |
+|---|---|---|---|---|---|
+| **composite** | **0.782** | 0.512 | **0.430** | 0.379 | 0.403 |
+| nlhrw alone | 0.684 | 0.497 | 0.408 | **0.346** | **0.439** |
+| OPERA | 0.188 | 0.615 | 0.145 | 0.381 | 0.136 |
+
+**The composite beats OPERA by ~3x on CSI and ~4x on POD**, and edges past the best
+single radar on detection. The single radar keeps a slight advantage on MAE and
+correlation, which is consistent with the composite trading some accuracy for the
+extra coverage it gains from weaker contributing radars.
+
+### Merge rule, and one rejected alternative
+
+`max` inflates rain wherever discs overlap and is the easiest way to fake a POD
+improvement. `mean` blends a good near-range sample with a poor far-range one.
+`nearest radar` sounds equivalent to lowest-beam but is not: at a single timestamp it
+scored CSI 0.500 where nlhrw ALONE scored 0.625, because it handed cells to deess and
+denhb, whose lowest sweep is 0.5 deg against nlhrw's 0.3 — distance ignores elevation
+angle. Beam height combines range and elevation, which is what actually determines
+how close the sample is to surface rain.
+
+⚠️ That single-timestamp comparison (6 wet gauges) was noise: on the full 770
+gauge-time sample the composite does beat the single radar. It is recorded because it
+nearly caused the wrong design decision, and because it shows how easily a 6-point
+sample misleads.
+
 ## Caveats — this is one sample, not a general claim
 
 - **One radar (nlhrw), one day, one regime.** Light-to-moderate stratiform rain;
