@@ -43,7 +43,7 @@ export default function TimelineSlider({
       />
       <div className="timeline-label">
         <span className="clock">{frame ? frameTime(frame.validTime, leadMin) : '--:--'}</span>
-        <span className="lead">{leadMin <= 0 ? t('now') : leadLabel(leadMin)}</span>
+        <span className="lead">{leadMin === 0 ? t('now') : leadLabel(leadMin)}</span>
       </div>
     </div>
   )

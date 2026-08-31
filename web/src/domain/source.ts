@@ -14,6 +14,8 @@ export function sourceLabelKey(source: string | null | undefined): string | null
       return 'source.blend'
     case 'nwp':
       return 'source.nwp'
+    case 'radar':
+      return 'source.radar'
     default:
       return null
   }

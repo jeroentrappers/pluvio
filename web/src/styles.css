@@ -254,3 +254,25 @@ body {
 @media (min-width: 1500px) {
   .content { grid-template-columns: minmax(0, 1fr) 420px; }
 }
+
+/* Forecast / history mode toggle (App.tsx) */
+.mode-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px 0;
+}
+.mode-toggle .mode {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #3a4048;
+  background: transparent;
+  color: #c7cdd4;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mode-toggle .mode.active {
+  background: #3182bd;
+  border-color: #3182bd;
+  color: #fff;
+}

@@ -1,41 +1,56 @@
 {
-  "appTitle": "Pluvio",
-  "tagline": "Radar de pluie pour la Belgique",
-  "refresh": "Actualiser",
-  "locating": "Localisation…",
-  "locate": "Me localiser",
-  "tapHint": "Touchez la carte pour un autre lieu",
-  "locationError": "Impossible de déterminer votre position.",
-  "locationDenied": "Localisation bloquée — la Belgique est affichée.",
-  "radarError": "Impossible de récupérer les données radar.",
-  "loading": "Chargement du radar…",
-  "nowcast": {
-    "dry": "Pas de pluie prévue dans les deux prochaines heures.",
-    "raining": "Il pleut actuellement.",
-    "rainInMinutes": "Pluie prévue dans {{minutes}} min."
+ "appTitle": "Pluvio",
+ "tagline": "Radar de pluie pour la Belgique",
+ "refresh": "Actualiser",
+ "locating": "Localisation…",
+ "locate": "Me localiser",
+ "tapHint": "Touchez la carte pour un autre lieu",
+ "locationError": "Impossible de déterminer votre position.",
+ "locationDenied": "Localisation bloquée — la Belgique est affichée.",
+ "radarError": "Impossible de récupérer les données radar.",
+ "loading": "Chargement du radar…",
+ "nowcast": {
+  "dry": "Pas de pluie prévue dans les deux prochaines heures.",
+  "raining": "Il pleut actuellement.",
+  "rainInMinutes": "Pluie prévue dans {{minutes}} min."
+ },
+ "play": "Lire",
+ "pause": "Pause",
+ "now": "Maintenant",
+ "minutesShort": "+{{minutes}}m",
+ "rate": "{{value}} mm/h",
+ "chartTitle": "Intensité prévue (mm/h)",
+ "legend": {
+  "light": "Faible",
+  "moderate": "Modérée",
+  "heavy": "Forte",
+  "violent": "Violente"
+ },
+ "language": "Langue",
+ "install": "Installer l'app",
+ "updated": "Mis à jour {{time}}",
+ "horizon": "Horizon",
+ "source": {
+  "nowcast": "Prévision radar",
+  "blend": "Radar + modèle",
+  "nwp": "Modèle météo",
+  "confidence": "Confiance {{tier}} · {{pct}} %",
+  "tier": {
+   "high": "élevée",
+   "medium": "moyenne",
+   "low": "faible"
   },
-  "play": "Lire",
-  "pause": "Pause",
-  "now": "Maintenant",
-  "minutesShort": "+{{minutes}}m",
-  "rate": "{{value}} mm/h",
-  "chartTitle": "Intensité prévue (mm/h)",
-  "legend": {
-    "light": "Faible",
-    "moderate": "Modérée",
-    "heavy": "Forte",
-    "violent": "Violente"
-  },
-  "language": "Langue",
-  "install": "Installer l'app",
-  "updated": "Mis à jour {{time}}",
-  "horizon": "Horizon",
-  "source": {
-    "nowcast": "Prévision radar",
-    "blend": "Radar + modèle",
-    "nwp": "Modèle météo",
-    "confidence": "Confiance {{tier}} · {{pct}} %",
-    "tier": { "high": "élevée", "medium": "moyenne", "low": "faible" },
-    "explainer": "D'où vient cette prévision. Le radar couvre les ~2 prochaines heures ; un modèle météo couvre les jours suivants, avec une confiance plus faible à long terme."
-  }
+  "explainer": "D'où vient cette prévision. Le radar couvre les ~2 prochaines heures ; un modèle météo couvre les jours suivants, avec une confiance plus faible à long terme.",
+  "radar": "Observation radar"
+ },
+ "mode": {
+  "label": "Vue",
+  "forecast": "Prévisions",
+  "history": "3 dernières h"
+ },
+ "history": {
+  "headline": "Précipitations observées — 3 dernières heures.",
+  "chartTitle": "Intensité observée (mm/h)",
+  "observedAt": "Dernière observation radar {{time}}"
+ }
 }

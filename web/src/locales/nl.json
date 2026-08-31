@@ -1,41 +1,56 @@
 {
-  "appTitle": "Pluvio",
-  "tagline": "Regenradar voor België",
-  "refresh": "Vernieuwen",
-  "locating": "Locatie bepalen…",
-  "locate": "Mijn locatie",
-  "tapHint": "Tik op de kaart voor een andere locatie",
-  "locationError": "Kon je locatie niet bepalen.",
-  "locationDenied": "Locatie geblokkeerd — België wordt getoond.",
-  "radarError": "Kon de radargegevens niet ophalen.",
-  "loading": "Radar laden…",
-  "nowcast": {
-    "dry": "Geen regen verwacht in de komende twee uur.",
-    "raining": "Het regent nu.",
-    "rainInMinutes": "Regen verwacht over {{minutes}} min."
+ "appTitle": "Pluvio",
+ "tagline": "Regenradar voor België",
+ "refresh": "Vernieuwen",
+ "locating": "Locatie bepalen…",
+ "locate": "Mijn locatie",
+ "tapHint": "Tik op de kaart voor een andere locatie",
+ "locationError": "Kon je locatie niet bepalen.",
+ "locationDenied": "Locatie geblokkeerd — België wordt getoond.",
+ "radarError": "Kon de radargegevens niet ophalen.",
+ "loading": "Radar laden…",
+ "nowcast": {
+  "dry": "Geen regen verwacht in de komende twee uur.",
+  "raining": "Het regent nu.",
+  "rainInMinutes": "Regen verwacht over {{minutes}} min."
+ },
+ "play": "Afspelen",
+ "pause": "Pauzeren",
+ "now": "Nu",
+ "minutesShort": "+{{minutes}}m",
+ "rate": "{{value}} mm/u",
+ "chartTitle": "Verwachte intensiteit (mm/u)",
+ "legend": {
+  "light": "Licht",
+  "moderate": "Matig",
+  "heavy": "Zwaar",
+  "violent": "Hevig"
+ },
+ "language": "Taal",
+ "install": "App installeren",
+ "updated": "Bijgewerkt {{time}}",
+ "horizon": "Tijdspanne",
+ "source": {
+  "nowcast": "Radar-nowcast",
+  "blend": "Radar + model",
+  "nwp": "Weermodel",
+  "confidence": "{{tier}} betrouwbaarheid · {{pct}}%",
+  "tier": {
+   "high": "Hoge",
+   "medium": "Gemiddelde",
+   "low": "Lage"
   },
-  "play": "Afspelen",
-  "pause": "Pauzeren",
-  "now": "Nu",
-  "minutesShort": "+{{minutes}}m",
-  "rate": "{{value}} mm/u",
-  "chartTitle": "Verwachte intensiteit (mm/u)",
-  "legend": {
-    "light": "Licht",
-    "moderate": "Matig",
-    "heavy": "Zwaar",
-    "violent": "Hevig"
-  },
-  "language": "Taal",
-  "install": "App installeren",
-  "updated": "Bijgewerkt {{time}}",
-  "horizon": "Tijdspanne",
-  "source": {
-    "nowcast": "Radar-nowcast",
-    "blend": "Radar + model",
-    "nwp": "Weermodel",
-    "confidence": "{{tier}} betrouwbaarheid · {{pct}}%",
-    "tier": { "high": "Hoge", "medium": "Gemiddelde", "low": "Lage" },
-    "explainer": "Waar deze voorspelling vandaan komt. Radar bepaalt de komende ~2 uur; een weermodel de dagen erna, met lagere betrouwbaarheid verder vooruit."
-  }
+  "explainer": "Waar deze voorspelling vandaan komt. Radar bepaalt de komende ~2 uur; een weermodel de dagen erna, met lagere betrouwbaarheid verder vooruit.",
+  "radar": "Radarwaarneming"
+ },
+ "mode": {
+  "label": "Weergave",
+  "forecast": "Verwachting",
+  "history": "Afgelopen 3 u"
+ },
+ "history": {
+  "headline": "Gemeten neerslag — afgelopen 3 uur.",
+  "chartTitle": "Gemeten intensiteit (mm/u)",
+  "observedAt": "Laatste radarwaarneming {{time}}"
+ }
 }

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from . import schedules
 from .cache import ForecastCache
 from .config import Settings, get_settings
+from . import history
 
 LOG = logging.getLogger("pluvio.api")
 
@@ -114,6 +115,25 @@ class ForecastDto(BaseModel):
     bounds: dict[str, float] | None = None
 
 
+class HistoryFrameDto(BaseModel):
+    """One observed radar frame at a specific location (history mode)."""
+
+    minutes_ago: int  # 0 = newest observation, negative going back
+    valid_time: datetime
+    rate_mm_per_h: float
+    overlay_url: str
+    sprite_index: int | None = None
+
+
+class HistoryDto(BaseModel):
+    observed_at: datetime  # time of the newest frame — the mode's "now"
+    location: dict[str, float]
+    span_min: int
+    frames: list[HistoryFrameDto]
+    sprite: dict | None = None
+    bounds: dict[str, float] | None = None
+
+
 class HealthDto(BaseModel):
     status: str
     snapshot: str | None
@@ -167,7 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         issued = meta.get("issued_at")
         try:
             issued_dt = datetime.fromisoformat(issued.replace("Z", "+00:00")) if issued else None
-        except AttributeError, ValueError:
+        except (AttributeError, ValueError):
             issued_dt = None
         age = (datetime.now(UTC) - issued_dt).total_seconds() if issued_dt is not None else None
         degraded = age is not None and age > settings.cache_stale_after_seconds
@@ -302,6 +322,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={
                 "Cache-Control": f"public, max-age={schedules.band(band).refresh_seconds - 10}"
             },
+        )
+
+    # ── Observed rainfall (history mode) ─────────────────────────────────
+    # Mirrors the forecast serving shape so the client reuses its animation
+    # pipeline with negative lead times. Backed by observed.npz from the
+    # gauge-validated QPE chain (research/model/produce_observed.py).
+
+    @app.get("/v1/history", response_model=HistoryDto)
+    def history_frames(
+        lat: Annotated[float, Query(ge=-90, le=90)],
+        lon: Annotated[float, Query(ge=-180, le=180)],
+        span_min: Annotated[int, Query(gt=0, le=360)] = 180,
+    ) -> HistoryDto:
+        data = history._load()
+        if data is None:
+            raise HTTPException(status_code=503, detail="no observed rainfall yet")
+        try:
+            pts = history.point_frames(lat, lon, span_min)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        info = history.sprite_info() or {}
+        index = info.get("index", {})
+        newest = int(data["times"][-1])
+        frames = [
+            HistoryFrameDto(
+                minutes_ago=int(round((t - newest) / 60)),
+                valid_time=datetime.fromtimestamp(t, tz=UTC),
+                rate_mm_per_h=rate,
+                overlay_url=f"/v1/history/overlay/{t}.png?t={info.get('mtime', 0)}",
+                sprite_index=index.get(t),
+            )
+            for t, rate in pts
+        ]
+        sprite_dto = None
+        if info:
+            sprite_dto = {
+                "url": f"/v1/history/sprite.png?t={info['mtime']}",
+                "tile_w": info["tile_w"],
+                "tile_h": info["tile_h"],
+                "cols": info["cols"],
+                "rows": info["rows"],
+            }
+        return HistoryDto(
+            observed_at=datetime.fromtimestamp(newest, tz=UTC),
+            location={"lat": lat, "lon": lon},
+            span_min=span_min,
+            frames=frames,
+            sprite=sprite_dto,
+            bounds=data["bounds"],
+        )
+
+    @app.get("/v1/history/sprite.png")
+    def history_sprite() -> FileResponse:
+        path = history.sprite_png_path()
+        if path is None:
+            raise HTTPException(status_code=404, detail="no observed sprite")
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
+        )
+
+    @app.get("/v1/history/overlay/{epoch}.png")
+    def history_overlay(epoch: int) -> Response:
+        png = history.overlay_png(epoch)
+        if png is None:
+            raise HTTPException(status_code=404, detail="frame not in window")
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
         )
 
     @app.get("/v1/animation/manifest.json")

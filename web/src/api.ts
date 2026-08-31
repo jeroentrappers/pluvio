@@ -1,7 +1,7 @@
 // Typed client for the Pluvio forecast API. Read-only; base URL from config.ts.
 import { API_BASE } from './config'
 import { levelFromMmPerHour, type PrecipLevel } from './domain/precip'
-import type { Bounds, ForecastDto, HealthDto } from './types'
+import type { Bounds, ForecastDto, HealthDto, HistoryDto } from './types'
 
 // Geographic extent the radar composite PNG is rendered onto. Matches the
 // backend grid (cache.py) and the Flutter app's Env.radarBounds*; used as a
@@ -101,4 +101,50 @@ export function minutesUntilRain(data: RadarData): number | null {
   const first = data.frames.find((f) => f.level !== 'none')
   if (!first) return null
   return Math.max(0, Math.round((first.validTime.getTime() - data.issuedAt.getTime()) / 60000))
+}
+
+
+// Observed rainfall (history mode): the last ~3 h of gauge-validated radar QPE
+// (see /v1/history). Mapped onto the same RadarData shape the forecast uses so
+// the map, timeline and chart animate it unchanged — leads are negative
+// ("40 minutes ago"), the newest observation is the mode's "now".
+export async function getHistory(
+  lat: number,
+  lon: number,
+  spanMin = 180,
+  signal?: AbortSignal,
+): Promise<RadarData> {
+  const dto = await getJson<HistoryDto>(
+    `/v1/history?lat=${lat}&lon=${lon}&span_min=${spanMin}`,
+    signal,
+  )
+  const observedAt = new Date(dto.observed_at)
+  const frames: RadarFrame[] = dto.frames
+    .map((f) => ({
+      leadMin: f.minutes_ago,
+      validTime: new Date(f.valid_time),
+      rateMmPerH: f.rate_mm_per_h,
+      level: levelFromMmPerHour(f.rate_mm_per_h),
+      source: 'radar',
+      confidence: null,
+      spriteIndex: f.sprite_index ?? null,
+    }))
+    .sort((a, b) => a.leadMin - b.leadMin)
+  const sprite = dto.sprite
+    ? {
+        url: abs(dto.sprite.url),
+        tileW: dto.sprite.tile_w,
+        tileH: dto.sprite.tile_h,
+        cols: dto.sprite.cols,
+        rows: dto.sprite.rows,
+      }
+    : null
+  return {
+    issuedAt: observedAt,
+    location: { lat, lon },
+    modelVersion: 'observed-qpe',
+    bounds: dto.bounds ?? DEFAULT_BOUNDS,
+    frames,
+    sprite,
+  }
 }

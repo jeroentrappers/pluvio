@@ -21,8 +21,12 @@ services:
       # Allow the app's origin(s); empty disables CORS. Set for web builds.
       PLUVIO_CORS_ORIGINS: ${PLUVIO_CORS_ORIGINS:-}
       PLUVIO_MODEL_VERSION: ${PLUVIO_MODEL_VERSION:-c17c-hybrid-0.1}
+      # Observed rainfall for the history mode (research/model/produce_observed.py
+      # writes it; the api serves /v1/history* straight from it).
+      PLUVIO_OBSERVED_NPZ: /opt/pluvio/serve/observed.npz
     volumes:
       - cache:/data/forecasts
+      - /opt/pluvio/serve:/opt/pluvio/serve:ro
     # Bind to loopback only — Traefik (when in the `prod` profile) routes
     # public traffic over the internal docker network. In dev this is the
     # endpoint you curl directly.

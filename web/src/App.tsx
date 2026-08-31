@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getRadar, minutesUntilRain, type RadarData } from './api'
+import { getHistory, getRadar, minutesUntilRain, type RadarData } from './api'
 import { subscribeUpdates } from './updates'
 import { useGeolocation } from './location'
 import { HORIZON_MIN, frameFull, timeOfDay } from './format'
@@ -30,6 +30,8 @@ export default function App() {
   const [recenter, setRecenter] = useState(0) // bump to fly the map to `location`
   const userPicked = useRef(false)
 
+  // Forecast (default) or observed radar history — two views over one pipeline.
+  const [mode, setMode] = useState<'forecast' | 'history'>('forecast')
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [index, setIndex] = useState(0)
   const [isPlaying, setPlaying] = useState(false)
@@ -69,10 +71,15 @@ export default function App() {
   useEffect(() => {
     const ctrl = new AbortController()
     setLoad({ state: 'loading' })
-    getRadar(location.lat, location.lon, HORIZON_MIN, ctrl.signal)
+    const fetcher =
+      mode === 'history'
+        ? getHistory(location.lat, location.lon, 180, ctrl.signal)
+        : getRadar(location.lat, location.lon, HORIZON_MIN, ctrl.signal)
+    fetcher
       .then((data) => {
         setLoad({ state: 'ok', data })
-        setIndex(0)
+        // History opens on the newest observation; forecast on "now".
+        setIndex(mode === 'history' ? Math.max(0, data.frames.length - 1) : 0)
         setPlaying(false)
       })
       .catch((err) => {
@@ -81,7 +88,7 @@ export default function App() {
         setLoad({ state: 'error' })
       })
     return () => ctrl.abort()
-  }, [location.lat, location.lon, nonce])
+  }, [location.lat, location.lon, nonce, mode])
 
   const frames = load.state === 'ok' ? load.data.frames : []
 
@@ -99,6 +106,7 @@ export default function App() {
 
   const headline = (() => {
     if (load.state !== 'ok') return ''
+    if (mode === 'history') return t('history.headline')
     const m = minutesUntilRain(load.data)
     if (m === null) return t('nowcast.dry')
     if (m === 0) return t('nowcast.raining')
@@ -149,6 +157,25 @@ export default function App() {
 
       {status === 'denied' && <div className="note">{t('locationDenied')}</div>}
 
+      <div className="mode-toggle" role="tablist" aria-label={t('mode.label')}>
+        <button
+          role="tab"
+          aria-selected={mode === 'forecast'}
+          className={mode === 'forecast' ? 'mode active' : 'mode'}
+          onClick={() => setMode('forecast')}
+        >
+          {t('mode.forecast')}
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'history'}
+          className={mode === 'history' ? 'mode active' : 'mode'}
+          onClick={() => setMode('history')}
+        >
+          {t('mode.history')}
+        </button>
+      </div>
+
       <div className="content">
         <div className="map-wrap">
           <RadarMap
@@ -178,7 +205,11 @@ export default function App() {
         {load.state === 'ok' && (
           <section className="panel">
             <h1 className="headline">{headline}</h1>
-            <p className="updated">{t('updated', { time: timeOfDay(load.data.issuedAt) })}</p>
+            <p className="updated">
+              {mode === 'history'
+                ? t('history.observedAt', { time: timeOfDay(load.data.issuedAt) })
+                : t('updated', { time: timeOfDay(load.data.issuedAt) })}
+            </p>
             {frames.length > 0 && frames[index] && (
               <div className="chart-readout">
                 <span className="rstamp">{frameFull(frames[index].validTime)}</span>
@@ -199,6 +230,7 @@ export default function App() {
                 index={index}
                 issuedAt={load.data.issuedAt}
                 onSelect={onIndex}
+                title={mode === 'history' ? t('history.chartTitle') : undefined}
               />
             )}
             <PrecipitationLegend />

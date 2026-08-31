@@ -50,6 +50,23 @@ export interface Bounds {
   north: number
 }
 
+export interface HistoryFrameDto {
+  minutes_ago: number // 0 = newest observation, negative going back
+  valid_time: string // ISO-8601 UTC
+  rate_mm_per_h: number
+  overlay_url: string
+  sprite_index?: number | null
+}
+
+export interface HistoryDto {
+  observed_at: string // ISO-8601 UTC — the newest frame, the mode's "now"
+  location: { lat: number; lon: number }
+  span_min: number
+  frames: HistoryFrameDto[]
+  sprite?: SpriteDto | null
+  bounds?: Bounds | null
+}
+
 export interface AnimationManifestDto {
   snapshot: string
   band: string

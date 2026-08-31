@@ -2,6 +2,8 @@
 // lead <= 0 as the localized "now". Nowcast leads (≤110 min) stay in minutes;
 // the longer bands switch to hours, then days for the multi-day outlook.
 export function leadLabel(minutes: number): string {
+  // History mode uses negative leads: "-40m" = observed 40 minutes ago.
+  if (minutes < 0) return `−${Math.abs(minutes)}m`
   if (minutes < 120) return `+${minutes}m`
   if (minutes < 2880) return `+${Math.round(minutes / 60)}h`
   return `+${Math.round(minutes / 1440)}d`
