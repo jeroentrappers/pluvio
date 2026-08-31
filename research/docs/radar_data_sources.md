@@ -52,3 +52,28 @@ where available → OPERA elsewhere, with a provenance flag per cell so training
 weight truth quality. Blending INTO our covered area is a separate question — OPERA
 detects far less at gauges than we do (measured throughout this campaign), so anything
 beyond a weak dry-veto needs a gauge evaluation first.
+
+## Wide-coverage integration (2026-08-31)
+
+Every candidate passed through `tools/verify_radar.py` (self-correlation across two
+consecutive scans + geo-correlation against the verified composite) before entering the
+composite — the a1gate incident made this gate policy, not preference. Results at
+20260831T1300, reference = 6 verified BE/DE radars:
+
+| radar | selfcorr | geocorr | wet% | verdict |
+|-------|---------:|--------:|-----:|---------|
+| frave | 0.176 | 0.306 | 2.9% | PASS — in |
+| frtro | 0.101 | 0.095 | 1.3% | PASS — in |
+| frnan | 0.088 | 0.341 | 1.6% | PASS — in |
+| dehnr | 0.024 | 0.314 | 1.6% | PASS — in |
+| frabb | −0.052 | **−0.138** | 1.0% | FAIL — negative geocorr, the scrambled-geometry signature; re-verify wet day |
+| frtra | 0.051 | **−0.271** | 0.6% | FAIL — same; near-dry footprint too |
+| deoft | −0.106 | 0.144 | 0.8% | HOLD — positive geocorr but near-dry; re-verify wet day |
+| defld | −0.143 | 0.223 | 1.3% | HOLD — same |
+
+Serving configuration (systemd drop-in `pluvio-observed.service.d/wide.conf`):
+12 radars (`nlhrw nldhl behel bejab bewid deess denhb deasb frave frtro frnan dehnr`),
+bounds **−1.2..12.2 E, 46.3..55.3 N** (Paris latitude to the Danish border), shape
+416×400 (~2.4 km/px — same tile budget as the old Belgium box at 1.2 km). New radars
+carry calibration offset 0.0 until an overlap fit on a wet day; the research/QPE-archive
+grid is unchanged (that is training truth, scoped to the gauge-verified region).
