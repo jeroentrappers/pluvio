@@ -176,9 +176,38 @@ def attenuation_correct(dbz, kdp, rng_m, height_m):
     return dbz + pia, pia
 
 
+_CAL_OFFSETS: dict | None = None
+
+
+def _cal_offset(radar: str | None) -> float:
+    """Per-radar dBZ harmonisation offset, from PLUVIO_RADAR_CAL (a JSON file).
+
+    National networks sit 1-3 dB apart in absolute calibration; at the seam between
+    two radars' footprints that step is a factor ~1.2-1.5 in rain rate and reads as a
+    visible edge in the composite. Offsets are MEASURED in overlap regions (cells both
+    radars sample below 1500 m while both see rain) and anchored to nlhrw, our
+    gauge-validated reference — see tools/pair_bias diagnostics. No file: no-op.
+    """
+    global _CAL_OFFSETS
+    if radar is None:
+        return 0.0
+    if _CAL_OFFSETS is None:
+        import json
+        import os as _os
+        path = _os.environ.get("PLUVIO_RADAR_CAL", "")
+        try:
+            _CAL_OFFSETS = json.load(open(path)) if path else {}
+        except Exception:
+            _CAL_OFFSETS = {}
+    return float(_CAL_OFFSETS.get(radar, 0.0))
+
+
 def process_sweep(sw):
     """One sweep -> (dbz_corrected, Q_T) on its own polar grid."""
     dbz = sw["dbz"].copy()
+    off = _cal_offset(sw.get("radar"))
+    if off:
+        dbz = dbz - off              # harmonise onto the reference calibration
     rng = sw["rng"]
     alt = sw["site"][2] if len(sw["site"]) > 2 else 0.0
     h = beam_height_m(rng, sw["elangle"], alt)[None, :].repeat(dbz.shape[0], 0)
@@ -522,6 +551,23 @@ def composite_by_height(per_radar, shape, veto_dh_m=500.0):
                    for r, q, h in per_radar])
     pick = np.argmin(hs, axis=0)
     h_win = np.take_along_axis(hs, pick[None], 0)[0]
+    import os as _os
+    if _os.environ.get("PLUVIO_XRAD_MERGE", "blend") == "blend":
+        # Feathered merge: every radar measuring within veto_dh_m of the lowest gets a
+        # weight decaying with its extra beam height. A hard winner-takes-all switch
+        # draws a visible line through the composite wherever two radars disagree even
+        # slightly (calibration, residual VPR, scan-time offsets); feathering makes the
+        # transition gradual, and dry low radars inside the window damp lone wet ones —
+        # the consensus veto, expressed continuously instead of as a step.
+        H_FEATHER = float(_os.environ.get("PLUVIO_XRAD_FEATHER_M", "300"))
+        in_win = hs <= (h_win + veto_dh_m)[None]
+        w = np.where(in_win, np.exp(-(hs - h_win[None]) / H_FEATHER), 0.0)
+        w = np.where(np.isfinite(rates), w, 0.0)
+        den = w.sum(0)
+        out = np.where(den > 0, (np.nan_to_num(rates, nan=0.0) * w).sum(0)
+                       / np.maximum(den, 1e-9), np.nan)
+        q_out = np.where(den > 0, (qs * w).sum(0) / np.maximum(den, 1e-9), 0.0)
+        return out.astype("float32"), q_out.astype("float32")
     out = np.take_along_axis(rates, pick[None], 0)[0]
     q_out = np.take_along_axis(qs, pick[None], 0)[0]
     out = np.where(h_win < np.inf, out, np.nan)
@@ -595,8 +641,12 @@ def read_sweeps_any(radar: str, stamp: str, max_elangle: float = 6.0):
 
     if radar in _kv.DATASETS:
         path = _kv.fetch(radar, stamp)
-        return _kv.read_all_sweeps(path, max_elangle=max_elangle) if path else []
-    if radar in _dv.SITES:
-        return _dv.read_all_sweeps(radar, stamp)
-    path = _rss.find_volume(radar, stamp)
-    return _rss.read_all_sweeps(path, max_elangle=max_elangle) if path else []
+        sweeps = _kv.read_all_sweeps(path, max_elangle=max_elangle) if path else []
+    elif radar in _dv.SITES:
+        sweeps = _dv.read_all_sweeps(radar, stamp)
+    else:
+        path = _rss.find_volume(radar, stamp)
+        sweeps = _rss.read_all_sweeps(path, max_elangle=max_elangle) if path else []
+    for sw in sweeps:
+        sw["radar"] = radar          # calibration harmonisation keys on this
+    return sweeps
