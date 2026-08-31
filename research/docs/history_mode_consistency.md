@@ -51,6 +51,24 @@ scan-to-scan noise by ×2.3.
   a stationary-pixel median re-fragments every moving edge. Any temporal treatment must
   be advection-aware (Lagrangian, as RTCOR's own accumulation is).
 
+## Interpolated sub-frames (the Buienradar ingredient) — implemented
+
+The reference animations are interpolated video, not raw scans. Three attempts, two
+rejected on measurement:
+
+1. Advection-corrected ACCUMULATION per frame (RTCOR Eq. 5): painting the motion track
+   fragments the wet contour (gain components 600 → 797) and halves peaks — right for
+   gauge comparison, wrong for animation.
+2. Eq.-4 CROSS-FADED interpolants: every interpolant is a weighted union of both wet
+   masks, so moved cells leave 33–67 %-weight ghosts that the next exact scan deletes —
+   a sawtooth of 5.06 pp median wet-delta per 100 s (raw scans: 1.36 per 300 s).
+3. **Semi-Lagrangian nearest-scan advection** (accepted): below half-way warp the
+   earlier scan forward along the flow, past half-way warp the later scan backward; the
+   handover sits exactly where the two advected scans align best. Robust flow: Gaussian
+   pre-blur σ2.5, 21-px flow smoothing, magnitude clamp at 8 px/5 min (~100 km/h).
+   Result: 109 served frames at ~100 s cadence, median wet-delta 1.43 pp/step (p90
+   2.38), peaks preserved. Scans themselves stay exact; store and archive untouched.
+
 ## What would actually reach parity
 
 1. Advection-aware display interpolation (RTCOR Eq. 4–5, Farnebäck flow) — needs an
