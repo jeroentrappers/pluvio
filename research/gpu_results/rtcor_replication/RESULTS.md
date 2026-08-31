@@ -299,6 +299,33 @@ product deployed for the history mode composites all 8 radars — the capture ru
 since Aug 30 accumulates exactly the multi-radar test days this evaluation lacks, so
 the honest path to the remaining ~0.04 is a week of data, not another algorithm.
 
+## CLEAN RE-RUN after the a1gate fix — Aug 30–31, all 8 radars, straight fields
+
+Every earlier multi-radar arm carried randomly rotated BE/DWD fields (the a1gate
+reader bug) and a calibration fit that measured the rotation. This is the first honest
+full-network comparison: two fresh days, 8 radars, corrected ±2 dB calibration,
+radar-only champion (no gauge adjustment), fair accumulation windows for everyone.
+
+**vs OPERA — we win all 16 cells, by +0.18 to +0.52 CSI, every CI clear of zero.**
+OPERA scores 0.00–0.14 on these days against our 0.25–0.60. Not a competitor.
+
+**vs RTCOR — 10 statistical ties of 16 cells**, including the entire NL halo-1 row
+(point estimate ahead at 0.5 mm/h: 0.552 vs 0.543) and Belgian heavy rain (thr 1.0:
+0.475 vs 0.541 h0 tie, 0.458 vs 0.451 h1 tie ahead). RTCOR keeps six cells,
+concentrated at the Belgian trace threshold — the known no-dual-pol residue — and two
+NL halo-0 intensity bands.
+
+| | thr 0.1 | thr 0.5 | thr 1.0 | thr 2.0 |
+|---|---|---|---|---|
+| NL h0 ours/rtcor | 0.601/0.614 tie | 0.552/0.631 R | 0.547/0.621 tie | 0.500/0.643 R |
+| NL h1 | 0.533/0.534 tie | **0.552/0.543 tie+** | 0.506/0.531 tie | 0.482/0.556 tie |
+| BE h0 | 0.360/0.469 R | 0.417/0.569 R | 0.475/0.541 tie | 0.318/0.333 tie |
+| BE h1 | 0.246/0.426 R | 0.388/0.484 tie | **0.458/0.451 tie+** | 0.270/0.423 R |
+
+Absolute skill is the highest this project has recorded (NL h0 thr 0.1 CSI 0.601;
+heavy-rain 0.500), and the NL halo-1 wet bias is +0.05 mm/h — essentially unbiased.
+n = 2,306 NL / 1,007 BE gauge-times, 274 / 57 wet.
+
 ## Perspective
 
 OPERA — the baseline this project was originally asked to beat — scores 0.10–0.23 CSI
