@@ -192,3 +192,14 @@ What this changes:
    conclusions, and on a stratiform day (convective evenings are the hardest case).
 3. Calibration offsets for the DE/DK/PL newcomers still default to 0 — the overlap
    fit needs its wet day.
+
+### UK fill fidelity vs the UKMO source (2026-08-31, 17:45–20:00Z, 10 slots)
+
+Per 15-min slot, served UK box vs the source composite warped through the same chain:
+cross-correlation displacement **(0,0) km in 8/10 slots** (outliers +7/+8 km, within
+one downsampled cell); top-cell centroid distance 0–5 km (one 18 km on a near-dry
+slot); p99 intensity identical to ±0.02 mm/h; field maxima track within ~10–20%
+lower — the expected cost of average-resampling their 1-km product to our 4-km grid.
+Conclusion: cells over the UK are where the Met Office puts them, at the intensity
+they publish; a visual A/B against weather.metoffice.gov.uk's radar layer is
+trustworthy by construction (same underlying product, licensed via the AWS bucket).
