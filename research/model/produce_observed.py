@@ -564,6 +564,45 @@ def _interpolate(prev, cur, flow, f):
     bwd = cv2.remap(b, gx + flow[..., 0] * (1.0 - f), gy + flow[..., 1] * (1.0 - f),
                     cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
     out = (1.0 - f) * fwd + f * bwd
+    # Gain normalisation: where alignment is imperfect the linear blend SPREADS a
+    # cell over more pixels at lower intensity, so interpolants read dimmer than
+    # the scans around them and the animation "breathes" (measured over the
+    # Nordics: interpolant wet-mean 33% below scans; the weak-flow infill alone
+    # did not move it). A single scalar per frame restores the f-interpolated
+    # wet-mean of the endpoints without touching geometry.
+    # Area + gain normalisation, BLOCK-WISE: with imperfect flow every real cell
+    # splits into a forward and a backward ghost, so the blend's wet SUPPORT
+    # balloons at diluted intensity and snaps back at each scan — the pulsing. A
+    # global fix proved insufficient (the Nordic halo is brighter than drizzle
+    # elsewhere, so a global quantile spares it; regional area ratio stayed 1.3-1.5).
+    # Per ~24-cell block, trim the support to the f-interpolated wet count of the
+    # endpoints (the dimmest cells ARE the halo) and rescale the wet mean to the
+    # endpoints' — every region then breathes with its own weather, not the domain's.
+    B = 24
+    h_b, w_b = -(-out.shape[0] // B), -(-out.shape[1] // B)
+    for by in range(h_b):
+        for bx in range(w_b):
+            sl = (slice(by * B, (by + 1) * B), slice(bx * B, (bx + 1) * B))
+            ob = out[sl]
+            wet_n = int((ob > 0.1).sum())
+            if wet_n == 0:
+                continue
+            ab, bb2 = a[sl], b[sl]
+            target_n = int(round((1.0 - f) * float((ab > 0.1).sum())
+                                 + f * float((bb2 > 0.1).sum())))
+            if wet_n > target_n:
+                if target_n == 0:
+                    ob[ob > 0.1] = 0.0
+                    continue
+                q = float(np.partition(ob[ob > 0.1], wet_n - target_n)[wet_n - target_n])
+                ob[ob < q] = 0.0
+            wet_ob = ob > 0.1
+            if wet_ob.any():
+                target = ((1.0 - f) * (ab[ab > 0.1].mean() if (ab > 0.1).any() else 0.0)
+                          + f * (bb2[bb2 > 0.1].mean() if (bb2 > 0.1).any() else 0.0))
+                got = float(ob[wet_ob].mean())
+                if got > 1e-3 and target > 1e-3:
+                    ob[wet_ob] *= float(np.clip(target / got, 0.7, 2.0))
     return np.where(np.isfinite(prev) | np.isfinite(cur), out, np.nan)
 
 def wanted_stamps(window_min: int) -> list[str]:
