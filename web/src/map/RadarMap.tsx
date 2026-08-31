@@ -140,6 +140,20 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     markerRef.current?.setLngLat([center.lon, center.lat])
   }, [center.lat, center.lon])
 
+  // The radar-covered region can change between modes (forecast: Belgium box;
+  // history: the wide multi-country composite) — re-lock panning and reposition the
+  // overlay to whatever bounds the current data declares.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !readyRef.current) return
+    map.setMaxBounds([
+      [bounds.west, bounds.south],
+      [bounds.east, bounds.north],
+    ])
+    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
+    src?.setCoordinates?.(cornersOf(bounds))
+  }, [bounds.west, bounds.east, bounds.south, bounds.north])
+
   // Explicit recenter (e.g. "locate me" or first geolocation fix).
   useEffect(() => {
     if (recenter === undefined) return

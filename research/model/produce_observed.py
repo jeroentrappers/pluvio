@@ -42,10 +42,20 @@ sys.path.insert(0, str(REPO_ROOT))
 
 LOG = logging.getLogger("pluvio.produce_observed")
 
-# Backend serving bounds (backend cache.DEFAULT_BOUNDS) at ~1 km.
-BE_BOUNDS = (1.5, 48.9, 7.5, 52.5)          # W, S, E, N
-OBS_SHAPE = (400, 416)                      # (H, W): 3.6 deg lat, 6.0 deg lon
-RADARS = ("nlhrw", "nldhl", "behel", "bejab", "bewid", "deess", "denhb", "deasb")
+# Serving geometry and radar set are configurable: the product started Belgium-only
+# (1.5-7.5E, 48.9-52.5N at ~1 km) and grew to the widest box the verified radar set
+# covers. Every radar added beyond the original eight passed the post-a1gate
+# verification gate (temporal self-consistency + geographic agreement vs the existing
+# composite) before inclusion — see tools/verify_radar.
+def _env_tuple(name, default, cast=float):
+    raw = os.environ.get(name, "")
+    return tuple(cast(x) for x in raw.split(",")) if raw else default
+
+BE_BOUNDS = _env_tuple("PLUVIO_OBS_BOUNDS", (1.5, 48.9, 7.5, 52.5))     # W, S, E, N
+OBS_SHAPE = tuple(int(x) for x in _env_tuple("PLUVIO_OBS_SHAPE", (400, 416), int))
+RADARS = tuple(os.environ.get(
+    "PLUVIO_OBS_RADARS",
+    "nlhrw,nldhl,behel,bejab,bewid,deess,denhb,deasb").split(","))
 OBS_LAG_MIN = 15                            # newest stamp we dare target
 BACKFILL_PER_RUN = int(os.environ.get("PLUVIO_OBS_BACKFILL", "6"))
 # Frames younger than this get recomputed when they were built with an incomplete radar
@@ -70,6 +80,48 @@ def _champion_env():
     os.environ["PLUVIO_VPR_STATE"] = ""
 
 
+# Per-radar field cache from the PREVIOUS stamp (runs process chronologically), for
+# the two-scan persistence check below. radar -> (stamp, rate_field_unmasked)
+_PREV: dict = {}
+
+
+def _persistence_filter(radar, stamp, rate, shape, bounds):
+    """Two-scan confirmation for radars without dual-pol moments.
+
+    Measured over Flanders (bejab's home footprint): bejab's wet mask flips 99% of its
+    cells between consecutive scans at 0.3 mm/h — statistically uncorrelated, i.e.
+    noise, while the dual-pol-QC'd nlhrw flips 52% on the same convective day. With no
+    polarimetric variables to classify on, the physical discriminator left is TIME:
+    rain persists and advects, noise decorrelates. Echo must appear in this scan AND
+    (within 8 km, the 100 km/h motion bound) in the previous one; uncorrelated noise
+    survives as p-squared, real moving rain survives the dilation. Costs one scan of
+    onset delay for genuinely new cells. Display chain only — the QPE archive keeps
+    the unfiltered physics.
+    """
+    from scipy import ndimage
+    from tools import rtcor_chain as rc
+    from tools.radar_single_site import polar_to_grid
+
+    prev = _PREV.get(radar)
+    want_prev = (dt.datetime.strptime(stamp, "%Y%m%dT%H%M")
+                 - dt.timedelta(minutes=5)).strftime("%Y%m%dT%H%M")
+    if prev is None or prev[0] != want_prev:
+        try:
+            sw = rc.read_sweeps_any(radar, want_prev)
+            prev_rate = (rc.single_radar_h(sw, shape, bounds, polar_to_grid)[0]
+                         if sw else None)
+        except Exception:
+            prev_rate = None
+    else:
+        prev_rate = prev[1]
+    _PREV[radar] = (stamp, rate.copy())
+    if prev_rate is None:
+        return rate                      # nothing to confirm against — pass through
+    confirmed = ndimage.binary_dilation(
+        np.nan_to_num(prev_rate, nan=0.0) > 0.1, iterations=8)
+    return np.where((np.nan_to_num(rate, nan=0.0) > 0.1) & ~confirmed, 0.0, rate)
+
+
 def compose(stamp: str):
     """One champion composite on the serving grid -> (rate | None, n_radars).
 
@@ -87,7 +139,10 @@ def compose(stamp: str):
         try:
             sw = rc.read_sweeps_any(r, stamp)
             if sw:
-                per.append(rc.single_radar_h(sw, OBS_SHAPE, BE_BOUNDS, polar_to_grid))
+                rate, q, h = rc.single_radar_h(sw, OBS_SHAPE, BE_BOUNDS, polar_to_grid)
+                if sw[0].get("rhohv") is None:      # no dual-pol: persistence QC
+                    rate = _persistence_filter(r, stamp, rate, OBS_SHAPE, BE_BOUNDS)
+                per.append((rate, q, h))
         except Exception as exc:            # a broken radar must not sink the frame
             LOG.debug("%s unusable at %s (%s)", r, stamp, exc)
     if len(per) < MIN_RADARS:
