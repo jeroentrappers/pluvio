@@ -48,17 +48,23 @@ ARCHIVE_ROOT = pathlib.Path(os.environ.get("PLUVIO_QPE_ROOT", "/mnt/storagebox/q
 RADARS = tuple(os.environ.get(
     "PLUVIO_QPE_RADARS",
     "nlhrw,nldhl,behel,bejab,bewid,deess,denhb,deasb").split(","))
-RETAIN_DAYS = int(os.environ.get("PLUVIO_QPE_RETAIN_DAYS", "10"))
+RETAIN_DAYS = int(os.environ.get("PLUVIO_QPE_RETAIN_DAYS", "5"))
 MIN_COVERAGE = float(os.environ.get("PLUVIO_QPE_MIN_COVERAGE", "0.90"))
 SLOTS_PER_DAY = 288                       # 5-min cadence
 MIN_RADARS = 3
 LAG_MIN = 15                              # freshest stamp worth attempting
 
+# True raw: unrecoverable once the upstream rolling window moves on. Retention =
+# RETAIN_DAYS. Measured 2026-08-31: radar_volumes 56 GB/day, dwd_vol ~11 GB/day —
+# at 67 GB/day a 10-day window (~670 GB) does not fit the 1 TB box, 5 days does.
 RAW_STORES = (                            # (root, layout) — see prune_raw
     (pathlib.Path("/mnt/storagebox/radar_volumes"), "daydir"),
     (pathlib.Path("/mnt/storagebox/dwd_vol"), "stampfile"),
-    (pathlib.Path("/mnt/storagebox/knmi_vol"), "stampfile"),
 )
+# Cache: re-downloadable from upstream at any time (KNMI archives to 2019), so it gets
+# a much shorter window. Measured at 107 GB after one evaluation campaign.
+CACHE_STORES = ((pathlib.Path("/mnt/storagebox/knmi_vol"), "stampfile"),)
+CACHE_RETAIN_DAYS = int(os.environ.get("PLUVIO_QPE_CACHE_RETAIN_DAYS", "2"))
 
 
 def _env():
@@ -197,6 +203,19 @@ def prune_raw(today: dt.date) -> None:
                 continue
             for f in _stampfiles(root, day):
                 f.unlink(missing_ok=True)
+    # cache stores: re-downloadable upstream, so age alone (plus the same archive
+    # guard, out of caution) is enough
+    for age in range(CACHE_RETAIN_DAYS, CACHE_RETAIN_DAYS + 60):
+        day = today - dt.timedelta(days=age)
+        if day_coverage(day) < MIN_COVERAGE:
+            continue
+        for root, _ in CACHE_STORES:
+            n = 0
+            for f in _stampfiles(root, day):
+                f.unlink(missing_ok=True)
+                n += 1
+            if n:
+                LOG.info("cache-pruned %d files for %s from %s", n, day, root)
 
 
 def _stampfiles(root: pathlib.Path, day: dt.date):
