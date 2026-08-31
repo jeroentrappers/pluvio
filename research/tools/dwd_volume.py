@@ -143,10 +143,11 @@ def read_sweep(path: pathlib.Path):
         else:
             dbz[raw == float(what.get("undetect", 0))] = np.nan
 
-    # a1gate is the ray index that was sampled first; rays are stored in scan order,
-    # so rotate back to make row 0 correspond to due north.
-    if a1gate:
-        dbz = np.roll(dbz, -a1gate, axis=0)
+    # ⚠️ Do NOT roll by a1gate — same bug as the ODIM reader. Rows are already
+    # north-aligned; a1gate records where the antenna started. Measured arbiter:
+    # deess gridded against QC'd overlapping radars correlates +0.157 unrolled and
+    # −0.511 rolled (i.e. the roll rotated the rain to the wrong geography).
+    _ = a1gate
     az = (np.arange(nrays) * (360.0 / nrays)) % 360.0
     rng = rstart + (np.arange(nbins) + 0.5) * rscale
     return dbz, az, rng, (lon, lat, alt), el

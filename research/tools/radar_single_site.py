@@ -471,8 +471,14 @@ def read_all_sweeps(path: pathlib.Path, max_elangle: float = 12.0):
             dbz = offset + gain * raw
             dbz[raw == float(what.get("nodata", 255))] = np.nan
             dbz[raw == float(what.get("undetect", 0))] = offset  # dry, valid
-            if a1gate:
-                dbz = np.roll(dbz, -a1gate, axis=0)
+            # ⚠️ Do NOT roll by a1gate. ODIM stores rays already north-aligned (row i =
+            # azimuth i·360/nrays); `a1gate` only records where the antenna HAPPENED
+            # to start acquiring. bejab's a1gate varies per scan (136 then 298), and
+            # rolling rotated each scan by a different random angle: inter-scan
+            # correlation 0.471 unrolled vs −0.101 rolled — the entire "93–98% of
+            # bejab cells flip at every intensity" pathology was this line. The old
+            # gauge-validated reader never rolled.
+            _ = a1gate  # retained for provenance/debugging only
             out.append(dict(
                 dbz=dbz, dbz_v=None, zdr=None, rhohv=None, kdp=None, phidp=None,
                 cpa=None, elangle=el,
