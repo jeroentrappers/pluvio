@@ -249,6 +249,92 @@ def _ukmo_fill(stamp: str):
         return None
 
 
+GADJ_MODE = os.environ.get("PLUVIO_OBS_GAUGE_ADJ", "")
+GAUGE_DIR = pathlib.Path(os.environ.get("PLUVIO_OBS_GAUGE_DIR",
+                                        "/opt/pluvio/cache/gauges"))
+GADJ_CACHE = pathlib.Path("/opt/pluvio/cache/gauge_adjust")
+GADJ_CLIP_DB = 6.0           # factor 0.25..4 — adjustment corrects, never rewrites
+_GADJ = {}
+
+
+def _gauge_adjust_field(stamp: str, store: pathlib.Path):
+    """F_adj (dB) for this frame from the PREVIOUS clock hour — RTCOR Appendix B.
+
+    The regional eval made this the top lever: against DWD 10-min gauges our wet
+    bias was +7.3 mm/h where gauge-adjusted RADOLAN sat at +2.7, and the BE/NL
+    decomposition already measured the adjustment worth up to ~0.09 CSI. Pairs are
+    the previous completed clock hour (the paper's own latency): gauge sums from
+    tools.gauge_feeds JSONs, our sums re-accumulated from the frame store at gauge
+    pixels, so the factor is causal and never sees the frame it corrects.
+    """
+    if not GADJ_MODE:
+        return None
+    t = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    hour = (t - dt.timedelta(hours=1)).strftime("%Y%m%d%H")
+    if hour in _GADJ:
+        return _GADJ[hour]
+    cache = GADJ_CACHE / f"F_{hour}_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}.npz"
+    if cache.exists():
+        try:
+            with np.load(cache) as z:
+                _GADJ[hour] = z["f"]
+            return _GADJ[hour]
+        except Exception:
+            pass
+    gpath = GAUGE_DIR / f"{hour}.json"
+    if not gpath.exists():
+        _GADJ[hour] = None
+        return None
+    try:
+        import json as _json
+        rows = _json.loads(gpath.read_text())
+        h0 = dt.datetime.strptime(hour, "%Y%m%d%H").replace(tzinfo=dt.UTC)
+        acc = None
+        n_scans = 0
+        for k in range(1, 13):                       # scans of that hour
+            f = store / f"{(h0 + dt.timedelta(minutes=5 * k)):%Y%m%dT%H%M}.npy"
+            if not f.exists():
+                continue
+            arr = np.load(f).astype("float32")
+            if arr.shape != OBS_SHAPE:
+                continue
+            acc = arr / 12.0 if acc is None else acc + np.nan_to_num(arr) / 12.0
+            n_scans += 1
+        if acc is None or n_scans < 8 or len(rows) < 20:
+            _GADJ[hour] = None
+            return None
+        w, sth, e, n = BE_BOUNDS
+        glat = np.array([r[0] for r in rows], "float64")
+        glon = np.array([r[1] for r in rows], "float64")
+        gmm = np.array([r[2] for r in rows], "float64")
+        col = ((glon - w) / (e - w) * OBS_SHAPE[1]).astype(int)
+        row = ((n - glat) / (n - sth) * OBS_SHAPE[0]).astype(int)
+        inb = (col >= 0) & (col < OBS_SHAPE[1]) & (row >= 0) & (row < OBS_SHAPE[0])
+        rmm = np.full(len(rows), np.nan)
+        rmm[inb] = acc[row[inb], col[inb]]
+        ok = np.isfinite(rmm) & np.isfinite(gmm)
+        if ok.sum() < 20:
+            _GADJ[hour] = None
+            return None
+        from tools import gauge_adjust as ga
+        f_db = ga.adjustment_field(gmm[ok], rmm[ok], glat[ok], glon[ok],
+                                   np.ones(int(ok.sum())), BE_BOUNDS, OBS_SHAPE)
+        f_db = np.clip(f_db, -GADJ_CLIP_DB, GADJ_CLIP_DB).astype("float32")
+        GADJ_CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_name(cache.name + ".part")
+        with open(tmp, "wb") as fh:
+            np.savez(fh, f=f_db)
+        tmp.replace(cache)
+        LOG.info("gauge adjustment for %sZ: %d gauges, %d scans, F %.1f..%.1f dB",
+                 hour, int(ok.sum()), n_scans, float(f_db.min()), float(f_db.max()))
+        _GADJ[hour] = f_db
+        return f_db
+    except Exception as exc:
+        LOG.warning("gauge adjustment failed for %s (%s)", hour, exc)
+        _GADJ[hour] = None
+        return None
+
+
 def _persistence_filter(radar, stamp, rate, shape, bounds):
     """Two-scan confirmation for radars without dual-pol moments.
 
@@ -319,7 +405,7 @@ def _pool():
     return _POOL
 
 
-def compose(stamp: str):
+def compose(stamp: str, store=None):
     """One champion composite on the serving grid -> (rate | None, n_radars).
 
     The radar count travels with the frame: frames built before every radar's file
@@ -348,6 +434,11 @@ def compose(stamp: str):
     if fill is not None:
         gap = ~np.isfinite(rate) & np.isfinite(fill)
         rate = np.where(gap, fill, rate)
+    if store is not None:
+        f_db = _gauge_adjust_field(stamp, store)
+        if f_db is not None:
+            from tools import gauge_adjust as ga
+            rate = ga.apply(rate, f_db)
     tags = ("" if fill is None else " +fill") + ("" if ukmo is None else "+uk")
     LOG.info("  %s: %d radars%s, wet %.2f%%", stamp, len(per), tags,
              100 * float(np.nanmean(rate > 0.1)))
@@ -521,7 +612,7 @@ def main(argv=None) -> int:
                 and age_min <= UPGRADE_WINDOW_MIN:
             work.append(stamp)
     for stamp in work[:BACKFILL_PER_RUN]:
-        rate, nrad, had_fill = compose(stamp)
+        rate, nrad, had_fill = compose(stamp, store)
         if rate is not None:
             import json as _json
             tmp = store / f".{stamp}.tmp.npy"
