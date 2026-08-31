@@ -144,3 +144,15 @@ plrze pluzr (0.29–0.44, 1.2–3.7%) · czska (0.602, 1.3%). Serving set is now
 - DE near-dry: dedrs deeis defbg deisn demem deneu depro deros detur deumd
 - FR earlier: frabb frtra (negative geocorr — the one class that must never enter
   unresolved), deoft defld
+
+## Forecast benchmarks for the nowcast retrain (noted 2026-08-31)
+
+When the nowcast is retrained on the QPE-archive truth, benchmark it not only against
+gauges/RTCOR but against operational FORECASTS on the same windows:
+- **Met Office UKV rainfall** (and their nowcast blend) via the Weather DataHub API —
+  the public map at weather.metoffice.gov.uk/maps-and-charts/rainfall-radar-forecast-map
+  shows exactly what they publish; the DataHub UK-2km atmospheric API is the licensed
+  route to the same fields. Scoring our lead-time skill against theirs over the British
+  Isles gives an external yardstick nobody can accuse of home-field bias.
+- Same idea holds for other nationals later (KNMI harmonie/nowcast, RMI's INCA-BE) —
+  one yardstick per region where we now serve coverage.
