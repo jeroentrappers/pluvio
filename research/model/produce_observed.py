@@ -524,37 +524,34 @@ def _flow(prev, cur):
 
 
 def _interpolate(prev, cur, flow, f):
-    """One Eq.-4 cross-faded interpolant at fraction f of the way prev->cur.
+    """Motion-aligned morph at fraction f of the way prev->cur.
 
-    Every SCAN stays exact in the served sequence; only the in-between frames are
-    synthesized. This is the substance of the reference animations' smoothness (the
-    processing-cdn PNGs are frames of an interpolated video): at 1 km pixels a cell
-    moves 2-3 px per 5-min scan, so raw playback teleports it — interpolants make it
-    slide. Accumulating instead of interpolating was tried first and REJECTED: painting
-    the motion track fragments the wet contour (gain components 600 -> 797) and halves
-    peak rates, the same stationary-pixel trap as the temporal median.
+    Every SCAN stays exact; only in-between frames are synthesized. Two schemes
+    failed before this one:
+      - naive cross-fade (Eq. 4): blends UNALIGNED fields, so every interpolant is a
+        weighted union of both wet masks — ghost rain mid-gap, deleted by the next
+        scan (sawtooth, 5 pp median wet-delta per 100 s).
+      - nearest-scan advection: each interpolant is a plausible displaced field, but
+        the source SWITCHES at f=0.5 — measured on the 4-km grid as a 43-46% wet-cell
+        flip between the two interpolants of a gap while scan steps sat at 20-30%:
+        exactly the "cells blink in and out" users reported.
+    The morph advects BOTH scans to the same intermediate time (prev forward by
+    f*flow, cur backward by (1-f)*flow) and blends the ALIGNED fields (1-f, f).
+    Alignment makes the wet masks coincide, so the blend has no union halo, and the
+    weights are continuous in f, so there is no handover jump anywhere in the gap.
     """
     import cv2
 
-    # Semi-Lagrangian nearest-scan advection, NOT a cross-fade. Cross-fading two rain
-    # fields makes every interpolant a weighted UNION of both wet masks: where a cell
-    # moved, ghost rain at 33-67% weight appears mid-gap and the next exact scan
-    # deletes it — a sawtooth measured at 5 pp median wet-delta per 100 s (raw scans:
-    # 1.4 pp per 300 s). Advecting the nearest scan keeps every frame a plausible
-    # displaced field; the handover at half-way happens where the two scans align
-    # best, because each has been advected exactly half the motion.
     a = np.nan_to_num(prev.astype("float32"), nan=0.0)
     b = np.nan_to_num(cur.astype("float32"), nan=0.0)
     h, w = a.shape
     gy, gx = np.mgrid[0:h, 0:w].astype("float32")
-    if f < 0.5:
-        out = cv2.remap(a, gx - flow[..., 0] * f, gy - flow[..., 1] * f,
-                        cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
-    else:
-        out = cv2.remap(b, gx + flow[..., 0] * (1.0 - f), gy + flow[..., 1] * (1.0 - f),
-                        cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    fwd = cv2.remap(a, gx - flow[..., 0] * f, gy - flow[..., 1] * f,
+                    cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    bwd = cv2.remap(b, gx + flow[..., 0] * (1.0 - f), gy + flow[..., 1] * (1.0 - f),
+                    cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    out = (1.0 - f) * fwd + f * bwd
     return np.where(np.isfinite(prev) | np.isfinite(cur), out, np.nan)
-
 
 def wanted_stamps(window_min: int) -> list[str]:
     """The 10-min stamps the window should hold, oldest→newest."""
