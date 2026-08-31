@@ -237,6 +237,26 @@ only in the 0.5 mm/h band.
 ⚠️ Serving note: PLUVIO_GRID_N is shared with the nowcast stack, whose trained model is
 baked at 256. The QPE chain sets 768 per-process; the global default must not change.
 
+## Previous-hour gauge adjustment at 1 km — narrows NL, needs damping
+
+RTCOR's operational trick applied to the champion: the Appendix-B spatial field built
+from the PREVIOUS clock-hour's gauges (KNMI + KMI), nothing from the scored moment.
+The protocol also got a fairness fix that lifts RTCOR: its 10-min window is now the
+mean of BOTH its 5-min files.
+
+| NL, held-out days | unadjusted | adjusted | RTCOR |
+|---|---|---|---|
+| halo 0, thr 0.1 | 0.542 | 0.551 | 0.593 |
+| halo 0, thr 0.5 | 0.500 | **0.545** | 0.604 |
+| halo 0, thr 1.0 | 0.485 | 0.500 | 0.597 |
+| halo 1, thr 0.5 | 0.488 | **0.519** | 0.565 |
+
+The bias column explains both the gain and the residual: at halo 0 adjustment moves our
+wet bias from −0.77 to −0.36 — exactly RTCOR's own — but at halo 1 the unadjusted bias
+was already +0.05 and blanket adjustment overshoots to +0.58, costing the trace
+threshold. The adjustment needs shrinkage/damping, a one-parameter tune to be chosen on
+train days. NL gaps after adjustment: −0.04 to −0.10 (from −0.09 to −0.14).
+
 ## Perspective
 
 OPERA — the baseline this project was originally asked to beat — scores 0.10–0.23 CSI
