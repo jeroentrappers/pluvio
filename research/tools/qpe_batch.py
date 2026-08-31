@@ -17,7 +17,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-_ENV_KEYS = ("PLUVIO_GRID_N", "PLUVIO_SWEEP_MERGE", "PLUVIO_LOCAL_DH", "PLUVIO_GABELLA")
+_ENV_KEYS = ("PLUVIO_GRID_N", "PLUVIO_SWEEP_MERGE", "PLUVIO_LOCAL_DH",
+             "PLUVIO_GABELLA", "PLUVIO_RADAR_CAL", "PLUVIO_VPR_STATE")
 
 
 def _worker_init(env):
