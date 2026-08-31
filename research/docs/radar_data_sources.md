@@ -33,9 +33,16 @@ directory listings are anonymous but file GETs 302-redirect to auth, measured):
 * Nimrod 1 km UK + 5 km Europe COMPOSITES: 2003 → present, 5-min. Nimrod binary format
   (open-source Python reader exists: richard-thomas/MetOffice_NIMROD).
 
-So UK coverage means: register a (free) CEDA account, ingest the 1 km UK composite as a
-FILL layer (same role as OPERA fill — it is a processed composite, not volumes we can
-QC ourselves). No open path to live UK volumes exists.
+Access verified 2026-08-31 with a CEDA account: tokens mint via
+`POST https://services.ceda.ac.uk/api/token/create/` (HTTP basic auth; credentials in
+/opt/pluvio/research/.env, current token in .ceda_token, ~3-day lifetime so mint per
+run). With the token the **uk-1km composite downloads (HTTP 206 verified on a 2026
+file)**; the single-site raw-polar datasets still return 403 — they need a separate
+per-dataset access application on the CEDA catalogue, and only cover old years anyway.
+
+So the UK fill layer is unlocked: ingest `data/composite/uk-1km/<year>/*.tar` (Nimrod
+binary format, open-source Python reader: richard-thomas/MetOffice_NIMROD) as a
+processed-composite fill, same role as OPERA fill. No open path to live UK volumes.
 
 ## Role in the product
 
