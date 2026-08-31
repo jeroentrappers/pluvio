@@ -106,8 +106,10 @@ Serving box: **−11..24.5 E, 42.5..60 N at ~4 km/px (488×624)** — Ireland to
 Poland, northern Spain to mid-Scandinavia.
 
 Remaining gaps and their only real fixes:
-- **UK interior**: CEDA Nimrod `uk-1km` composite (we have working token access) — the
-  one actionable upgrade, planned as a second fill layer.
+- **UK interior**: CEDA Nimrod `uk-1km` composite (working token access) — measured
+  2026-08-31: the archive lags ~2 days (latest file 20260829), so it can serve as
+  QPE-archive/training truth over the UK but NOT as a live fill for the 3-h history
+  window. Live UK stays OPERA-partial until a fresher UK source exists.
 - **ES/PT interior**: AEMET/IPMA national feeds only; no open volume or composite path found yet.
 - **IT/AT interior**: national products (DPC mosaic / GeoSphere) — possible future fill layers.
 - Own-core upgrades from open volumes, pending the verification gate on a wet day:
