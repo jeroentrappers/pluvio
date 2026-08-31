@@ -53,6 +53,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   const spriteImgRef = useRef<HTMLImageElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [spriteReady, setSpriteReady] = useState(0)
+  const appliedBoundsRef = useRef(bounds)
 
   // Init the map once.
   useEffect(() => {
@@ -71,7 +72,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       style: STYLE_URL,
       center: [center.lon, center.lat],
       zoom: 7.5,
-      minZoom: 5,
+      minZoom: 4,
       maxZoom: 11,
       // Lock panning to the radar-covered region (the overlay's bounds): the
       // forecast only exists here, so there's nothing to see outside it.
@@ -146,12 +147,26 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
+    const prev = appliedBoundsRef.current
+    const changed =
+      prev.west !== bounds.west || prev.east !== bounds.east ||
+      prev.south !== bounds.south || prev.north !== bounds.north
+    appliedBoundsRef.current = bounds
     map.setMaxBounds([
       [bounds.west, bounds.south],
       [bounds.east, bounds.north],
     ])
     const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
     src?.setCoordinates?.(cornersOf(bounds))
+    // Jump out so the whole (possibly much wider) domain is on screen: without
+    // this, switching forecast -> history keeps the camera zoomed to the old
+    // box and the new coverage sits off-screen with no way to reach it.
+    if (changed) {
+      map.fitBounds(
+        [[bounds.west, bounds.south], [bounds.east, bounds.north]],
+        { padding: 24, duration: 600 },
+      )
+    }
   }, [bounds.west, bounds.east, bounds.south, bounds.north])
 
   // Explicit recenter (e.g. "locate me" or first geolocation fix).
