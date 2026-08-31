@@ -97,9 +97,37 @@ def compose(stamp: str):
     # temporal consistency: isolated single-cell blinkers dominate the perceived
     # noise between frames; the validated speckle filter removes them.
     rate = rc.speckle(rate)
+    rate = _despeckle_area(rate)
     LOG.info("  %s: %d radars, wet %.2f%%", stamp, len(per),
              100 * float(np.nanmean(rate > 0.1)))
     return rate.astype("float16"), len(per)
+
+
+def _despeckle_area(rate, min_cells: int = 8, core_mm_h: float = 1.0):
+    """Remove tiny trace-only echo clusters — display-grade physical QC.
+
+    The 3x3 speckle filter spans 81 km2 on the 3 km research grid but only 9 km2 on
+    this ~1 km serving grid, so 4-8-cell clusters slip through and flicker frame to
+    frame — measured as hundreds of scattered gain components per 5-min step, centred
+    on the Belgian radars (the only ones without dual-pol QC, and the ones whose
+    calibration harmonisation lifted the noise floor). A rain feature smaller than
+    ~8 km2 that nowhere reaches core_mm_h is noise; a small INTENSE cell (young
+    convection) is kept. The permanent QPE archive stays unfiltered.
+    """
+    from scipy import ndimage
+
+    wet = np.nan_to_num(rate, nan=0.0) > 0.1
+    labels, n = ndimage.label(wet)
+    if not n:
+        return rate
+    sizes = np.bincount(labels.ravel())
+    maxes = ndimage.maximum(np.nan_to_num(rate, nan=0.0), labels, np.arange(1, n + 1))
+    kill_ids = [i + 1 for i in range(n)
+                if sizes[i + 1] < min_cells and maxes[i] < core_mm_h]
+    if kill_ids:
+        kill = np.isin(labels, kill_ids)
+        rate = np.where(kill, 0.0, rate)
+    return rate
 
 
 def wanted_stamps(window_min: int) -> list[str]:
