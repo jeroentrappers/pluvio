@@ -228,6 +228,41 @@ def dbz_to_rate(dbz: np.ndarray) -> np.ndarray:
 
 
 _GEOM_CACHE: dict = {}
+_GEOM_KEYS = ("row", "col", "inb", "heights", "fill_cells", "fill_bins")
+
+
+def _geom_disk_path(key):
+    import hashlib
+    import os
+    d = os.environ.get("PLUVIO_GEOM_CACHE_DIR", "")
+    if not d:
+        return None
+    return pathlib.Path(d) / ("geom_" + hashlib.sha1(repr(key).encode()).hexdigest()[:24] + ".npz")
+
+
+def _geom_disk_load(path):
+    try:
+        with np.load(path) as z:
+            return {k: z[k] for k in _GEOM_KEYS}
+    except Exception:
+        return None
+
+
+def _geom_disk_save(path, got):
+    """Atomic write; int32/float32 downcasts halve the footprint with no loss
+    (indices fit int32 by orders of magnitude; heights are metres)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".part")
+        slim = dict(row=got["row"].astype("int32"), col=got["col"].astype("int32"),
+                    inb=got["inb"], heights=got["heights"].astype("float32"),
+                    fill_cells=got["fill_cells"].astype("int32"),
+                    fill_bins=got["fill_bins"].astype("int32"))
+        with open(tmp, "wb") as fh:
+            np.savez(fh, **slim)
+        tmp.replace(path)
+    except Exception:
+        pass
 
 
 def _polar_geometry(azimuths, ranges, site, elangle, grid_shape, bounds):
@@ -258,6 +293,19 @@ def _polar_geometry(azimuths, ranges, site, elangle, grid_shape, bounds):
     got = _GEOM_CACHE.get(key)
     if got is not None:
         return got
+    # Disk tier (PLUVIO_GEOM_CACHE_DIR): the producer is a FRESH process every 5-min
+    # timer run, so the in-memory cache bought nothing there — every run repaid ~1.2 s
+    # x N radars of spherical_to_xyz/reproject/KDTree before touching data. A saved
+    # geometry loads in tens of milliseconds, and lets parallel workers skip the
+    # rebuild too.
+    dpath = _geom_disk_path(key)
+    if dpath is not None and dpath.exists():
+        got = _geom_disk_load(dpath)
+        if got is not None:
+            if len(_GEOM_CACHE) > 128:
+                _GEOM_CACHE.clear()
+            _GEOM_CACHE[key] = got
+            return got
 
     xyz, crs = georef.spherical_to_xyz(ranges, azimuths, elangle, (lon0, lat0, alt0))
     lonlat = georef.reproject(xyz, src_crs=crs, trg_crs=georef.get_default_projection())
@@ -291,6 +339,8 @@ def _polar_geometry(azimuths, ranges, site, elangle, grid_shape, bounds):
 
     got = dict(row=row, col=col, inb=inb, heights=heights,
                fill_cells=fill_cells, fill_bins=fill_bins)
+    if dpath is not None:
+        _geom_disk_save(dpath, got)
     if len(_GEOM_CACHE) > 128:      # runaway guard; geometries are few in practice
         _GEOM_CACHE.clear()
     _GEOM_CACHE[key] = got

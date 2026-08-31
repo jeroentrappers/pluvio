@@ -286,6 +286,39 @@ def _persistence_filter(radar, stamp, rate, shape, bounds):
     return np.where((np.nan_to_num(rate, nan=0.0) > 0.1) & ~confirmed, 0.0, rate)
 
 
+PARALLEL = int(os.environ.get("PLUVIO_OBS_PARALLEL", "1"))
+_POOL = None
+
+
+def _radar_one(args):
+    """One radar -> (rate, q, h) grids; top-level so a process pool can run it."""
+    radar, stamp = args
+    from tools.radar_single_site import polar_to_grid
+    from tools import rtcor_chain as rc
+    try:
+        sw = rc.read_sweeps_any(radar, stamp)
+        if not sw:
+            return None
+        rate, q, h = rc.single_radar_h(sw, OBS_SHAPE, BE_BOUNDS, polar_to_grid)
+        if sw[0].get("rhohv") is None:      # no dual-pol: persistence QC
+            rate = _persistence_filter(radar, stamp, rate, OBS_SHAPE, BE_BOUNDS)
+        return rate, q, h
+    except Exception as exc:                # a broken radar must not sink the frame
+        LOG.debug("%s unusable at %s (%s)", radar, stamp, exc)
+        return None
+
+
+def _pool():
+    """Lazy fork-based pool. Created before this process touches HDF5 (all reads
+    happen in the workers), so the fork is clean; workers inherit env and warm
+    disk-cached geometries make their cold starts cheap."""
+    global _POOL
+    if _POOL is None:
+        from concurrent.futures import ProcessPoolExecutor
+        _POOL = ProcessPoolExecutor(max_workers=min(PARALLEL, len(RADARS)))
+    return _POOL
+
+
 def compose(stamp: str):
     """One champion composite on the serving grid -> (rate | None, n_radars).
 
@@ -295,20 +328,11 @@ def compose(stamp: str):
     measured: stored wet-fraction swung 8.4 ↔ 12.5% between adjacent 5-min frames while
     deterministic full-set recomputes of the same stamps read 7.8→8.5→8.5→8.3→10.1.
     """
-    from tools.radar_single_site import polar_to_grid
     from tools import rtcor_chain as rc
 
-    per = []
-    for r in RADARS:
-        try:
-            sw = rc.read_sweeps_any(r, stamp)
-            if sw:
-                rate, q, h = rc.single_radar_h(sw, OBS_SHAPE, BE_BOUNDS, polar_to_grid)
-                if sw[0].get("rhohv") is None:      # no dual-pol: persistence QC
-                    rate = _persistence_filter(r, stamp, rate, OBS_SHAPE, BE_BOUNDS)
-                per.append((rate, q, h))
-        except Exception as exc:            # a broken radar must not sink the frame
-            LOG.debug("%s unusable at %s (%s)", r, stamp, exc)
+    jobs = [(r, stamp) for r in RADARS]
+    runner = _pool().map(_radar_one, jobs) if PARALLEL > 1 else map(_radar_one, jobs)
+    per = [got for got in runner if got is not None]
     if len(per) < MIN_RADARS:
         LOG.warning("only %d radars at %s — skipping frame", len(per), stamp)
         return None, len(per), False
