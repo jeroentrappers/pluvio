@@ -78,7 +78,14 @@ def find_volume(radar: str, stamp: str, param: str = "DBZH",
     day = f"{stamp[0:4]}/{stamp[4:6]}/{stamp[6:8]}"
     want = _stamp_minutes(stamp)
 
-    for cc in ("BE", "NL", "DE", "FR", "CH", "CZ"):
+    # The radar code starts with its country (dkbor -> DK), so try that first and
+    # only then sweep every country the feed carries — new countries must not need a
+    # code change here to be found.
+    all_cc = ("BE", "NL", "DE", "FR", "CH", "CZ", "DK", "PL", "IE", "NO", "SE",
+              "FI", "EE", "HR", "IS", "LT", "MT", "RO", "SI")
+    guess = radar[:2].upper()
+    order = (guess,) + tuple(c for c in all_cc if c != guess)
+    for cc in order:
         base = VOLUMES / day / cc / radar
         # The parameter is NOT always the filename suffix: BE ends "@DBZH.h5" (one
         # param per file), NL bundles everything into "@CCORH_DBZH_..._ZDR.h5", FR
