@@ -112,3 +112,27 @@ Remaining gaps and their only real fixes:
 - **IT/AT interior**: national products (DPC mosaic / GeoSphere) — possible future fill layers.
 - Own-core upgrades from open volumes, pending the verification gate on a wet day:
   CH(5) CZ(2) DK(5) PL(10) IE(2) radars + ~9 more DE + ~20 more FR.
+
+## Second gate round — DK/PL/CZ/CH/IE + remaining DE (2026-08-31, OPERA reference)
+
+`verify_radar --opera-ref` scores far candidates against the pan-EU OPERA composite in
+a box around each country (the own-composite reference can't reach them). A find_volume
+fix landed first: PL/CZ package full volumes with elevation-list filename tokens at
+stamps offset ~1 min from ours, which the widened search used to reject as "no data".
+
+**Admitted** (clear pass, wet footprint): dkbor dkrom dksam dksin dkste (geocorr
+0.40–0.56, 1–12% wet) · deboo (0.579, 1.7%) · plbrz plgsa plleg plpas plpoz plram
+plrze pluzr (0.29–0.44, 1.2–3.7%) · czska (0.602, 1.3%). Serving set is now
+**27 radars**; all newcomers at calibration offset 0.0 pending overlap fits.
+
+**Held for a wet-day recheck** (near-dry footprint or ambiguous):
+- plgdy, plswi (plswi geocorr 0.046 at 1.2% — genuinely suspicious, not just dry)
+- czbrd (geocorr 0.635 but 0.96% wet)
+- all CH (chalb chdol chlem chppm chwei — bone-dry footprints today)
+- iedub/iesha — iedub's site coords and wet-centroid placement check out (~40 km from
+  OPERA's, same system over Connacht); its −0.405 geocorr is the union-wet mask
+  punishing narrow 250-km coverage against OPERA's Shannon view, so metric artifact
+  more likely than geometry bug. Recheck with rain nearer Dublin.
+- DE near-dry: dedrs deeis defbg deisn demem deneu depro deros detur deumd
+- FR earlier: frabb frtra (negative geocorr — the one class that must never enter
+  unresolved), deoft defld
