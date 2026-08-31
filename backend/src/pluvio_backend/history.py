@@ -29,6 +29,14 @@ LOG = logging.getLogger("pluvio.history")
 OBSERVED_NPZ = pathlib.Path(
     os.environ.get("PLUVIO_OBSERVED_NPZ", "/opt/pluvio/serve/observed.npz")
 )
+# Full-resolution cube as a raw .npy + .json sidecar (see produce_observed): at 1 km
+# the continental cube is ~1 GB, so it is memory-MAPPED and sliced per tile/point —
+# never loaded whole. The npz above becomes the low-zoom OVERVIEW.
+OBSERVED_HI = pathlib.Path(
+    os.environ.get("PLUVIO_OBSERVED_HI", "/opt/pluvio/serve/observed_hi.npy")
+)
+TILE_PX = int(os.environ.get("PLUVIO_HISTORY_TILE_PX", "256"))
+_HI_CACHE: dict = {"mtime": None, "data": None}
 MAX_AGE_S = int(os.environ.get("PLUVIO_OBSERVED_MAX_AGE_S", "3600"))
 _SPRITE_DIR = pathlib.Path(os.environ.get("PLUVIO_HISTORY_SPRITE_DIR", "/tmp/pluvio_history"))
 _LOCK = threading.Lock()
@@ -63,13 +71,95 @@ def _load():
         return data
 
 
+def _load_hi():
+    """Memmap view of the hi-res cube, cached per sidecar mtime. None if absent/stale."""
+    import json
+    meta_path = OBSERVED_HI.with_suffix(".json")
+    try:
+        mtime = meta_path.stat().st_mtime
+    except OSError:
+        return None
+    with _LOCK:
+        if _HI_CACHE["mtime"] == mtime and _HI_CACHE["data"] is not None:
+            return _HI_CACHE["data"]
+        try:
+            meta = json.loads(meta_path.read_text())
+            rates = np.load(OBSERVED_HI, mmap_mode="r")
+            times = np.asarray(meta["times"], dtype="int64")
+            if list(rates.shape) != list(meta["shape"]) or rates.shape[0] != len(times):
+                raise ValueError("hi cube / sidecar mismatch")
+        except Exception as exc:
+            LOG.warning("hi cube unreadable (%s)", exc)
+            return None
+        if datetime.now(UTC).timestamp() - float(times[-1]) > MAX_AGE_S:
+            LOG.warning("hi cube stale")
+            return None
+        w, s_, e, n = meta["bounds"]
+        data = {"mtime": mtime, "times": times, "rates": rates,
+                "bounds": {"west": w, "south": s_, "east": e, "north": n}}
+        _HI_CACHE.update(mtime=mtime, data=data)
+        return data
+
+
+def tiles_info():
+    """Manifest of the hi-res tile pyramid level, or None when no hi cube exists.
+
+    The grid splits into fixed TILE_PX-square tiles (edge tiles smaller). The client
+    computes each tile's geographic bounds from the linear lat/lon split, downloads
+    only the sprites intersecting its viewport, and keeps the npz overview for low
+    zoom — that is what makes 1-km serving affordable: full resolution on screen,
+    bandwidth proportional to the viewport.
+    """
+    data = _load_hi()
+    if data is None:
+        return None
+    n, h, w = data["rates"].shape
+    return {"tile_px": TILE_PX,
+            "nx": -(-w // TILE_PX), "ny": -(-h // TILE_PX),
+            "grid_h": h, "grid_w": w, "count": n,
+            "bounds": data["bounds"],
+            "index": {int(t): i for i, t in enumerate(data["times"])},
+            "mtime": int(data["mtime"]), "cols": 6}
+
+
+def tile_sprite_png_path(tx: int, ty: int) -> pathlib.Path | None:
+    """Render (or reuse) the sprite sheet for ONE tile of the hi-res cube."""
+    data = _load_hi()
+    if data is None:
+        return None
+    n, h, w = data["rates"].shape
+    if not (0 <= tx < -(-w // TILE_PX) and 0 <= ty < -(-h // TILE_PX)):
+        return None
+    _SPRITE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _SPRITE_DIR / f"tile_{int(data['mtime'])}_{tx}_{ty}.png"
+    if path.exists():
+        return path
+    r0, r1 = ty * TILE_PX, min((ty + 1) * TILE_PX, h)
+    c0, c1 = tx * TILE_PX, min((tx + 1) * TILE_PX, w)
+    fields = [np.asarray(data["rates"][i, r0:r1, c0:c1], dtype="float32")
+              for i in range(n)]
+    png, _rows, _cols = render_sprite(fields, cols=6)
+    with tempfile.NamedTemporaryFile(dir=_SPRITE_DIR, suffix=".png", delete=False) as tf:
+        tmp = pathlib.Path(tf.name)
+    tmp.write_bytes(png)
+    tmp.replace(path)
+    stamp = f"tile_{int(data['mtime'])}_"
+    for old in _SPRITE_DIR.glob("tile_*.png"):        # drop tiles of older cubes
+        if not old.name.startswith(stamp):
+            old.unlink(missing_ok=True)
+    return path
+
+
 def available() -> bool:
     return _load() is not None
 
 
 def point_frames(lat: float, lon: float, span_min: int):
-    """[(epoch, rate)] at a location for the trailing span, oldest→newest."""
-    data = _load()
+    """[(epoch, rate)] at a location for the trailing span, oldest→newest.
+
+    Reads the hi-res cube when present (a 3x3 memmap slice per frame is cheap and
+    the 1-km answer is the honest one); the overview only serves as fallback."""
+    data = _load_hi() or _load()
     if data is None:
         return None
     b = data["bounds"]

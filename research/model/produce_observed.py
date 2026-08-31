@@ -679,13 +679,49 @@ def main(argv=None) -> int:
     times, rates = out_t, out_r
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    stack = np.stack(rates)
+
+    # Hi-res sidecar (PLUVIO_OBS_HI_OUT): the full-resolution cube as a RAW .npy the
+    # API can memory-map — at 1 km the continental cube is ~1 GB, which must never be
+    # loaded whole into a request process. Tile sprites and point reads slice the
+    # memmap; the legacy npz becomes a block-mean OVERVIEW (PLUVIO_OBS_OVERVIEW_DS)
+    # for the map's low-zoom level, so existing clients keep working untouched.
+    hi_out = os.environ.get("PLUVIO_OBS_HI_OUT", "")
+    if hi_out:
+        import json as _json
+        hi = pathlib.Path(hi_out)
+        hi.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=hi.parent, suffix=".npy", delete=False) as tf:
+            htmp = pathlib.Path(tf.name)
+        np.save(htmp, stack)
+        htmp.replace(hi)
+        hi.chmod(0o644)
+        meta = {"times": [int(t) for t in times],
+                "bounds": list(BE_BOUNDS), "shape": list(stack.shape)}
+        mtmp = hi.with_suffix(".json.tmp")
+        mtmp.write_text(_json.dumps(meta))
+        mtmp.replace(hi.with_suffix(".json"))
+        hi.with_suffix(".json").chmod(0o644)
+
+    ds = int(os.environ.get("PLUVIO_OBS_OVERVIEW_DS", "1"))
+    if ds > 1:
+        t_n, h_full, w_full = stack.shape
+        ph, pw = -h_full % ds, -w_full % ds
+        pad = np.pad(stack.astype("float32"),
+                     ((0, 0), (0, ph), (0, pw)), constant_values=np.nan)
+        ov = np.nanmean(
+            pad.reshape(t_n, (h_full + ph) // ds, ds, (w_full + pw) // ds, ds),
+            axis=(2, 4)).astype("float16")
+        ov_shape = (ov.shape[1], ov.shape[2])
+    else:
+        ov, ov_shape = stack, OBS_SHAPE
     with tempfile.NamedTemporaryFile(dir=out.parent, suffix=".npz", delete=False) as tf:
         tmp = pathlib.Path(tf.name)
     np.savez(tmp,
              times=np.asarray(times, dtype="int64"),
-             rates=np.stack(rates),
+             rates=ov,
              bounds=np.asarray(BE_BOUNDS, dtype="float64"),
-             grid=np.asarray(OBS_SHAPE, dtype="int64"))
+             grid=np.asarray(ov_shape, dtype="int64"))
     tmp.replace(out)
     out.chmod(0o644)
     LOG.info("wrote %s: %d frames, %s → %s", out, len(times),

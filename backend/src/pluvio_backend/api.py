@@ -373,6 +373,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             bounds=data["bounds"],
         )
 
+    @app.get("/v1/history/tiles")
+    def history_tiles() -> dict:
+        info = history.tiles_info()
+        if info is None:
+            raise HTTPException(status_code=404, detail="no hi-res observed cube")
+        return info
+
+    @app.get("/v1/history/tile/{tx}/{ty}/sprite.png")
+    def history_tile_sprite(tx: int, ty: int) -> FileResponse:
+        path = history.tile_sprite_png_path(tx, ty)
+        if path is None:
+            raise HTTPException(status_code=404, detail="tile unavailable")
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=300"})
+
     @app.get("/v1/history/sprite.png")
     def history_sprite() -> FileResponse:
         path = history.sprite_png_path()
