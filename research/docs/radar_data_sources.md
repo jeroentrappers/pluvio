@@ -106,10 +106,16 @@ Serving box: **−11..24.5 E, 42.5..60 N at ~4 km/px (488×624)** — Ireland to
 Poland, northern Spain to mid-Scandinavia.
 
 Remaining gaps and their only real fixes:
-- **UK interior**: CEDA Nimrod `uk-1km` composite (working token access) — measured
-  2026-08-31: the archive lags ~2 days (latest file 20260829), so it can serve as
-  QPE-archive/training truth over the UK but NOT as a live fill for the 3-h history
-  window. Live UK stays OPERA-partial until a fresher UK source exists.
+- **UK interior — SOLVED**: `s3://met-office-radar-obs-data` (AWS Open Data,
+  eu-west-2, anonymous, CC BY-SA) carries UKMO's own national composite:
+  `radar/YYYY/MM/DD/YYYYmmddHHMM_ODIM_ng_radar_rainrate_composite_1km_UK.h5`,
+  1725x2175 at 1 km, OSGB transverse Mercator, float32 mm/h with -1 = nodata,
+  15-min cadence, **measured ~14-min latency** (14:30Z file present 14:44Z). Covers
+  Britain AND Ireland (-12..16 E, 43.8..62.9 N). Serves as a second fill layer that
+  outranks OPERA over the British Isles (lon <= 2.2, lat >= 49.5) and is masked out
+  elsewhere, where continental OPERA radars are closer.
+- CEDA Nimrod `uk-1km` (working token access) lags ~2 days (latest 20260829 on
+  2026-08-31): QPE-archive/training truth over the UK only, not live fill.
 - **ES/PT interior**: AEMET/IPMA national feeds only; no open volume or composite path found yet.
 - **IT/AT interior**: national products (DPC mosaic / GeoSphere) — possible future fill layers.
 - Own-core upgrades from open volumes, pending the verification gate on a wet day:

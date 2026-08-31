@@ -164,6 +164,91 @@ def _opera_fill(stamp: str):
         return None
 
 
+UKMO_BUCKET = "https://met-office-radar-obs-data.s3.eu-west-2.amazonaws.com"
+UKMO_CACHE = pathlib.Path(os.environ.get("PLUVIO_OBS_UKMO_CACHE",
+                                         "/opt/pluvio/cache/ukmo_comp"))
+
+
+def _ukmo_fill(stamp: str):
+    """UK Met Office national composite as a SECOND fill layer over the British Isles.
+
+    UKMO contributes to neither the open single-site exchange nor the OPERA composite,
+    so the pan-EU fill has only the ~35% of the UK that French/Irish/Benelux radars
+    reach. Their own composite IS open though: s3://met-office-radar-obs-data (CC
+    BY-SA), 1725x2175 at 1 km on an OSGB transverse-Mercator grid covering Britain and
+    Ireland, 15-min cadence, measured ~14-min latency. Values are float32 mm/h with -1
+    as nodata — no gain/offset dance.
+
+    15-min cadence against our 5-min frames: each frame takes the newest slot at or
+    before its stamp (<=30 min back). The late-data upgrade loop re-pulls frames whose
+    fill was missing, so a temporarily absent slot heals rather than sticks.
+    """
+    if FILL_MODE != "comp":
+        return None
+    import urllib.request
+
+    t0 = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    t0 -= dt.timedelta(minutes=t0.minute % 15)
+    path = None
+    for k in range(3):
+        t = t0 - dt.timedelta(minutes=15 * k)
+        fn = f"{t:%Y%m%d%H%M}_ODIM_ng_radar_rainrate_composite_1km_UK.h5"
+        cand = UKMO_CACHE / fn
+        if cand.exists() and cand.stat().st_size > 0:
+            path = cand
+            break
+        UKMO_CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = UKMO_CACHE / (fn + ".part")
+        try:
+            with urllib.request.urlopen(
+                    f"{UKMO_BUCKET}/radar/{t:%Y/%m/%d}/{fn}", timeout=90) as r,                     open(tmp, "wb") as fh:
+                fh.write(r.read())
+            tmp.replace(cand)
+            path = cand
+            break
+        except Exception:
+            tmp.unlink(missing_ok=True)
+    if path is None:
+        return None
+    cutoff = dt.datetime.now(dt.UTC).timestamp() - 36 * 3600
+    for f in UKMO_CACHE.glob("*_UK.h5"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink(missing_ok=True)
+    try:
+        import h5py
+        import pyproj
+        import rasterio  # noqa: F401  (registers the env for the warp below)
+        from rasterio.crs import CRS
+        from rasterio.transform import Affine, from_bounds
+        from rasterio.warp import Resampling, reproject
+
+        with h5py.File(path, "r") as f:
+            w = f["where"].attrs
+            arr = f["dataset1"]["data1"]["data"][:].astype("float32")
+            projdef = w["projdef"]
+            if isinstance(projdef, bytes):
+                projdef = projdef.decode()
+            ux, uy = pyproj.Proj(projdef)(float(w["UL_lon"]), float(w["UL_lat"]))
+            xs, ys = float(w["xscale"]), float(w["yscale"])
+        arr[arr < 0] = np.nan                               # -1 = nodata
+        src_tr = Affine(xs, 0.0, ux, 0.0, -ys, uy)
+        bw, bs, be, bn = BE_BOUNDS
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        reproject(arr, dst, src_transform=src_tr, src_crs=CRS.from_proj4(projdef),
+                  dst_transform=from_bounds(bw, bs, be, bn, OBS_SHAPE[1], OBS_SHAPE[0]),
+                  dst_crs=CRS.from_epsg(4326), resampling=Resampling.average,
+                  src_nodata=np.nan, dst_nodata=np.nan)
+        # Trust the national composite only over the British Isles: outside that box
+        # its far-range view loses to OPERA\'s continental radars.
+        lon = np.linspace(bw, be, OBS_SHAPE[1])[None, :]
+        lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
+        dst[~((lon <= 2.2) & (lat >= 49.5))] = np.nan
+        return dst
+    except Exception as exc:
+        LOG.warning("UKMO fill failed for %s (%s)", stamp, exc)
+        return None
+
+
 def _persistence_filter(radar, stamp, rate, shape, bounds):
     """Two-scan confirmation for radars without dual-pol moments.
 
@@ -233,12 +318,17 @@ def compose(stamp: str):
     rate = rc.speckle(rate)
     rate = _despeckle_area(rate)
     fill = _opera_fill(stamp)
+    ukmo = _ukmo_fill(stamp)
+    if ukmo is not None:                    # British Isles: national composite wins
+        fill = ukmo if fill is None else np.where(np.isfinite(ukmo), ukmo, fill)
     if fill is not None:
         gap = ~np.isfinite(rate) & np.isfinite(fill)
         rate = np.where(gap, fill, rate)
-    LOG.info("  %s: %d radars%s, wet %.2f%%", stamp, len(per),
-             "" if fill is None else " +fill", 100 * float(np.nanmean(rate > 0.1)))
-    return rate.astype("float16"), len(per), fill is not None
+    tags = ("" if fill is None else " +fill") + ("" if ukmo is None else "+uk")
+    LOG.info("  %s: %d radars%s, wet %.2f%%", stamp, len(per), tags,
+             100 * float(np.nanmean(rate > 0.1)))
+    fill_ok = (FILL_MODE != "comp") or (fill is not None and ukmo is not None)
+    return rate.astype("float16"), len(per), fill_ok
 
 
 def _despeckle_area(rate, min_cells: int = 8, core_mm_h: float = 1.0):
