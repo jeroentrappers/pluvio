@@ -147,6 +147,26 @@ layer classification, per-radar attenuation tuning, and the advection-accumulati
 product). Consistent with the original decomposition (adjustment worth 0.01-0.09 CSI
 to RTCOR itself, on its own 1 km product).
 
+## Accumulation scoring: the quantity mismatch was worth +0.02-0.07 CSI
+
+Gauges integrate 10 minutes; scoring an instantaneous rate against them is a category
+error that penalises whoever is compared that way. Scoring the mean of two 5-min
+composites over each gauge window (windows every 30 min, all five days — a larger
+sample: 7,841 NL / 2,878 BE gauge-times):
+
+| domain/halo, thr 0.1 | ours (acc10) | RTCOR | d, 95% CI |
+|---|---|---|---|
+| NL halo 1 | **0.499** | 0.487 | +0.012 [−.005, +.029] tie, we edge |
+| BE halo 1 | **0.504** | 0.486 | +0.018 [−.009, +.045] tie, we edge |
+| BE halo 0 | 0.496 | 0.528 | −0.031 [−.065, +.004] tie |
+| NL halo 0 | 0.520 | 0.602 | RTCOR |
+
+⚠️ Honesty note: the fair protocol lifts RTCOR too — its NL thr 0.5 rises from 0.582
+(instant scoring) to 0.644, because RTCOR's native product IS an accumulation. Under
+the fair protocol its lead at >=0.5 mm/h is decisive (−0.09 to −0.30). The remaining
+gap is concentrated entirely in rain INTENSITY, not detection.
+
 ## In flight
 
-10-min accumulation scoring; local-window sensitivity on train days only.
+Local-window sensitivity (400→∞) on train days; then a final test-days confirmation of
+the champion configuration (height-composited chain + 10-min accumulation).
