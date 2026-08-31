@@ -18,14 +18,34 @@ export function levelFromMmPerHour(mmPerHour: number): PrecipLevel {
   return 'violent'
 }
 
-// Colour ramp used for both the legend and the nowcast bar chart. One source
-// of truth avoids drift between the two views of the same data.
+// Map colour scale — follows the Met Office rainfall key (deep blue < 0.5
+// through dark red > 32 mm/h). Must match BANDS in the backend's colormap.py
+// exactly: the overlay/sprite pixels are painted server-side.
+export const MAP_RAMP: { min: number; color: string; label: string }[] = [
+  { min: 0.1, color: '#1219c8', label: '<0.5' },
+  { min: 0.5, color: '#3c6ee6', label: '0.5\u20131' },
+  { min: 1, color: '#69c8f0', label: '1\u20132' },
+  { min: 2, color: '#3cb43c', label: '2\u20134' },
+  { min: 4, color: '#f0d746', label: '4\u20138' },
+  { min: 8, color: '#f0a03c', label: '8\u201316' },
+  { min: 16, color: '#e63c37', label: '16\u201332' },
+  { min: 32, color: '#c82323', label: '>32' },
+]
+
+export function mapColorForRate(mmPerHour: number): string {
+  let c = 'transparent'
+  for (const b of MAP_RAMP) if (mmPerHour >= b.min) c = b.color
+  return c
+}
+
+// Semantic level colours (headline, chart bars) — nearest analogue from the
+// map ramp so the chart and the overlay tell one colour story.
 export const PRECIP_COLOR: Record<PrecipLevel, string> = {
   none: '#2a2a2e',
-  light: '#9ecae1',
-  moderate: '#3182bd',
-  heavy: '#fd8d3c',
-  violent: '#e31a1c',
+  light: '#69c8f0',
+  moderate: '#3cb43c',
+  heavy: '#f0a03c',
+  violent: '#e63c37',
 }
 
 // Levels that carry rain, in legend order.

@@ -1,15 +1,16 @@
-import { useTranslation } from 'react-i18next'
-import { PRECIP_COLOR, RAIN_LEVELS } from '../domain/precip'
+import { MAP_RAMP } from '../domain/precip'
 
-// Colour-ramp key shared with the map overlay and the forecast chart.
+// Colour-ramp key for the map overlay: the Met Office rainfall scale
+// (mm/hour), eight bands from deep blue (<0.5) to dark red (>32). Labels are
+// numeric so no translation is needed; the unit chip anchors the scale.
 export default function PrecipitationLegend() {
-  const { t } = useTranslation()
   return (
     <div className="legend">
-      {RAIN_LEVELS.map((level) => (
-        <span className="legend-chip" key={level}>
-          <span className="legend-swatch" style={{ background: PRECIP_COLOR[level] }} />
-          {t(`legend.${level}`)}
+      <span className="legend-chip legend-unit">mm/h</span>
+      {MAP_RAMP.map((band) => (
+        <span className="legend-chip" key={band.min}>
+          <span className="legend-swatch" style={{ background: band.color }} />
+          {band.label}
         </span>
       ))}
     </div>

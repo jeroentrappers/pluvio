@@ -20,13 +20,20 @@ import numpy as np
 # map overlay doesn't tint where the chart/headline say "dry".
 RAIN_THRESHOLD_MM_H = 0.1
 
-# (lower-bound mm/h, RGB) per WMO band — colours match PRECIP_COLOR in
-# web/src/domain/precip.ts and PrecipitationPalette in Dart, exactly.
+# (lower-bound mm/h, RGB) per band. The scale follows the Met Office rainfall
+# key (deep blue < 0.5 through dark red > 32): eight steps instead of the four
+# WMO bands, because 0.1-2.5 mm/h as ONE flat colour hid most of the structure
+# in a field — the same rain looked flatter and weaker than on reference maps.
+# Colours must match MAP_RAMP in web/src/domain/precip.ts exactly.
 BANDS: list[tuple[float, tuple[int, int, int]]] = [
-    (0.1, (158, 202, 225)),   # light    #9ecae1  → [0.1, 2.5)
-    (2.5, (49, 130, 189)),    # moderate #3182bd  → [2.5, 7.5)
-    (7.5, (253, 141, 60)),    # heavy    #fd8d3c  → [7.5, 50)
-    (50.0, (227, 26, 28)),    # violent  #e31a1c  → [50, ∞)
+    (0.1,  (18, 25, 200)),    # deep blue   #1219c8  → [0.1, 0.5)
+    (0.5,  (60, 110, 230)),   # royal blue  #3c6ee6  → [0.5, 1)
+    (1.0,  (105, 200, 240)),  # sky blue    #69c8f0  → [1, 2)
+    (2.0,  (60, 180, 60)),    # green       #3cb43c  → [2, 4)
+    (4.0,  (240, 215, 70)),   # yellow      #f0d746  → [4, 8)
+    (8.0,  (240, 160, 60)),   # orange      #f0a03c  → [8, 16)
+    (16.0, (230, 60, 55)),    # red         #e63c37  → [16, 32)
+    (32.0, (200, 35, 35)),    # dark red    #c82323  → [32, ∞)
 ]
 
 
@@ -60,7 +67,7 @@ def rgba_for_array(mm_per_h: np.ndarray, alpha: int = 220) -> np.ndarray:
     # rates at 0.5 mm/h and above keep full opacity.
     light = (rate >= RAIN_THRESHOLD_MM_H) & (rate < 0.5)
     frac = (rate[light] - RAIN_THRESHOLD_MM_H) / (0.5 - RAIN_THRESHOLD_MM_H)
-    rgba[light, 3] = (90 + frac * (alpha - 90)).astype("uint8")
+    rgba[light, 3] = (140 + frac * (alpha - 140)).astype("uint8")
 
     # Trace/no rain → fully transparent (matches the web client's dry cutoff).
     rgba[rate < RAIN_THRESHOLD_MM_H] = (0, 0, 0, 0)
