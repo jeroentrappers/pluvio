@@ -11,9 +11,11 @@ import ForecastChart from './components/ForecastChart'
 import PrecipitationLegend from './components/PrecipitationLegend'
 import SourceBadge from './components/SourceBadge'
 
-// One animation tick. ~13 nowcast frames span ~5s — fast enough to feel like
-// motion, slow enough that each step reads. Matches the Flutter app.
+// One animation tick. Forecast: ~13 nowcast frames at 400ms span ~5s. History now
+// serves ~109 motion-interpolated frames per 3h (100s cadence) — at 400ms a loop
+// would take 44s, so history plays 150ms ticks for fluid motion (~16s per loop).
 const PLAY_TICK_MS = 400
+const PLAY_TICK_HISTORY_MS = 150
 
 type Load =
   | { state: 'loading' }
@@ -95,9 +97,10 @@ export default function App() {
   // Playback loop.
   useEffect(() => {
     if (!isPlaying || frames.length < 2) return
-    const id = setInterval(() => setIndex((i) => (i + 1) % frames.length), PLAY_TICK_MS)
+    const tick = mode === 'history' ? PLAY_TICK_HISTORY_MS : PLAY_TICK_MS
+    const id = setInterval(() => setIndex((i) => (i + 1) % frames.length), tick)
     return () => clearInterval(id)
-  }, [isPlaying, frames.length])
+  }, [isPlaying, frames.length, mode])
 
   const onIndex = useCallback((i: number) => {
     setIndex(i)
