@@ -253,6 +253,15 @@ GADJ_MODE = os.environ.get("PLUVIO_OBS_GAUGE_ADJ", "")
 GAUGE_DIR = pathlib.Path(os.environ.get("PLUVIO_OBS_GAUGE_DIR",
                                         "/opt/pluvio/cache/gauges"))
 GADJ_CACHE = pathlib.Path("/opt/pluvio/cache/gauge_adjust")
+def _km_per_px():
+    w, s_, e, n = BE_BOUNDS
+    kx = (e - w) * 111.32 * np.cos(np.radians((n + s_) / 2)) / OBS_SHAPE[1]
+    ky = (n - s_) * 111.32 / OBS_SHAPE[0]
+    return (kx + ky) / 2.0
+
+
+KM_PER_PX = _km_per_px()
+
 GADJ_CLIP_DB = float(os.environ.get("PLUVIO_GADJ_CLIP_DB", "6.0"))
 GADJ_SAME_HOUR = os.environ.get("PLUVIO_GADJ_SAME_HOUR", "")   # experiments only:
 # adjust with the frame's own (possibly incomplete) hour — an upper bound on what
@@ -476,7 +485,7 @@ def _despeckle_area(rate, min_cells: int = 8, core_mm_h: float = 1.0):
     return rate
 
 
-MAX_FLOW_PX = 8.0        # ~100 km/h over 5 min at ~1 km pixels — nothing real is faster
+MAX_FLOW_PX = 10.0 / KM_PER_PX   # 10 km per 5-min step — fast squall motion
 
 
 def _flow(prev, cur):
@@ -494,11 +503,19 @@ def _flow(prev, cur):
     b = np.nan_to_num(cur.astype("float32"), nan=0.0)
     fa = ((np.log10(a + 0.05) + 1.4) * 60.0).clip(0, 255).astype("uint8")
     fb = ((np.log10(b + 0.05) + 1.4) * 60.0).clip(0, 255).astype("uint8")
-    fa = cv2.GaussianBlur(fa, (0, 0), 2.5)
-    fb = cv2.GaussianBlur(fb, (0, 0), 2.5)
-    flow = cv2.calcOpticalFlowFarneback(fa, fb, None, 0.5, 4, 35, 3, 7, 1.5, 0)
-    flow[..., 0] = cv2.blur(flow[..., 0], (21, 21))
-    flow[..., 1] = cv2.blur(flow[..., 1], (21, 21))
+    # All scales in KILOMETRES, converted per grid: these were originally tuned in
+    # pixels on the 1.2-km Belgium grid, and silently tripled in physical size when
+    # the serving grid went to ~4 km — a 140-km Farneback window and a 32-km/5-min
+    # clamp produced coherent but wrong vectors (measured: 48-62% wet-cell flips on
+    # the second interpolant of every gap, seen as cells blinking over NL).
+    sigma_px = max(3.0 / KM_PER_PX, 0.8)
+    win_px = max(int(round(42.0 / KM_PER_PX)), 7)
+    smooth_px = max(int(round(25.0 / KM_PER_PX)) | 1, 3)
+    fa = cv2.GaussianBlur(fa, (0, 0), sigma_px)
+    fb = cv2.GaussianBlur(fb, (0, 0), sigma_px)
+    flow = cv2.calcOpticalFlowFarneback(fa, fb, None, 0.5, 4, win_px, 3, 7, 1.5, 0)
+    flow[..., 0] = cv2.blur(flow[..., 0], (smooth_px, smooth_px))
+    flow[..., 1] = cv2.blur(flow[..., 1], (smooth_px, smooth_px))
     mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
     scale = np.where(mag > MAX_FLOW_PX, MAX_FLOW_PX / np.maximum(mag, 1e-6), 1.0)
     flow[..., 0] *= scale
