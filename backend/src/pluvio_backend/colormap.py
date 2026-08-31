@@ -52,6 +52,16 @@ def rgba_for_array(mm_per_h: np.ndarray, alpha: int = 220) -> np.ndarray:
         rgba[mask, 0], rgba[mask, 1], rgba[mask, 2] = color
         rgba[mask, 3] = alpha
 
+    # Perceptual anti-flicker: within the light band, fade opacity in with rate
+    # (90 → alpha across 0.1–0.5 mm/h). Radar trace echo sits right at the wet
+    # threshold and crosses it scan to scan — as a solid swatch that reads as
+    # cells blinking in and out of existence; as a faint wash it reads as what it
+    # is, marginal drizzle. Band COLOURS are unchanged, so the legend stays true;
+    # rates at 0.5 mm/h and above keep full opacity.
+    light = (rate >= RAIN_THRESHOLD_MM_H) & (rate < 0.5)
+    frac = (rate[light] - RAIN_THRESHOLD_MM_H) / (0.5 - RAIN_THRESHOLD_MM_H)
+    rgba[light, 3] = (90 + frac * (alpha - 90)).astype("uint8")
+
     # Trace/no rain → fully transparent (matches the web client's dry cutoff).
     rgba[rate < RAIN_THRESHOLD_MM_H] = (0, 0, 0, 0)
     return rgba
