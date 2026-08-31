@@ -520,6 +520,19 @@ def _flow(prev, cur):
     scale = np.where(mag > MAX_FLOW_PX, MAX_FLOW_PX / np.maximum(mag, 1e-6), 1.0)
     flow[..., 0] *= scale
     flow[..., 1] *= scale
+    # Weak-flow infill: over fill regions the field is smoother (1-km composites
+    # averaged onto this grid), Farneback under-reads motion on weak gradients, and
+    # a near-zero vector turns the morph into a plain cross-fade — moving cells dim
+    # mid-gap and re-brighten at scans ("pulsing", reported over the Nordics). Rain
+    # advects at synoptic scale, so where the field IS wet but the vector is ~0,
+    # the domain's median wet-cell motion is a far better guess than stillness.
+    wet = (np.nan_to_num(prev, nan=0.0) > 0.1) | (np.nan_to_num(cur, nan=0.0) > 0.1)
+    moving = wet & (mag * scale > 0.5)
+    if moving.sum() > 500:
+        mu, mv = float(np.median(flow[..., 0][moving])), float(np.median(flow[..., 1][moving]))
+        still = wet & (mag * scale <= 0.5)
+        flow[..., 0][still] = mu
+        flow[..., 1][still] = mv
     return flow
 
 
