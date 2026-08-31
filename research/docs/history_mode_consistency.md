@@ -69,6 +69,35 @@ rejected on measurement:
    Result: 109 served frames at ~100 s cadence, median wet-delta 1.43 pp/step (p90
    2.38), peaks preserved. Scans themselves stay exact; store and archive untouched.
 
+## The Flanders blinking: a reader bug masquerading as radar noise
+
+User report: cells blinking in and out over East/West Flanders — bejab's home footprint.
+Measurement chain:
+
+1. bejab's own wet mask flipped **93–98% of cells between consecutive scans at every
+   intensity** (nlhrw, dual-pol QC'd, same day: 62–82%). Real rain cannot decorrelate
+   in 5 minutes at 2 mm/h — so not noise, something structural.
+2. Root cause: the multi-sweep ODIM and DWD readers rolled rays by −a1gate. ODIM rows
+   are already north-aligned; a1gate records where the antenna happened to START.
+   bejab's a1gate varies per scan (136 → 298), so every scan was rotated by a different
+   random angle: inter-scan correlation 0.471 unrolled vs **−0.101 rolled**. deess's
+   constant a1gate=100 rotated German rain to the wrong geography (corr vs QC'd
+   neighbours +0.157 unrolled, −0.511 rolled). The original gauge-validated
+   lowest-sweep reader never rolled — which is why the core 5-day KNMI-only results
+   stand; every arm that composited BE/DWD radars through the multi-sweep readers is
+   tainted and flagged.
+3. Cascade: the first calibration fit compared rotated fields — its ±5–6.5 dB offsets
+   measured the rotation, not the electronics. Re-fit on straight fields: −2.15…+1.11
+   dB, the normal inter-network range, on ~10× larger overlap samples.
+4. After both fixes: bejab flips 63/77/86% at 0.1/0.5/1.0 mm/h (trace now at the QC'd
+   radar's level), Flanders composite flip 91% → 75% (NL reference 53%). The residual
+   Flanders-vs-NL gap is the genuine no-dual-pol handicap plus a convective day.
+
+Also tried before finding the real bug: two-scan persistence confirmation for QC-less
+radars — mathematically saturated at bejab's then-apparent 7% noise density (an 8 px
+dilated confirm mask covers everything) and moved Flanders only 91 → 82. Kept in the
+chain, where it now operates on correlated fields as a mild safety net.
+
 ## What would actually reach parity
 
 1. Advection-aware display interpolation (RTCOR Eq. 4–5, Farnebäck flow) — needs an
