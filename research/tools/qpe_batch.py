@@ -34,16 +34,15 @@ def _one(args):
     from model.geo import GRID, bbox
     from tools.radar_single_site import polar_to_grid
     from tools.gauge_validate import sample
-    from tools import rtcor_chain as rc, knmi_volume as kv
+    from tools import rtcor_chain as rc
 
     bounds = bbox()
     per = []
     for r in radars:
-        p = kv.fetch(r, stamp)
-        if p is None:
-            continue
+        # read_sweeps_any dispatches per feed (KNMI archive / DWD / OPERA capture) —
+        # a KNMI-specific fetch here raised KeyError for any non-Dutch radar.
         try:
-            sw = kv.read_all_sweeps(p, max_elangle=6.0)
+            sw = rc.read_sweeps_any(r, stamp)
             if sw:
                 per.append(rc.single_radar_h(sw, GRID, bounds, polar_to_grid))
         except Exception:
