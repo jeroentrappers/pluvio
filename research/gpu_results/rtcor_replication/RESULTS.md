@@ -205,6 +205,38 @@ gauge adjustment; the BE rows are the clean comparison.
 3. Per-radar calibration monitoring (RTCOR reduced Herwijnen's quality weight in 2024
    after a calibration drift — the kind of ongoing tuning an operational chain gets).
 
+## 1 km grid — the resolution lever, measured (held-out test days)
+
+Same champion configuration, same test days, PLUVIO_GRID_N 256 → 768 (~1 km, matching
+RTCOR's native grid). Made feasible by caching the sweep geometry in polar_to_grid
+(10.0 s → 1.2 s per radar call) and filling in-disc scatter holes from the nearest
+polar bin within its own footprint (at 1 km, 1-degree rays are ~3 km apart at range).
+
+| TEST, 1 km | thr 0.1 | thr 0.5 | thr 1.0 |
+|---|---|---|---|
+| BE halo 0 | 0.564 vs 0.567 **tie** | 0.582 vs 0.690 RTCOR | **0.578 vs 0.532 tie, we lead** [−.085,+.178] |
+| BE halo 1 | 0.536 vs 0.545 **tie** | 0.519 vs 0.631 RTCOR | 0.518 vs 0.549 **tie** |
+| NL halo 0 | 0.553 vs 0.600 RTCOR | 0.513 vs 0.637 RTCOR | 0.438 vs 0.582 RTCOR |
+| NL halo 1 | 0.524 vs 0.551 RTCOR | 0.499 vs 0.587 RTCOR | 0.449 vs 0.546 RTCOR |
+
+Two things happen at once:
+
+1. **Our absolute skill jumps massively** — BE thr 0.5 halo 0 goes 0.379 → 0.582, thr 1.0
+   goes 0.349 → 0.578. The 3 km pixels really were smearing peak rates below exceedance
+   thresholds. In Belgium the intensity gap all but closes: tie at 0.1 and 1.0 mm/h with
+   our point estimate AHEAD at heavy rain (+0.048).
+2. **RTCOR gains even more over NL** — honestly stated: the 3 km protocol was smearing
+   RTCOR's native 1 km product too, flattering us. At 1 km its NL rows (with their
+   in-sample gauge adjustment) lead across the board, and the earlier halo-1 detection
+   tie becomes a narrow RTCOR win (−0.028, CI just excluding zero).
+
+Belgium — the domain pluvio serves — is where this lands best: at 1 km we are
+statistically level with the national best-in-class at trace AND heavy rain, behind
+only in the 0.5 mm/h band.
+
+⚠️ Serving note: PLUVIO_GRID_N is shared with the nowcast stack, whose trained model is
+baked at 256. The QPE chain sets 768 per-process; the global default must not change.
+
 ## Perspective
 
 OPERA — the baseline this project was originally asked to beat — scores 0.10–0.23 CSI
