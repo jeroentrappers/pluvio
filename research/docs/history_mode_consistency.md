@@ -109,3 +109,27 @@ chain, where it now operates on correlated fields as a mild safety net.
    estimates.
 4. KMI's own QC'd Belgian data, if it ever becomes openly available with dual-pol
    moments — the structural fix.
+
+## Continental-grid regressions and fixes (2026-08-31 evening)
+
+Going Belgium/1.2 km -> continental/4 km silently broke two display-layer tunings:
+
+1. **Pixel-denominated flow constants.** Farneback blur/window/smoothing/clamp were
+   tuned in px on the 1.2-km grid; at 4 km they meant a 140-km analysis window and a
+   32-km-per-5-min clamp. Measured over NL: 48-62% wet-cell flips on the second
+   interpolant of every gap — user-visible blinking. Fix: all scales in km,
+   converted per grid (3-km blur, 42-km window, 25-km smoothing, 10-km/5-min clamp).
+2. **Nearest-scan handover.** With km-scaled flow the mid-gap source switch still
+   flipped 45.7% of wet cells (I1->I2) vs 29-32% for scan steps. Fix: motion-aligned
+   morph — advect BOTH scans to the intermediate time, blend the aligned fields
+   (weights continuous in f, no handover anywhere). Mid-gap flips: 45.7 -> 19.9%.
+
+Residual boundary flips (~30-38%) are coarse-grid discretization: at 4 km a cell's
+size is comparable to its per-frame motion, so mask-level churn has a floor no
+interpolation scheme can beat. That resolution argument (plus "intensity reads low"
+from 4-km averaging of 1-km sources) drove two product changes the same evening:
+the Met Office eight-band colour scale (four flat WMO bands hid the structure), and
+**viewport-tiled 1-km serving** — hi-res cube as a memmap npy, 256-px tile sprites
+fetched per viewport, block-mean overview npz for low zoom. 2-km frame build
+measured at ~40-45 s (niced, shared CPU); 1-km expected 2-3 min/frame — final
+resolution choice pends a clean-box measurement.
