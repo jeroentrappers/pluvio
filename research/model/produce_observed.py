@@ -47,13 +47,17 @@ BE_BOUNDS = (1.5, 48.9, 7.5, 52.5)          # W, S, E, N
 OBS_SHAPE = (400, 416)                      # (H, W): 3.6 deg lat, 6.0 deg lon
 RADARS = ("nlhrw", "nldhl", "behel", "bejab", "bewid", "deess", "denhb", "deasb")
 OBS_LAG_MIN = 15                            # newest stamp we dare target
-BACKFILL_PER_RUN = 4                        # bound each cycle's runtime
-MIN_RADARS = 3
+BACKFILL_PER_RUN = int(os.environ.get("PLUVIO_OBS_BACKFILL", "6"))
+# Below this the frame LOOKS different from its neighbours (coverage and merge change),
+# which reads as flicker in the animation — better a shorter window than an erratic one.
+MIN_RADARS = 5
 
 
 def _champion_env():
     os.environ.setdefault("PLUVIO_SWEEP_MERGE", "local")
     os.environ.setdefault("PLUVIO_LOCAL_DH", "1200")
+    # temporal smoothing of the per-radar VPR — see rtcor_chain.estimate_vpr
+    os.environ.setdefault("PLUVIO_VPR_STATE", "/opt/pluvio/serve/observed_state")
 
 
 def compose(stamp: str) -> np.ndarray | None:
@@ -73,6 +77,9 @@ def compose(stamp: str) -> np.ndarray | None:
         LOG.warning("only %d radars at %s — skipping frame", len(per), stamp)
         return None
     rate, _ = rc.composite_by_height(per, OBS_SHAPE)
+    # temporal consistency: isolated single-cell blinkers dominate the perceived
+    # noise between frames; the validated speckle filter removes them.
+    rate = rc.speckle(rate)
     LOG.info("  %s: %d radars, wet %.2f%%", stamp, len(per),
              100 * float(np.nanmean(rate > 0.1)))
     return rate.astype("float16")
@@ -82,12 +89,14 @@ def wanted_stamps(window_min: int) -> list[str]:
     """The 10-min stamps the window should hold, oldest→newest."""
     now = dt.datetime.now(dt.UTC)
     newest = now - dt.timedelta(minutes=OBS_LAG_MIN)
-    newest = newest.replace(minute=(newest.minute // 10) * 10, second=0, microsecond=0)
+    # 5-min cadence: every feed we composite is 5-min native, and 10-min stepping
+    # reads as jumpy motion (cells move 3-6 km per step at 1 km pixels).
+    newest = newest.replace(minute=(newest.minute // 5) * 5, second=0, microsecond=0)
     out = []
     t = newest - dt.timedelta(minutes=window_min)
     while t <= newest:
         out.append(t.strftime("%Y%m%dT%H%M"))
-        t += dt.timedelta(minutes=10)
+        t += dt.timedelta(minutes=5)
     return out
 
 

@@ -36,6 +36,7 @@ Compositing across radars reuses step 5 with the per-radar Q_r as weight.
 from __future__ import annotations
 
 import logging
+import pathlib
 
 import numpy as np
 
@@ -304,8 +305,33 @@ def estimate_vpr(sweeps, r_min_km=20.0, r_max_km=100.0, dz_km=0.2, top_km=8.0):
     prof[above] = snow_at_top + slope * (hgrid[above] - ml_top)
     fit_res = app_db[snow_sel] - (icpt + slope * mids[snow_sel])
     unc_db = float(np.clip(np.std(fit_res), 0.5, 6.0))
-    return dict(hgrid=hgrid, prof_db=prof, unc_db=unc_db,
-                ml=(ml_bot, ml_peak, ml_top), bb_amp=bb_amp, slope=slope)
+    out = dict(hgrid=hgrid, prof_db=prof, unc_db=unc_db,
+               ml=(ml_bot, ml_peak, ml_top), bb_amp=bb_amp, slope=slope)
+
+    # Optional temporal smoothing: with PLUVIO_VPR_STATE set to a directory, the
+    # profile is blended 50/50 with the previous volume's. Refitting from scratch
+    # every 5 minutes makes far-range corrections flicker frame to frame — visible
+    # as temporal noise in the served history animation; the profile physically
+    # evolves on hour scales, so an EMA loses nothing.
+    import os as _os
+    state_dir = _os.environ.get("PLUVIO_VPR_STATE")
+    if state_dir:
+        site = sweeps[0]["site"]
+        key = f"vpr_{site[0]:.3f}_{site[1]:.3f}".replace(".", "p").replace("-", "m")
+        sp = pathlib.Path(state_dir) / f"{key}.npz"
+        try:
+            if sp.exists():
+                prev = np.load(sp)
+                if prev["hgrid"].shape == hgrid.shape:
+                    out["prof_db"] = 0.5 * out["prof_db"] + 0.5 * prev["prof_db"]
+                    out["unc_db"] = float(0.5 * out["unc_db"] + 0.5 * float(prev["unc_db"]))
+            sp.parent.mkdir(parents=True, exist_ok=True)
+            tmp = sp.with_suffix(".tmp.npz")
+            np.savez(tmp, hgrid=hgrid, prof_db=out["prof_db"], unc_db=out["unc_db"])
+            tmp.replace(sp)
+        except Exception:
+            pass
+    return out
 
 
 def vpr_correction_db(h_km, vpr, sigma_km=None):
@@ -360,7 +386,7 @@ def merge_sweeps(sweeps, shape, bounds, polar_to_grid):
     """
     import os as _os
     mode = _os.environ.get("PLUVIO_SWEEP_MERGE", "local")
-    LOCAL_DH_M = 800.0
+    LOCAL_DH_M = float(_os.environ.get("PLUVIO_LOCAL_DH", "800"))
 
     site = sweeps[0]["site"]
     alt0 = site[2] if len(site) > 2 else 0.0
