@@ -60,8 +60,14 @@ MIN_RADARS = 5
 def _champion_env():
     os.environ.setdefault("PLUVIO_SWEEP_MERGE", "local")
     os.environ.setdefault("PLUVIO_LOCAL_DH", "1200")
-    # temporal smoothing of the per-radar VPR — see rtcor_chain.estimate_vpr
-    os.environ.setdefault("PLUVIO_VPR_STATE", "/opt/pluvio/serve/observed_state")
+    # VPR temporal smoothing stays OFF here. Measured 2026-08-31: per-radar fields are
+    # frame-to-frame stable WITHOUT state (nlhrw 6.35→6.29% wet across the very pair
+    # where the served window ballooned +59%), while the EMA made frames
+    # history-dependent — and when the 5-min timer fired during a manual rebuild, two
+    # writers interleaved their profile-state sequences and produced frames whose
+    # brightness depended on WHICH process computed them. Determinism beats a
+    # smoothing whose target flicker was never observed.
+    os.environ["PLUVIO_VPR_STATE"] = ""
 
 
 def compose(stamp: str):
@@ -111,6 +117,20 @@ def wanted_stamps(window_min: int) -> list[str]:
     return out
 
 
+def _exclusive_lock():
+    """One producer at a time. A timer tick and a manual backfill running together
+    interleave frame computation (measured: the +59% wet-area balloon), so every run
+    takes this lock or exits."""
+    import fcntl
+    fh = open("/run/pluvio-observed.lock", "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        LOG.info("another producer run holds the lock — exiting")
+        raise SystemExit(0)
+    return fh
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--store", default="/opt/pluvio/serve/observed_frames")
@@ -121,6 +141,7 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     _champion_env()
+    _lock = _exclusive_lock()  # noqa: F841 — held for process lifetime
 
     store = pathlib.Path(args.store)
     store.mkdir(parents=True, exist_ok=True)
