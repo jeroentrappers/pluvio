@@ -209,12 +209,83 @@ def dbz_to_rate(dbz: np.ndarray) -> np.ndarray:
     return out
 
 
+_GEOM_CACHE: dict = {}
+
+
+def _polar_geometry(azimuths, ranges, site, elangle, grid_shape, bounds):
+    """Georeferencing of one sweep geometry, computed once and cached.
+
+    The polar geometry of a sweep — bin positions, grid row/col, beam heights, and the
+    hole-fill mapping — depends only on (site, elangle, ray/bin layout, grid), never on
+    the data, yet it was being recomputed for every field of every timestep: ~21
+    spherical_to_xyz + reproject calls per radar per slot. Cached, a timestep costs a
+    fancy-index.
+
+    The hole-fill mapping exists for fine grids: at 1 km cells, 1-degree rays are ~3 km
+    apart at 180 km range, so scatter-binning leaves radial NaN stripes in the outer
+    disc. Those cells ARE observed (the beam sweeps over them) — leaving them NaN would
+    corrupt the measured-dry semantics this pipeline depends on. Each in-disc cell maps
+    to its nearest polar bin, accepted only within that bin's own footprint (azimuthal
+    half-width at its range plus the cell half-diagonal), so the fill never invents
+    coverage beyond the scan.
+    """
+    import wradlib.georef as georef
+    from scipy.spatial import cKDTree
+
+    lon0, lat0 = site[0], site[1]
+    alt0 = site[2] if len(site) > 2 else 0.0
+    key = (round(lon0, 5), round(lat0, 5), round(alt0, 1), round(float(elangle), 3),
+           len(azimuths), len(ranges), float(ranges[0]), float(ranges[-1]),
+           tuple(grid_shape), tuple(bounds))
+    got = _GEOM_CACHE.get(key)
+    if got is not None:
+        return got
+
+    xyz, crs = georef.spherical_to_xyz(ranges, azimuths, elangle, (lon0, lat0, alt0))
+    lonlat = georef.reproject(xyz, src_crs=crs, trg_crs=georef.get_default_projection())
+    lons = lonlat[..., 0].ravel()
+    lats = lonlat[..., 1].ravel()
+    heights = xyz[..., 2].ravel() - alt0
+
+    w, s, e, n = bounds
+    h, wd = grid_shape
+    col = ((lons - w) / (e - w) * wd).astype("int64")
+    row = ((n - lats) / (n - s) * h).astype("int64")
+    inb = (col >= 0) & (col < wd) & (row >= 0) & (row < h)
+
+    # Hole-fill: nearest polar bin per grid cell, in km-scaled coordinates.
+    coslat = np.cos(np.radians(lat0))
+    tree = cKDTree(np.column_stack([(lons - lon0) * 111.32 * coslat,
+                                    (lats - lat0) * 111.32]))
+    lon_c = w + (np.arange(wd) + 0.5) * (e - w) / wd
+    lat_c = n - (np.arange(h) + 0.5) * (n - s) / h
+    cx = ((lon_c[None, :] - lon0) * 111.32 * coslat).ravel()
+    cy = np.repeat((lat_c - lat0) * 111.32, wd)
+    cxg = np.repeat(cx.reshape(1, wd), h, 0).ravel()
+    dist, bin_idx = tree.query(np.column_stack([cxg, cy]), k=1)
+    r_km = np.broadcast_to(np.asarray(ranges)[None, :] / 1000.0,
+                           (len(azimuths), len(ranges))).ravel()[bin_idx]
+    cell_km = max((e - w) * 111.32 * coslat / wd, (n - s) * 111.32 / h)
+    az_halfwidth = r_km * np.pi / max(len(azimuths), 1)
+    accept = dist <= (az_halfwidth + 0.75 * cell_km + 0.15)
+    fill_cells = np.where(accept)[0].astype("int64")
+    fill_bins = bin_idx[accept].astype("int64")
+
+    got = dict(row=row, col=col, inb=inb, heights=heights,
+               fill_cells=fill_cells, fill_bins=fill_bins)
+    if len(_GEOM_CACHE) > 128:      # runaway guard; geometries are few in practice
+        _GEOM_CACHE.clear()
+    _GEOM_CACHE[key] = got
+    return got
+
+
 def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0,
                   max_beam_m=2000.0):
     """Georeference polar bins and bin them onto a regular lat/lon grid.
 
     wradlib handles the spherical geometry (earth curvature + 4/3 refraction), which
-    is exactly the part that is easy to get subtly and silently wrong by hand.
+    is exactly the part that is easy to get subtly and silently wrong by hand; the
+    result is cached per sweep geometry (see _polar_geometry).
 
     ⚠️ `spherical_to_xyz` returns METRES in an azimuthal-equidistant projection
     centred on the radar, NOT degrees — feeding those straight into a lat/lon
@@ -222,42 +293,34 @@ def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0,
     Reproject to EPSG:4326 explicitly. The elevation angle must be the sweep's real
     one too: at 300 km range, 0.0 vs 0.3 deg is several km of height difference and
     a correspondingly wrong ground position.
+
+    ⚠️ Beam-height mask (max_beam_m): a radar beam CLIMBS with range — echo at 4 km
+    altitude is not surface rain, and converting it with Marshall-Palmer paints light
+    rain over the whole outer disc (measured: 17.75% wet area against OPERA's 3.02%).
+
+    Cells with contributing bins get the bin mean; in-disc cells that fall between
+    rays on fine grids get their nearest bin's value (within that bin's footprint);
+    cells outside the scan stay NaN — genuinely unobserved, not dry.
     """
-    import wradlib.georef as georef
-
-    lon0, lat0, alt0 = site
-    xyz, crs = georef.spherical_to_xyz(ranges, azimuths, elangle, (lon0, lat0, alt0))
-    lonlat = georef.reproject(xyz, src_crs=crs, trg_crs=georef.get_default_projection())
-    lons = lonlat[..., 0].ravel()
-    lats = lonlat[..., 1].ravel()
-    vals = np.asarray(rate).ravel()
-
-    # ⚠️ Beam-height mask. A radar measures a beam that CLIMBS with range: earth
-    # curvature plus 4/3 refraction put the 0.3 deg beam ~2.5 km up at 150 km and
-    # ~4 km at 200 km. Echo up there is mid-level cloud, melting layer or overshoot,
-    # NOT surface rain — but converting it with Marshall-Palmer paints light rain
-    # over the whole outer disc. Measured before masking: 17.75% wet area against
-    # OPERA's 3.02% on the same footprint, with maxima already agreeing (4.53 vs
-    # 5.21 mm/h), i.e. right intensities smeared over far too much area.
-    heights = xyz[..., 2].ravel() - alt0
-    too_high = heights > max_beam_m
-
-    w, s, e, n = bounds
+    g = _polar_geometry(azimuths, ranges, site, elangle, grid_shape, bounds)
     h, wd = grid_shape
-    col = ((lons - w) / (e - w) * wd).astype("int64")
-    row = ((n - lats) / (n - s) * h).astype("int64")
-    ok = (np.isfinite(vals) & ~too_high
-          & (col >= 0) & (col < wd) & (row >= 0) & (row < h))
+    vals = np.asarray(rate).ravel()
+    ok = np.isfinite(vals) & (g["heights"] <= max_beam_m) & g["inb"]
 
-    # Mean of contributing bins per cell. Near the radar many bins fall in one cell;
-    # far out, cells may get none and stay NaN (genuinely unobserved, not dry).
     acc = np.zeros((h, wd), "f8")
     cnt = np.zeros((h, wd), "i8")
-    np.add.at(acc, (row[ok], col[ok]), vals[ok])
-    np.add.at(cnt, (row[ok], col[ok]), 1)
+    np.add.at(acc, (g["row"][ok], g["col"][ok]), vals[ok])
+    np.add.at(cnt, (g["row"][ok], g["col"][ok]), 1)
     out = np.full((h, wd), np.nan, "f4")
     hit = cnt > 0
     out[hit] = acc[hit] / cnt[hit]
+
+    # fill in-disc holes from the nearest bin, respecting the same masks
+    fc, fb = g["fill_cells"], g["fill_bins"]
+    need = ~hit.ravel()[fc]
+    good = np.isfinite(vals[fb]) & (g["heights"][fb] <= max_beam_m)
+    sel = need & good
+    out.ravel()[fc[sel]] = vals[fb[sel]]
     return out
 
 
