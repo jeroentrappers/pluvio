@@ -156,3 +156,39 @@ gauges/RTCOR but against operational FORECASTS on the same windows:
   Isles gives an external yardstick nobody can accuse of home-field bias.
 - Same idea holds for other nationals later (KNMI harmonie/nowcast, RMI's INCA-BE) —
   one yardstick per region where we now serve coverage.
+
+## Regional evaluation vs best known composites (2026-08-31, window 16:10–19:05Z)
+
+Truth = independent gauges, never another radar product. Scored on the SERVED 4-km
+cube (display product with interpolants), not the 1-km research chain that produced
+the BE/NL numbers — a deliberate first pass at what users actually see. Harness:
+`tools/regional_eval.py`.
+
+**Germany** (truth: 1371 DWD 10-min stations; competitors RADOLAN RY + OPERA):
+
+| region | n / wet | ours @0.1/0.5/1/2 | RADOLAN | verdict |
+|---|---|---|---|---|
+| DE-west <12E (own core) | 15,556 / 1,556 | .319/.294/.271/.240 | .422/.391/.358/.297 | **RADOLAN, all thresholds** |
+| DE-east ≥12E (OPERA fill) | 5,740 / 539 | .260/.246/.200/.177 | .420/.404/.315/.244 | **RADOLAN, all thresholds** |
+
+Wet bias: ours +7.3 mm/h, RADOLAN +2.7 — a convective evening scored without gauge
+adjustment against the gauge-adjusted national standard. OPERA columns were
+inconclusive (RATE archive covered only 1,034/32 windows; on that joint subset ours
+ties OPERA).
+
+**UK** (truth: 1,040 EA 15-min stations; ours = UKMO composite through our fill):
+n=10,447, wet=151 (near-dry evening). Wet bias **ours +0.23 mm/h** — the fill chain
+(units, regrid, geometry) is faithful. Absolute CSI 0.12–0.16 on scattered drizzle at
+4 km/15 min says little with 151 wet windows; vs OPERA tie on the small joint subset.
+
+**Poland**: IMGW synop API gives hourly totals but no station coordinates —
+quantitative eval deferred until a coordinate table is wired in.
+
+What this changes:
+1. **Gauge adjustment is now the top lever** — the DE gap is mostly bias (+7.3 vs
+   +2.7), exactly what Appendix-B spatial adjustment removes; DWD's own 10-min gauge
+   feed (proven fetchable here) can drive it operationally, as can EA/KNMI/KMI feeds.
+2. Re-run this eval against the 1-km research chain before drawing chain-vs-serving
+   conclusions, and on a stratiform day (convective evenings are the hardest case).
+3. Calibration offsets for the DE/DK/PL newcomers still default to 0 — the overlap
+   fit needs its wet day.
