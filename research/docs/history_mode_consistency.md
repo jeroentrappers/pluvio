@@ -133,3 +133,11 @@ the Met Office eight-band colour scale (four flat WMO bands hid the structure), 
 fetched per viewport, block-mean overview npz for low zoom. 2-km frame build
 measured at ~40-45 s (niced, shared CPU); 1-km expected 2-3 min/frame — final
 resolution choice pends a clean-box measurement.
+
+**Morph completion (same evening):** the linear blend of imperfectly aligned warps
+smears support (+45% area) at diluted intensity — perceived as regional "pulsing".
+Weak-flow median infill alone did not move it; global gain/trim moved it globally
+but not regionally. Final scheme: motion-aligned morph + per-24-cell-block support
+trim and wet-mean gain to the f-interpolated endpoints. Measured end state: area
+ratio 1.03-1.04, wet-mean ratio 1.01-1.03, interpolant flips below scan flips in
+both test regions. Display interpolation is now strictly smoother than raw playback.
