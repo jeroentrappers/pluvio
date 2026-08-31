@@ -257,6 +257,24 @@ was already +0.05 and blanket adjustment overshoots to +0.58, costing the trace
 threshold. The adjustment needs shrinkage/damping, a one-parameter tune to be chosen on
 train days. NL gaps after adjustment: −0.04 to −0.10 (from −0.09 to −0.14).
 
+## Damped adjustment (lambda tuned on train days) and the fair-protocol correction
+
+The overshoot diagnosis held: lambda = 0.5 is best or tied-best in every train cell
+(mean CSI 0.4907 vs 0.4866 undamped, 0.4831 full strength). On the held-out days it
+turns NL halo 1 / thr 1.0 into a tie; the other cells stay a small RTCOR lead.
+
+An honesty item discovered en route: the earlier accumulation protocol sampled ONE of
+RTCOR's two 5-min files per 10-min gauge window, under-sampling RTCOR by ~0.03-0.08
+CSI. With the fair windowing (mean of both files) RTCOR's lead on the accumulation
+protocol is −0.04 to −0.10 across cells on the two test days — the earlier 1 km BE
+"ties" at thr 0.1/1.0 were partly that sampling artifact.
+
+Where the remaining ~0.05 lives, and why the offline evaluation understates the LIVE
+product: the archived test days allow only 2 radars over NL (KNMI's archive is the
+only deep one), while RTCOR composites 8 — and the live pluvio observed product also
+composites 8. The archival comparison is the floor, not the ceiling, of the deployed
+chain.
+
 ## Perspective
 
 OPERA — the baseline this project was originally asked to beat — scores 0.10–0.23 CSI
