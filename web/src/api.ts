@@ -1,7 +1,7 @@
 // Typed client for the Pluvio forecast API. Read-only; base URL from config.ts.
 import { API_BASE } from './config'
 import { levelFromMmPerHour, type PrecipLevel } from './domain/precip'
-import type { Bounds, ForecastDto, HealthDto, HistoryDto } from './types'
+import type { Bounds, ForecastDto, HealthDto, HistoryDto , HistoryTilesDto} from './types'
 
 // Geographic extent the radar composite PNG is rendered onto. Matches the
 // backend grid (cache.py) and the Flutter app's Env.radarBounds*; used as a
@@ -28,6 +28,24 @@ export interface RadarSprite {
   rows: number
 }
 
+// Hi-res history tiles: the 1-km cube split into fixed square tiles, each its
+// own sprite sheet. The map downloads only the tiles its viewport shows and
+// falls back to the overview sprite below the zoom threshold (and always when
+// tiles are absent).
+export interface HistoryTiles {
+  tilePx: number
+  nx: number
+  ny: number
+  gridH: number
+  gridW: number
+  cols: number
+  count: number
+  mtime: number
+  bounds: Bounds
+  index: Record<string, number>
+  urlFor: (tx: number, ty: number) => string
+}
+
 export interface RadarData {
   issuedAt: Date // the "now" reference
   location: { lat: number; lon: number }
@@ -35,6 +53,7 @@ export interface RadarData {
   bounds: Bounds
   frames: RadarFrame[] // sorted by lead time (now → +horizon)
   sprite: RadarSprite | null
+  tiles?: HistoryTiles | null
 }
 
 const abs = (url: string) => (url.startsWith('http') ? url : `${API_BASE}${url}`)
@@ -139,6 +158,28 @@ export async function getHistory(
         rows: dto.sprite.rows,
       }
     : null
+  // Hi-res tile manifest: optional — 404 simply means "overview only". Fetched
+  // alongside so the map can switch to viewport tiles past the zoom threshold.
+  let tiles: RadarData['tiles'] = null
+  try {
+    const t = await getJson<HistoryTilesDto>('/v1/history/tiles', signal)
+    tiles = {
+      tilePx: t.tile_px,
+      nx: t.nx,
+      ny: t.ny,
+      gridH: t.grid_h,
+      gridW: t.grid_w,
+      cols: t.cols,
+      count: t.count,
+      mtime: t.mtime,
+      bounds: t.bounds,
+      index: t.index,
+      urlFor: (tx: number, ty: number) =>
+        abs(`/v1/history/tile/${tx}/${ty}/sprite.png?v=${t.mtime}`),
+    }
+  } catch {
+    tiles = null
+  }
   return {
     issuedAt: observedAt,
     location: { lat, lon },
@@ -146,5 +187,6 @@ export async function getHistory(
     bounds: dto.bounds ?? DEFAULT_BOUNDS,
     frames,
     sprite,
+    tiles,
   }
 }

@@ -4,7 +4,7 @@ import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { STYLE_URL } from '../config'
 import type { Bounds } from '../types'
-import type { RadarFrame, RadarSprite } from '../api'
+import type { HistoryTiles, RadarFrame, RadarSprite } from '../api'
 
 // Register the PMTiles protocol once so MapLibre can read the vector basemap
 // straight from tiles.appmire.be (the style's source is pmtiles://…). The key
@@ -37,9 +37,11 @@ interface Props {
   // `center` change only moves the marker, so picking a spot doesn't yank the
   // map out from under the user.
   recenter?: number
+  // Hi-res history tile manifest (1-km cube, viewport-tiled). Null = overview only.
+  tiles?: HistoryTiles | null
 }
 
-export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter }: Props) {
+export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter, tiles }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -54,6 +56,11 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [spriteReady, setSpriteReady] = useState(0)
   const appliedBoundsRef = useRef(bounds)
+  // Hi-res tile mode: cache of tile sprite images keyed mtime_tx_ty, and a
+  // counter bumped when any of them finishes loading (re-triggers the draw).
+  const tileImgsRef = useRef(new Map<string, HTMLImageElement | 'loading'>())
+  const [tileReady, setTileReady] = useState(0)
+  const [viewGen, setViewGen] = useState(0)   // bumped on moveend/zoomend
 
   // Init the map once.
   useEffect(() => {
@@ -126,6 +133,10 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     const ro = new ResizeObserver(() => map.resize())
     if (containerRef.current) ro.observe(containerRef.current)
 
+    // Tile mode re-evaluates what is visible after every camera move.
+    map.on('moveend', () => setViewGen((n) => n + 1))
+    map.on('zoomend', () => setViewGen((n) => n + 1))
+
     return () => {
       ro.disconnect()
       map.remove()
@@ -194,34 +205,126 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     }
   }, [sprite?.url])
 
-  // Render the current frame: crop its tile from the sprite onto the overlay
-  // canvas, then nudge MapLibre to upload it once. No network, no data URL.
+  // Zoom threshold for the hi-res tiles: past this the overview pixels are
+  // visibly blocky and the viewport is small enough that a handful of 256-px
+  // tiles cover it; below it the overview keeps wide views cheap.
+  const TILE_ZOOM = 7.2
+
+  // Which hi-res tiles intersect the current viewport (null = overview mode).
+  const visibleTiles = () => {
+    const map = mapRef.current
+    if (!map || !tiles || map.getZoom() < TILE_ZOOM) return null
+    const b = tiles.bounds
+    const v = map.getBounds()
+    const degW = (b.east - b.west) / tiles.gridW
+    const degH = (b.north - b.south) / tiles.gridH
+    const pxW = tiles.tilePx * degW
+    const pxH = tiles.tilePx * degH
+    const tx0 = Math.max(0, Math.floor((v.getWest() - b.west) / pxW))
+    const tx1 = Math.min(tiles.nx - 1, Math.floor((v.getEast() - b.west) / pxW))
+    const ty0 = Math.max(0, Math.floor((b.north - v.getNorth()) / pxH))
+    const ty1 = Math.min(tiles.ny - 1, Math.floor((b.north - v.getSouth()) / pxH))
+    if (tx1 < tx0 || ty1 < ty0) return null
+    const out: { tx: number; ty: number }[] = []
+    for (let ty = ty0; ty <= ty1; ty++)
+      for (let tx = tx0; tx <= tx1; tx++) out.push({ tx, ty })
+    // A pathological viewport could still select too much — cap the download
+    // at 12 tiles and fall back to the overview beyond that.
+    return out.length > 0 && out.length <= 12 ? out : null
+  }
+
+  // Render the current frame. Two paths share the one overlay canvas:
+  //   overview — crop the frame from the whole-domain sprite (low zoom);
+  //   tiles    — draw each visible hi-res tile's crop at native resolution and
+  //              point the canvas source at the union of those tiles only.
   useEffect(() => {
     const map = mapRef.current
-    const img = spriteImgRef.current
     const canvas = canvasRef.current
-    if (!map || !readyRef.current || !img || !canvas || !sprite || !frame || frame.spriteIndex == null)
-      return
+    if (!map || !readyRef.current || !canvas || !frame || frame.spriteIndex == null) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
+    if (!src) return
+    const push = () => {
+      src.play()
+      map.triggerRepaint()
+      map.once('render', () => src.pause())
+    }
+
+    const vis = visibleTiles()
+    if (vis && tiles) {
+      let allLoaded = true
+      for (const { tx, ty } of vis) {
+        const key = `${tiles.mtime}_${tx}_${ty}`
+        const got = tileImgsRef.current.get(key)
+        if (!got) {
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          img.onload = () => {
+            tileImgsRef.current.set(key, img)
+            setTileReady((n) => n + 1)
+          }
+          img.src = tiles.urlFor(tx, ty)
+          tileImgsRef.current.set(key, 'loading')
+          allLoaded = false
+        } else if (got === 'loading') {
+          allLoaded = false
+        }
+      }
+      if (tileImgsRef.current.size > 40) {          // evict older cubes' tiles
+        for (const k of tileImgsRef.current.keys())
+          if (!k.startsWith(`${tiles.mtime}_`)) tileImgsRef.current.delete(k)
+      }
+      if (allLoaded) {
+        const txs = vis.map((t) => t.tx)
+        const tys = vis.map((t) => t.ty)
+        const tx0 = Math.min(...txs)
+        const ty0 = Math.min(...tys)
+        const tx1 = Math.max(...txs)
+        const ty1 = Math.max(...tys)
+        const px = tiles.tilePx
+        const wPx = Math.min((tx1 + 1) * px, tiles.gridW) - tx0 * px
+        const hPx = Math.min((ty1 + 1) * px, tiles.gridH) - ty0 * px
+        if (canvas.width !== wPx) canvas.width = wPx
+        if (canvas.height !== hPx) canvas.height = hPx
+        ctx.clearRect(0, 0, wPx, hPx)
+        const idx = frame.spriteIndex
+        for (const { tx, ty } of vis) {
+          const img = tileImgsRef.current.get(`${tiles.mtime}_${tx}_${ty}`)
+          if (!(img instanceof Image)) continue
+          const tw = Math.min(px, tiles.gridW - tx * px)
+          const th = Math.min(px, tiles.gridH - ty * px)
+          const sx = (idx % tiles.cols) * tw
+          const sy = Math.floor(idx / tiles.cols) * th
+          ctx.drawImage(img, sx, sy, tw, th, (tx - tx0) * px, (ty - ty0) * px, tw, th)
+        }
+        const b = tiles.bounds
+        const degW = (b.east - b.west) / tiles.gridW
+        const degH = (b.north - b.south) / tiles.gridH
+        const west = b.west + tx0 * px * degW
+        const north = b.north - ty0 * px * degH
+        const east = west + wPx * degW
+        const south = north - hPx * degH
+        src.setCoordinates?.([[west, north], [east, north], [east, south], [west, south]])
+        push()
+        return
+      }
+      // fall through to the overview while tile sprites stream in
+    }
+
+    const img = spriteImgRef.current
+    if (!img || !sprite) return
     const { tileW, tileH, cols } = sprite
     if (canvas.width !== tileW) canvas.width = tileW
     if (canvas.height !== tileH) canvas.height = tileH
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    ctx.clearRect(0, 0, tileW, tileH)
     const idx = frame.spriteIndex
     const sx = (idx % cols) * tileW
     const sy = Math.floor(idx / cols) * tileH
-    ctx.clearRect(0, 0, tileW, tileH)
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
-
-    // Push the freshly-drawn canvas to the GPU once: play() makes the canvas
-    // source copy on the next frame; we pause() right after so the map goes
-    // back to idle (no continuous repaint).
-    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
-    if (!src) return
-    src.play()
-    map.triggerRepaint()
-    map.once('render', () => src.pause())
-  }, [frame, bounds, sprite, spriteReady])
+    src.setCoordinates?.(cornersOf(bounds))
+    push()
+  }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen])
 
   return <div ref={containerRef} className="map" />
 }

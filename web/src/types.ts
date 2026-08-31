@@ -82,3 +82,19 @@ export interface HealthDto {
   age_seconds: number | null
   model_version: string
 }
+
+// Manifest of the hi-res history tile level (/v1/history/tiles): fixed square
+// tiles of the 1-km cube, each with its own sprite sheet. 404 when the producer
+// hasn't written a hi cube — the client then stays on the overview sprite.
+export interface HistoryTilesDto {
+  tile_px: number
+  nx: number
+  ny: number
+  grid_h: number
+  grid_w: number
+  count: number
+  cols: number
+  mtime: number
+  bounds: Bounds
+  index: Record<string, number>
+}
