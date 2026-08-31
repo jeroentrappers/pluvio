@@ -77,3 +77,38 @@ bounds **−1.2..12.2 E, 46.3..55.3 N** (Paris latitude to the Danish border), s
 416×400 (~2.4 km/px — same tile budget as the old Belgium box at 1.2 km). New radars
 carry calibration offset 0.0 until an overlap fit on a wet day; the research/QPE-archive
 grid is unchanged (that is training truth, scoped to the gauge-verified region).
+
+## Continental coverage via the OPERA COMP fill layer (2026-08-31)
+
+The bucket's `OPERA/COMP` prefix carries the FULL pan-European OPERA composite —
+`OPERA@<stamp>@0@DBZH.tiff`, 4400×3800 at 1 km LAEA (lon −39.6..57.8, lat 31.7..73.9),
+**5-minute cadence, ~4-minute publish latency** (measured: the 14:20Z file was
+downloadable at 14:24:34Z). This is distinct from the 531×531 NW-Europe RATE crop we
+archive to `/mnt/storagebox/opera/RATE`.
+
+Measured per-country content (internal mask = out of any contributing radar's reach):
+
+| region | in-composite | note |
+|--------|-------------:|------|
+| IE, PL, SE, NO, DK, CH, CZ | 55–100% of land | national networks contribute — full practical coverage |
+| IT | ~45% | partial national contribution |
+| UK | ~35% | UKMO does NOT contribute; only what IE/FR/Benelux radars reach (SE England, fringes) |
+| AT | ~20% | edges from DE/CZ radars only |
+| ES | ~13% | north strip from FR radars; AEMET absent |
+| PT | 0% | IPMA absent |
+
+Serving architecture (produce_observed): **own verified 12-radar composite wins
+wherever it has coverage — including its zeros — and OPERA COMP fills the rest**,
+converted dBZ→rate with the chain's Marshall-Palmer pair; masked pixels stay NaN so
+uncovered areas render transparent. Frames whose fill was missing are sidecar-marked
+and recomputed inside the upgrade window, exactly like radar-incomplete frames.
+Serving box: **−11..24.5 E, 42.5..60 N at ~4 km/px (488×624)** — Ireland to eastern
+Poland, northern Spain to mid-Scandinavia.
+
+Remaining gaps and their only real fixes:
+- **UK interior**: CEDA Nimrod `uk-1km` composite (we have working token access) — the
+  one actionable upgrade, planned as a second fill layer.
+- **ES/PT interior**: AEMET/IPMA national feeds only; no open volume or composite path found yet.
+- **IT/AT interior**: national products (DPC mosaic / GeoSphere) — possible future fill layers.
+- Own-core upgrades from open volumes, pending the verification gate on a wet day:
+  CH(5) CZ(2) DK(5) PL(10) IE(2) radars + ~9 more DE + ~20 more FR.
