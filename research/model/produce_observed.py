@@ -85,6 +85,85 @@ def _champion_env():
 _PREV: dict = {}
 
 
+FILL_MODE = os.environ.get("PLUVIO_OBS_FILL", "comp")
+FILL_CACHE = pathlib.Path(os.environ.get("PLUVIO_OBS_FILL_CACHE",
+                                         "/opt/pluvio/cache/opera_comp"))
+FILL_BUCKET = "https://s3.waw3-1.cloudferro.com/openradar-24h"
+FILL_LOOKBACK_SLOTS = 3          # <=15 min behind; measured publish latency ~4 min
+
+
+def _opera_fill(stamp: str):
+    """Pan-European OPERA composite as a FILL layer outside our own radar coverage.
+
+    The bucket\'s OPERA/COMP DBZH product is the full 4400x3800 1-km LAEA European
+    composite at 5-min cadence (lon -39.6..57.8, lat 31.7..73.9), published ~4 min
+    after scan time. Countries that never share single-site volumes through the open
+    exchange (UK partially, IE, PL, Nordics, parts of IT/AT) exist ONLY here, so this
+    is what turns the served history from a 12-radar region into continental coverage.
+
+    Strictly a fill: wherever our own composite has coverage — including its explicit
+    zeros — the own value wins. OPERA pixels are converted dBZ -> rate with the same
+    Marshall-Palmer pair as the main chain; the raster\'s internal mask (out of any
+    radar\'s reach) stays NaN so uncovered areas render transparent, not dry.
+    """
+    if FILL_MODE != "comp":
+        return None
+    import urllib.request
+
+    t0 = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    path = None
+    for k in range(FILL_LOOKBACK_SLOTS + 1):
+        t = t0 - dt.timedelta(minutes=5 * k)
+        fn = f"OPERA@{t:%Y%m%d}T{t:%H%M}@0@DBZH.tiff"
+        cand = FILL_CACHE / fn
+        if cand.exists() and cand.stat().st_size > 0:
+            path = cand
+            break
+        FILL_CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = FILL_CACHE / (fn + ".part")
+        try:
+            with urllib.request.urlopen(f"{FILL_BUCKET}/{t:%Y/%m/%d}/OPERA/COMP/{fn}",
+                                        timeout=90) as r, open(tmp, "wb") as fh:
+                fh.write(r.read())
+            tmp.replace(cand)
+            path = cand
+            break
+        except Exception:
+            tmp.unlink(missing_ok=True)
+    if path is None:
+        LOG.warning("no OPERA COMP within %d min of %s — frame served without fill",
+                    5 * FILL_LOOKBACK_SLOTS, stamp)
+        return None
+    # opportunistic cache prune: the bucket only holds 24 h anyway
+    cutoff = dt.datetime.now(dt.UTC).timestamp() - 36 * 3600
+    for f in FILL_CACHE.glob("OPERA@*.tiff"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink(missing_ok=True)
+    try:
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+        from rasterio.warp import Resampling, reproject
+
+        with rasterio.open(path) as src:
+            dbz = src.read(1, masked=True)
+            tr, crs = src.transform, src.crs
+        rate = np.zeros(dbz.shape, "float32")
+        wet = ~dbz.mask & (dbz.data > 7.0)              # ~0.1 mm/h Marshall-Palmer
+        rate[wet] = (10.0 ** (dbz.data[wet].astype("float32") / 10.0) / 200.0) ** (1.0 / 1.6)
+        rate[dbz.mask] = np.nan
+        w, sth, e, n = BE_BOUNDS
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        reproject(rate, dst, src_transform=tr, src_crs=crs,
+                  dst_transform=from_bounds(w, sth, e, n, OBS_SHAPE[1], OBS_SHAPE[0]),
+                  dst_crs=CRS.from_epsg(4326), resampling=Resampling.average,
+                  src_nodata=np.nan, dst_nodata=np.nan)
+        return dst
+    except Exception as exc:
+        LOG.warning("OPERA fill failed for %s (%s)", stamp, exc)
+        return None
+
+
 def _persistence_filter(radar, stamp, rate, shape, bounds):
     """Two-scan confirmation for radars without dual-pol moments.
 
@@ -147,15 +226,19 @@ def compose(stamp: str):
             LOG.debug("%s unusable at %s (%s)", r, stamp, exc)
     if len(per) < MIN_RADARS:
         LOG.warning("only %d radars at %s — skipping frame", len(per), stamp)
-        return None, len(per)
+        return None, len(per), False
     rate, _ = rc.composite_by_height(per, OBS_SHAPE)
     # temporal consistency: isolated single-cell blinkers dominate the perceived
     # noise between frames; the validated speckle filter removes them.
     rate = rc.speckle(rate)
     rate = _despeckle_area(rate)
-    LOG.info("  %s: %d radars, wet %.2f%%", stamp, len(per),
-             100 * float(np.nanmean(rate > 0.1)))
-    return rate.astype("float16"), len(per)
+    fill = _opera_fill(stamp)
+    if fill is not None:
+        gap = ~np.isfinite(rate) & np.isfinite(fill)
+        rate = np.where(gap, fill, rate)
+    LOG.info("  %s: %d radars%s, wet %.2f%%", stamp, len(per),
+             "" if fill is None else " +fill", 100 * float(np.nanmean(rate > 0.1)))
+    return rate.astype("float16"), len(per), fill is not None
 
 
 def _despeckle_area(rate, min_cells: int = 8, core_mm_h: float = 1.0):
@@ -313,21 +396,25 @@ def main(argv=None) -> int:
             continue
         try:
             import json as _json
-            nrad = _json.loads(meta.read_text()).get("n_radars", n_full)
+            m = _json.loads(meta.read_text())
+            nrad = m.get("n_radars", n_full)
+            had_fill = m.get("fill", True)                # legacy sidecars: assume yes
         except Exception:
-            nrad = 0                                      # unknown provenance: rebuild
+            nrad, had_fill = 0, False                     # unknown provenance: rebuild
         age_min = (now - dt.datetime.strptime(stamp, "%Y%m%dT%H%M")
                    .replace(tzinfo=dt.UTC)).total_seconds() / 60
-        if nrad < n_full and age_min <= UPGRADE_WINDOW_MIN:
+        if (nrad < n_full or (FILL_MODE and not had_fill)) \
+                and age_min <= UPGRADE_WINDOW_MIN:
             work.append(stamp)
     for stamp in work[:BACKFILL_PER_RUN]:
-        rate, nrad = compose(stamp)
+        rate, nrad, had_fill = compose(stamp)
         if rate is not None:
             import json as _json
             tmp = store / f".{stamp}.tmp.npy"
             np.save(tmp, rate)
             tmp.replace(store / f"{stamp}.npy")
-            (store / f"{stamp}.json").write_text(_json.dumps({"n_radars": nrad}))
+            (store / f"{stamp}.json").write_text(
+                _json.dumps({"n_radars": nrad, "fill": had_fill}))
 
     frames = sorted(store.glob("*.npy"))
     if not frames:
