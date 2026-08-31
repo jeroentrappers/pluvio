@@ -149,9 +149,19 @@ def archive(day: dt.date, max_stamps: int, workers: int) -> int:
     path, arrs = _open_day(day, GRID)
     present = np.asarray(arrs["present"][:])
     now = dt.datetime.now(dt.UTC)
+    n_rad_arr = np.asarray(arrs["n_radars"][:])
     stamps = []
     for s in range(SLOTS_PER_DAY - 1, -1, -1):          # newest first
         if present[s]:
+            # late-data upgrade: a slot archived with an incomplete radar set gets
+            # one more chance while its raw is certainly still on disk
+            t_slot = dt.datetime(day.year, day.month, day.day, s * 5 // 60, s * 5 % 60,
+                                 tzinfo=dt.UTC)
+            if (n_rad_arr[s] < len(RADARS)
+                    and dt.timedelta(0) < now - t_slot < dt.timedelta(hours=6)):
+                stamps.append(t_slot.strftime("%Y%m%dT%H%M"))
+                if len(stamps) >= max_stamps:
+                    break
             continue
         t = dt.datetime(day.year, day.month, day.day, s * 5 // 60, s * 5 % 60,
                         tzinfo=dt.UTC)

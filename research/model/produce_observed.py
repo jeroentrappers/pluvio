@@ -48,6 +48,10 @@ OBS_SHAPE = (400, 416)                      # (H, W): 3.6 deg lat, 6.0 deg lon
 RADARS = ("nlhrw", "nldhl", "behel", "bejab", "bewid", "deess", "denhb", "deasb")
 OBS_LAG_MIN = 15                            # newest stamp we dare target
 BACKFILL_PER_RUN = int(os.environ.get("PLUVIO_OBS_BACKFILL", "6"))
+# Frames younger than this get recomputed when they were built with an incomplete radar
+# set — the Belgian files arrive ~12 min late, DWD a few minutes, so completeness for a
+# stamp typically settles within half an hour.
+UPGRADE_WINDOW_MIN = int(os.environ.get("PLUVIO_OBS_UPGRADE_MIN", "60"))
 # Below this the frame LOOKS different from its neighbours (coverage and merge change),
 # which reads as flicker in the animation — better a shorter window than an erratic one.
 MIN_RADARS = 5
@@ -60,8 +64,15 @@ def _champion_env():
     os.environ.setdefault("PLUVIO_VPR_STATE", "/opt/pluvio/serve/observed_state")
 
 
-def compose(stamp: str) -> np.ndarray | None:
-    """One champion composite on the serving grid, or None if too few radars."""
+def compose(stamp: str):
+    """One champion composite on the serving grid -> (rate | None, n_radars).
+
+    The radar count travels with the frame: frames built before every radar's file
+    arrived get RECOMPUTED on later runs (see main), because mixing frames of varying
+    completeness is exactly what made regions blink in and out of the served history —
+    measured: stored wet-fraction swung 8.4 ↔ 12.5% between adjacent 5-min frames while
+    deterministic full-set recomputes of the same stamps read 7.8→8.5→8.5→8.3→10.1.
+    """
     from tools.radar_single_site import polar_to_grid
     from tools import rtcor_chain as rc
 
@@ -75,14 +86,14 @@ def compose(stamp: str) -> np.ndarray | None:
             LOG.debug("%s unusable at %s (%s)", r, stamp, exc)
     if len(per) < MIN_RADARS:
         LOG.warning("only %d radars at %s — skipping frame", len(per), stamp)
-        return None
+        return None, len(per)
     rate, _ = rc.composite_by_height(per, OBS_SHAPE)
     # temporal consistency: isolated single-cell blinkers dominate the perceived
     # noise between frames; the validated speckle filter removes them.
     rate = rc.speckle(rate)
     LOG.info("  %s: %d radars, wet %.2f%%", stamp, len(per),
              100 * float(np.nanmean(rate > 0.1)))
-    return rate.astype("float16")
+    return rate.astype("float16"), len(per)
 
 
 def wanted_stamps(window_min: int) -> list[str]:
@@ -117,18 +128,39 @@ def main(argv=None) -> int:
 
     # prune frames that fell out of the window
     keep = set(want)
-    for f in store.glob("*.npy"):
+    for f in list(store.glob("*.npy")) + list(store.glob("*.json")):
         if f.stem not in keep:
             f.unlink(missing_ok=True)
 
-    # compute missing frames, newest first, bounded per run
-    missing = [s for s in reversed(want) if not (store / f"{s}.npy").exists()]
-    for stamp in missing[:BACKFILL_PER_RUN]:
-        rate = compose(stamp)
+    # Work list: missing frames plus recent frames that were built incomplete (a late
+    # radar file upgrades them). CHRONOLOGICAL order — the VPR temporal smoothing is an
+    # EMA and must see volumes in time order to be causal.
+    n_full = len(RADARS)
+    now = dt.datetime.now(dt.UTC)
+    work = []
+    for stamp in want:                                   # oldest -> newest
+        f = store / f"{stamp}.npy"
+        meta = store / f"{stamp}.json"
+        if not f.exists():
+            work.append(stamp)
+            continue
+        try:
+            import json as _json
+            nrad = _json.loads(meta.read_text()).get("n_radars", n_full)
+        except Exception:
+            nrad = 0                                      # unknown provenance: rebuild
+        age_min = (now - dt.datetime.strptime(stamp, "%Y%m%dT%H%M")
+                   .replace(tzinfo=dt.UTC)).total_seconds() / 60
+        if nrad < n_full and age_min <= UPGRADE_WINDOW_MIN:
+            work.append(stamp)
+    for stamp in work[:BACKFILL_PER_RUN]:
+        rate, nrad = compose(stamp)
         if rate is not None:
+            import json as _json
             tmp = store / f".{stamp}.tmp.npy"
             np.save(tmp, rate)
             tmp.replace(store / f"{stamp}.npy")
+            (store / f"{stamp}.json").write_text(_json.dumps({"n_radars": nrad}))
 
     frames = sorted(store.glob("*.npy"))
     if not frames:
