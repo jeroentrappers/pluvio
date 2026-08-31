@@ -578,7 +578,10 @@ def _exclusive_lock():
     interleave frame computation (measured: the +59% wet-area balloon), so every run
     takes this lock or exits."""
     import fcntl
-    fh = open("/run/pluvio-observed.lock", "w")
+    # PLUVIO_OBS_LOCK: experiment builds into scratch stores must NOT contend
+    # with production for this lock — a battery of 12-min builds would make
+    # every 5-min timer tick exit on lock and serving would quietly go stale.
+    fh = open(os.environ.get("PLUVIO_OBS_LOCK", "/run/pluvio-observed.lock"), "w")
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
