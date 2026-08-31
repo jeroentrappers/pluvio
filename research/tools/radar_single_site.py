@@ -105,7 +105,18 @@ def find_volume(radar: str, stamp: str, param: str = "DBZH",
                 continue
             el = _single_elevation(h)
             if el is None:
-                continue
+                # Full-volume packaging (PL/CZ: "@0.5_1.5_..._23.8@DBZH.h5") lists
+                # every elevation in the token; the file still holds the lowest
+                # sweep, so it is a perfectly good candidate — sorted by its first
+                # (lowest) angle. Skipping these made whole countries read as
+                # "no data" whenever their stamps missed ours by a minute.
+                parts = stem.split("@")
+                try:
+                    el = float(parts[2].split("_")[0]) if len(parts) > 2 else None
+                except ValueError:
+                    el = None
+                if el is None:
+                    continue
             try:
                 mins = _stamp_minutes(stem.split("@")[1])
             except (IndexError, ValueError):
