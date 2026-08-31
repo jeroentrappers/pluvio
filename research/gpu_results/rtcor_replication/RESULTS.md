@@ -275,6 +275,30 @@ only deep one), while RTCOR composites 8 — and the live pluvio observed produc
 composites 8. The archival comparison is the floor, not the ceiling, of the deployed
 chain.
 
+## Final offline state: every lever measured, the residue is archival
+
+Last variant (5-min three-frame trapezoid accumulation, lambda 0.5, plus Essen and
+Neuheilenbach on the day the archive has them), held-out days, fair protocol:
+
+| TEST | thr 0.1 | thr 0.5 | thr 1.0 |
+|---|---|---|---|
+| NL h0 | 0.561 vs 0.593 | 0.546 vs 0.604 | 0.498 vs 0.597 |
+| NL h1 | 0.530 vs 0.560 | 0.519 vs 0.565 | 0.511 vs 0.556 **tie** |
+| BE h0 | 0.476 vs 0.545 | 0.447 vs 0.512 **tie** | 0.344 vs 0.500 |
+| BE h1 | 0.458 vs 0.520 | 0.434 vs 0.523 | 0.406 vs 0.464 **tie** |
+
+Campaign arc on the same protocol: the unadjusted 2-radar chain trailed by
+−0.09..−0.14; each component (1 km grid, damped previous-hour adjustment, proper
+accumulation windows, extra radars where archived) moved it; the floor reached is
+−0.03..−0.06 at detection thresholds with ties appearing at intensity extremes.
+
+What remains is structural and archival, not algorithmic: RTCOR composites 8 radars
+where the archive allows this evaluation 2 (Aug 18) or 4 (Aug 28); it adjusts with
+~180 gauges against our 46; and it carries two decades of per-radar tuning. The LIVE
+product deployed for the history mode composites all 8 radars — the capture running
+since Aug 30 accumulates exactly the multi-radar test days this evaluation lacks, so
+the honest path to the remaining ~0.04 is a week of data, not another algorithm.
+
 ## Perspective
 
 OPERA — the baseline this project was originally asked to beat — scores 0.10–0.23 CSI
