@@ -30,8 +30,10 @@ import numpy as np
 
 LOG = logging.getLogger("pluvio.gauge_adjust")
 
+import os
+
 T_MM = 0.25
-R_S_KM = 30.0
+R_S_KM = float(os.environ.get("PLUVIO_GADJ_RS_KM", "30.0"))
 R_L_KM = 500.0
 V_LONG = 0.1
 Q_GAUGE = 0.9

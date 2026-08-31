@@ -253,7 +253,10 @@ GADJ_MODE = os.environ.get("PLUVIO_OBS_GAUGE_ADJ", "")
 GAUGE_DIR = pathlib.Path(os.environ.get("PLUVIO_OBS_GAUGE_DIR",
                                         "/opt/pluvio/cache/gauges"))
 GADJ_CACHE = pathlib.Path("/opt/pluvio/cache/gauge_adjust")
-GADJ_CLIP_DB = 6.0           # factor 0.25..4 — adjustment corrects, never rewrites
+GADJ_CLIP_DB = float(os.environ.get("PLUVIO_GADJ_CLIP_DB", "6.0"))
+GADJ_SAME_HOUR = os.environ.get("PLUVIO_GADJ_SAME_HOUR", "")   # experiments only:
+# adjust with the frame's own (possibly incomplete) hour — an upper bound on what
+# lower latency could buy, never operational (acausal for live frames).
 _GADJ = {}
 
 
@@ -270,7 +273,7 @@ def _gauge_adjust_field(stamp: str, store: pathlib.Path):
     if not GADJ_MODE:
         return None
     t = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
-    hour = (t - dt.timedelta(hours=1)).strftime("%Y%m%d%H")
+    hour = (t - dt.timedelta(hours=0 if GADJ_SAME_HOUR else 1)).strftime("%Y%m%d%H")
     if hour in _GADJ:
         return _GADJ[hour]
     cache = GADJ_CACHE / f"F_{hour}_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}.npz"
@@ -538,7 +541,9 @@ def _interpolate(prev, cur, flow, f):
 
 def wanted_stamps(window_min: int) -> list[str]:
     """The 10-min stamps the window should hold, oldest→newest."""
-    now = dt.datetime.now(dt.UTC)
+    frozen = os.environ.get("PLUVIO_OBS_NOW", "")
+    now = (dt.datetime.strptime(frozen, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+           if frozen else dt.datetime.now(dt.UTC))
     newest = now - dt.timedelta(minutes=OBS_LAG_MIN)
     # 5-min cadence: every feed we composite is 5-min native, and 10-min stepping
     # reads as jumpy motion (cells move 3-6 km per step at 1 km pixels).
@@ -591,7 +596,12 @@ def main(argv=None) -> int:
     # radar file upgrades them). CHRONOLOGICAL order — the VPR temporal smoothing is an
     # EMA and must see volumes in time order to be causal.
     n_full = len(RADARS)
-    now = dt.datetime.now(dt.UTC)
+    # PLUVIO_OBS_NOW freezes the reference clock (experiments only): every
+    # variant of an A/B/N battery then builds the SAME stamps from archived
+    # volumes instead of a window that drifts with each 12-min build.
+    frozen = os.environ.get("PLUVIO_OBS_NOW", "")
+    now = (dt.datetime.strptime(frozen, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+           if frozen else dt.datetime.now(dt.UTC))
     work = []
     for stamp in want:                                   # oldest -> newest
         f = store / f"{stamp}.npy"

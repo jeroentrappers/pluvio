@@ -44,7 +44,8 @@ OPERA = pathlib.Path("/mnt/storagebox/opera/RATE")
 # gauge-free QPE starts from. It UNDER-estimates convective cores (where a~300,
 # b~1.4 fits better), which matters for us because heavy rain is the product's
 # whole point — revisit once single-radar geometry is proven.
-ZR_A, ZR_B = 200.0, 1.6
+ZR_A, ZR_B = (float(x) for x in os.environ.get("PLUVIO_ZR", "200:1.6").split(":"))
+# Marshall-Palmer by default; PLUVIO_ZR="256:1.42" gives the DWD standard pair.
 
 # Above this the echo is almost certainly hail/bright-band contamination rather
 # than rain; capping avoids a handful of pixels dominating any comparison.
@@ -217,12 +218,23 @@ def declutter(dbz: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def dbz_to_rate(dbz: np.ndarray) -> np.ndarray:
-    """dBZ -> mm/h via Marshall-Palmer, preserving the dry/missing distinction."""
+    """dBZ -> mm/h via Marshall-Palmer, preserving the dry/missing distinction.
+
+    PLUVIO_ZR_CONV="thr:a:b" switches to a convective pair (e.g. "44:320:1.4",
+    RADOLAN-style) above thr dBZ — a single Z-R over-reads convective cores, which
+    the DE gauge eval measured as +8 mm/h wet bias against RADOLAN's +2.7."""
     out = np.full(dbz.shape, np.nan, dtype="f4")
     dry = np.isneginf(dbz)
     wet = np.isfinite(dbz)
-    z = 10.0 ** (np.clip(dbz[wet], None, DBZ_CAP) / 10.0)
-    out[wet] = (z / ZR_A) ** (1.0 / ZR_B)
+    d = np.clip(dbz[wet], None, DBZ_CAP)
+    z = 10.0 ** (d / 10.0)
+    r = (z / ZR_A) ** (1.0 / ZR_B)
+    conv = os.environ.get("PLUVIO_ZR_CONV", "")
+    if conv:
+        thr, a2, b2 = (float(x) for x in conv.split(":"))
+        hi = d >= thr
+        r[hi] = (z[hi] / a2) ** (1.0 / b2)
+    out[wet] = r
     out[dry] = 0.0
     return out
 
