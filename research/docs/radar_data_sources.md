@@ -387,3 +387,25 @@ BACKFILL=3 at this grid; steady-state tick timing is the final measurement.
 Remaining ledger: wet-day regates (see recheck list), HR/SI Doppler declutter build,
 IS/MT peer rounds, ES key re-probe, satellite frontier (GR/MA/sea), incremental npz
 writes during long rebuilds (removes the staleness window a cold rebuild opens).
+
+## Performance & disk audit — measures and results (2026-09-01 afternoon)
+
+Measured at the full grid (2109×1907, 38 radars, 6 fills):
+
+| item | before | after | change |
+|---|---|---|---|
+| frame compose (median, warm) | — | 71 s | measured baseline |
+| assembly per tick | recomputed all ~44 Farneback gaps | cached per gap keyed (t0,t1,grid,mtimes) | dominant steady cost removed |
+| hourly gauge-adjust field | ~6 min inside one tick (8:13 measured) | 1/8-grid compute + bilinear upsample | ~60× cheaper (verification tick pending) |
+| idle ticks | full ~2.5-min reassembly | fingerprint skip | seconds when truly idle |
+| steady-state tick | — | **2:33–2:41 certified**, cube current, watchdog no-stale | cadence holds at 71°N/1.5 km |
+| geometry cache | 8.0 GB / 3194 files (every historic grid) | **809 MB / 300 entries** (shape-tagged, prewarmed, pruned) | −7.2 GB |
+| raw volume retention | 5 days (141 GB) | 3 days | ~−56 GB steady (QPE zarr remains the record) |
+| OPERA archive | unbounded (28 GB) | 7-day cap via prune hook | bounded |
+| fill caches | — | 0.9 GB total, 36-h self-pruning | healthy |
+
+Serving artifacts: hi cube 877 MB (f16, memmapped, never loaded whole) + 55 MB
+overview + ~8 MB/frame store. Remaining perf ideas (unimplemented): per-radar field
+cache for upgrade recomputes (bounded LRU ~2.4 GB), incremental hi-cube writes
+(removes rebuild staleness windows), true idle detection when only window-pruning
+changed.
