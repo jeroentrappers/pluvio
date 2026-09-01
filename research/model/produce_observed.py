@@ -1119,14 +1119,60 @@ def main(argv=None) -> int:
         rates.append(arr)
     # Served sequence: every scan exact, plus two motion-compensated interpolants per
     # 5-min gap (~100 s visual cadence). Raw frames and the QPE archive stay untouched.
+    # Interpolant cache: every tick used to recompute Farneback + morph for ALL
+    # ~44 gaps although only the newest gap is new — at the full grid that was the
+    # dominant steady-state cost. Each gap's two interpolants are cached keyed by
+    # (t0, t1, grid, mtimes of both scan frames), so upgrades that rewrite a frame
+    # invalidate exactly the two gaps that touch it.
+    icache = pathlib.Path(os.environ.get("PLUVIO_INTERP_CACHE",
+                                         "/opt/pluvio/cache/interp"))
+    icache.mkdir(parents=True, exist_ok=True)
+    fstore = pathlib.Path(args.store)
+
+    def _gap_interp(i):
+        t0, t1 = int(times[i - 1]), int(times[i])
+        f0 = fstore / f"{dt.datetime.fromtimestamp(t0, dt.UTC):%Y%m%dT%H%M}.npy"
+        f1 = fstore / f"{dt.datetime.fromtimestamp(t1, dt.UTC):%Y%m%dT%H%M}.npy"
+        try:
+            key = f"{t0}_{t1}_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}_" \
+                  f"{int(f0.stat().st_mtime)}_{int(f1.stat().st_mtime)}"
+        except OSError:
+            key = None
+        if key is not None:
+            cpath = icache / (key + ".npz")
+            if cpath.exists():
+                try:
+                    with np.load(cpath) as z:
+                        return [z["a"], z["b"]]
+                except Exception:
+                    pass
+        prev = rates[i - 1].astype("float32")
+        cur = rates[i].astype("float32")
+        fl = _flow(prev, cur)
+        pair = [_interpolate(prev, cur, fl, f).astype("float16")
+                for f in (1.0 / 3.0, 2.0 / 3.0)]
+        if key is not None:
+            try:
+                tmpc = icache / (key + ".part")
+                with open(tmpc, "wb") as fh:
+                    np.savez(fh, a=pair[0], b=pair[1])
+                tmpc.replace(icache / (key + ".npz"))
+            except Exception:
+                pass
+        return pair
+
+    cutoff_i = dt.datetime.now(dt.UTC).timestamp() - 5 * 3600
+    for old_f in icache.glob("*.npz"):
+        if old_f.stat().st_mtime < cutoff_i:
+            old_f.unlink(missing_ok=True)
+
     out_t, out_r = [times[0]], [rates[0].astype("float16")]
     for i in range(1, len(rates)):
-        prev, cur = rates[i - 1].astype("float32"), rates[i].astype("float32")
         if times[i] - times[i - 1] == 300:
-            fl = _flow(prev, cur)
-            for f in (1.0 / 3.0, 2.0 / 3.0):
+            pair = _gap_interp(i)
+            for f, arr in zip((1.0 / 3.0, 2.0 / 3.0), pair):
                 out_t.append(int(times[i - 1] + f * 300))
-                out_r.append(_interpolate(prev, cur, fl, f).astype("float16"))
+                out_r.append(arr)
         out_t.append(times[i])
         out_r.append(rates[i].astype("float16"))
     times, rates = out_t, out_r

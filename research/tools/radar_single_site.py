@@ -250,7 +250,13 @@ def _geom_disk_path(key):
     d = os.environ.get("PLUVIO_GEOM_CACHE_DIR", "")
     if not d:
         return None
-    return pathlib.Path(d) / ("geom_" + hashlib.sha1(repr(key).encode()).hexdigest()[:24] + ".npz")
+    # Shape in the name makes stale-grid entries prunable: the cache had grown to
+    # 7.8 GB across every grid this campaign ever used, with no way to tell which
+    # files served the CURRENT grid. New entries are self-describing; a pruner can
+    # drop old-format and foreign-shape files once the current grid is warm.
+    shape = key[8]
+    return pathlib.Path(d) / (f"geom_{shape[0]}x{shape[1]}_"
+                              + hashlib.sha1(repr(key).encode()).hexdigest()[:24] + ".npz")
 
 
 def _geom_disk_load(path):
