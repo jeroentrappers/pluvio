@@ -247,3 +247,9 @@ executed: serving grid 1301×1652 (~1.5 km, still 2.7x the 4-km era), identical
 config otherwise. The road back to true 1-km serving: cache optical flows per gap
 (cuts reassembly from ~2.5 min to seconds) and make upgrade recomputes incremental
 per radar rather than full-frame.
+
+**1.5-km live cadence confirmed** (2026-09-01 05:29–05:35Z): steady-state timer
+ticks complete in 33 s and 70 s (catch-up tick 3:21), cube advancing every 5-min
+slot. Serving end state: 27 verified radars + UKMO/OPERA fills, gauge adjustment
+(r_s=20 km) from four national networks, merged calibration, motion-morphed
+interpolants, viewport tiles (7×6 × 256 px) + 3x overview, Met Office palette.
