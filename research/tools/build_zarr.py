@@ -395,6 +395,56 @@ def _truth_frame(mode: str, ts: datetime, bounds, shape):
     return None
 
 
+def truth_backfill(out_path: pathlib.Path, mode: str, batch: int = 0) -> int:
+    """Fill the 'truth' array for issues ALREADY in the store (newest first).
+
+    The store predates the truth pipeline (35k issues, 2024-08->), so the
+    curriculum needs truth written retroactively. Newest-first so a smoke train
+    has data within the hour while history fills behind; grouped by day so each
+    RTCOR tar downloads once. NaN-marked slots are retried on a later pass;
+    slots already finite are skipped, so the job is resumable and idempotent.
+    """
+    import zarr
+    from notebooks._lib import ANALYSIS_GRID  # noqa: F401  (grid consistency)
+
+    root = zarr.open_group(str(out_path), mode="a")
+    n = int(root["issue_time"].shape[0])
+    H, W = root["radar"].shape[2], root["radar"].shape[3]
+    if "truth" not in root.array_keys():
+        z = root.create_array("truth", shape=(n, H, W), dtype="float32",
+                              chunks=(1, H, W))
+        z[:] = np.nan
+        LOG.info("created truth array (%d, %d, %d)", n, H, W)
+    zt = root["truth"]
+    if int(zt.shape[0]) < n:
+        zt.resize((n, H, W))
+    glat, glon = grid_latlon()
+    bounds = (float(glon.min()), float(glat.min()),
+              float(glon.max()), float(glat.max()))
+    epochs = np.asarray(root["issue_time"][:], dtype="int64")
+    order = np.argsort(epochs)[::-1]                  # newest first
+    done = skipped = failed = 0
+    for i in order:
+        if batch and done + failed >= batch:
+            break
+        if np.isfinite(np.asarray(zt[int(i)])).any():
+            skipped += 1
+            continue
+        ts = datetime.fromtimestamp(int(epochs[i]), tz=timezone.utc)
+        tf = _truth_frame(mode, ts, bounds, (H, W))
+        if tf is not None:
+            zt[int(i)] = tf.astype("float32")
+            done += 1
+        else:
+            failed += 1
+        if (done + failed) % 200 == 0:
+            LOG.info("truth backfill: %d written, %d unavailable, %d already had",
+                     done, failed, skipped)
+    LOG.info("truth backfill finished: %d written, %d unavailable, %d already had",
+             done, failed, skipped)
+    return 0
+
+
 def build(data_root: pathlib.Path, out_path: pathlib.Path,
           start: datetime | None, end: datetime | None,
           msg_max_age_min: int, aws_max_age_min: int,
@@ -613,6 +663,11 @@ def main(argv: list[str] | None = None) -> int:
                         default=REPO_ROOT / "data" / "timeseries.zarr")
     parser.add_argument("--start", help="UTC ISO start (inclusive). Default: all radar files on disk.")
     parser.add_argument("--end", help="UTC ISO end (inclusive). Default: all radar files on disk.")
+    parser.add_argument("--truth-backfill", action="store_true",
+                        help="fill 'truth' for issues already in the store "
+                             "(newest first, resumable) and exit")
+    parser.add_argument("--truth-batch", type=int, default=0,
+                        help="max issues per backfill invocation (0 = all)")
     parser.add_argument("--truth", choices=["none", "rtcor", "qpe"], default="none",
                         help="write a per-issue training-truth array from RTCOR "
                              "tars or the QPE archive (docs/training_run_v2.md)")
@@ -635,6 +690,10 @@ def main(argv: list[str] | None = None) -> int:
     start = _iso(args.start) if args.start else None
     end = _iso(args.end) if args.end else None
 
+    if args.truth_backfill:
+        if args.truth == "none":
+            parser.error("--truth-backfill requires --truth rtcor|qpe")
+        return truth_backfill(args.out, args.truth, args.truth_batch)
     return build(args.data, args.out, start, end,
                  args.msg_max_age_min, args.aws_max_age_min, args.append,
                  truth=args.truth)
