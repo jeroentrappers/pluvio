@@ -439,6 +439,35 @@ def compose(stamp: str, store=None):
     # noise between frames; the validated speckle filter removes them.
     rate = rc.speckle(rate)
     rate = _despeckle_area(rate)
+    # Stable-source mask: several networks alternate scan programs every 5 min
+    # (DK: box coverage flips 76%->99%->75%->100%), so pixels at the coverage edge
+    # alternate own<->fill each frame; the sources disagree on wet AREA there, so
+    # gain-matching alone left an 87%-of-level pulse. A pixel now counts as
+    # own-covered only if it was covered in BOTH of the last two scans — the
+    # alternating band then renders from the fill EVERY frame, which is internally
+    # consistent. Display-only choice; the QPE archive keeps full own data.
+    prev_mask = None
+    mask_path = pathlib.Path("/opt/pluvio/cache/own_mask.npz")
+    try:
+        t_prev = (dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+                  - dt.timedelta(minutes=5)).strftime("%Y%m%dT%H%M")
+        with np.load(mask_path) as mz:
+            if str(mz["stamp"]) == t_prev and tuple(mz["shape"]) == tuple(OBS_SHAPE):
+                prev_mask = np.unpackbits(mz["mask"])[:OBS_SHAPE[0] * OBS_SHAPE[1]] \
+                    .reshape(OBS_SHAPE).astype(bool)
+    except Exception:
+        prev_mask = None
+    own_cov = np.isfinite(rate)
+    try:
+        mask_path.parent.mkdir(parents=True, exist_ok=True)
+        tmpm = mask_path.with_name("own_mask.tmp.npz")
+        with open(tmpm, "wb") as fh:
+            np.savez(fh, stamp=stamp, shape=np.asarray(OBS_SHAPE),
+                     mask=np.packbits(own_cov))
+        tmpm.replace(mask_path)
+    except Exception:
+        pass
+
     fill = _opera_fill(stamp)
     ukmo = _ukmo_fill(stamp)
     if ukmo is not None:                    # British Isles: national composite wins
@@ -455,7 +484,8 @@ def compose(stamp: str, store=None):
         if both.sum() >= 200:
             g = float(np.median(rate[both]) / max(float(np.median(fill[both])), 1e-3))
             fill = fill * float(np.clip(g, 0.5, 2.0))
-        gap = ~np.isfinite(rate) & np.isfinite(fill)
+        stable = own_cov if prev_mask is None else (own_cov & prev_mask)
+        gap = (~stable) & np.isfinite(fill)
         rate = np.where(gap, fill, rate)
     if store is not None:
         f_db = _gauge_adjust_field(stamp, store)
