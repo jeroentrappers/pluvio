@@ -219,3 +219,23 @@ not more tuning.
 quiet), assembly ~3 s/gap — borderline for the live 5-min cadence; deploy plan is
 1-km with a measured end-to-end timer cycle and a documented fallback to 1.5 km if
 it overruns.
+
+## Deployment gate + winner rollout (2026-09-01 morning)
+
+Winner config (Appendix-B gauge adjustment r_s=20 km + merged newcomer calibration,
+clipped ±4 dB) passed all gates and rolled out:
+
+- **Frozen convective window**: campaign-best DE-west (.348/.316/.298/.260),
+  every OPERA cell a tie, RADOLAN gap −0.07..−0.08 (was −0.10..−0.13 uncorrected).
+- **Overnight stratiform window**: DE-west parity with RADOLAN preserved at all
+  thresholds (bias +0.95 vs their +0.52); adjustment did not overcorrect.
+- **NL guard improved at every threshold** (0.415→0.444 @0.1 — ahead of RTCOR's
+  0.387 on trace detection; mid-threshold gaps narrowed on a 25-wet-window sample).
+- UK near-dry, bias +0.04 — sane.
+
+Serving now: 27 radars + dual fill on the 1-km continental grid (1948×2476) with
+gauge adjustment live (hourly feeds from KNMI/KMI/DWD/EA), viewport-tiled hi-res
+serving + 4x block-mean overview, calibration including the DK/dehnr/deboo relative
+fits (the central-DE ring and DK seams). Remaining open items: DE-east stays fill
+until its radars' wet-day regates; a live 1-km timer-cycle timing to confirm cadence
+headroom (fallback documented: 1.5 km).
