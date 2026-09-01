@@ -330,3 +330,22 @@ Integration ladder (each addition = gate/verify → config → one rebuild):
 E-extension (LT/RO) live next; then SK volumes + HU fill (in-box, no geometry
 change); then Nordics decision (N→71 doubles rows — payload/cadence tier to choose
 deliberately); HR/SI wait on the Doppler declutter build.
+
+### Gate results round 3 (2026-09-01 midday)
+
+- **SK (skjav skkoj skkub sklaz):** collector works end to end (576 files day one,
+  standard layout, single-file DBZH reads fine through the chain). Slovakia was
+  bone-dry at gate time (≤0.05% wet) — all four are near-dry HOLDS for the wet-day
+  queue. Companion-file dual-pol assembly (RhoHV/ZDR in sibling files) is the one
+  reader extension needed at admission time.
+- **FI:** fikau, filuo, finur, fiuta PASS on wet footprints; fianj shows the
+  static-clutter signature (selfcorr 0.95, geocorr −0.68 — Lapland terrain, same
+  class as HR); fikes/fikuo/fipet ambiguous-dry; fivim no data at gate stamp.
+- **NO:** noand PASS (1.3% wet, geocorr 0.47); the rest near-dry holds — Norway was
+  quiet at gate time.
+- SE/IS/MT verdicts pending in the running battery.
+
+**Wet-day recheck ledger** (gate again when their skies open): CH×5, IE×2,
+frabb/frtra/deoft/defld, dedrs/deeis/defbg/deisn/demem/deneu/depro/deros/detur/deumd,
+plgdy/plswi, czbrd, robar/roora (+rocra/rotim suspect), eehar, SK×4, most of NO,
+FI ambiguous set. HR×6+SI blocked on the Doppler-declutter build instead.
