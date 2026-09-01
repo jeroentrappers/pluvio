@@ -220,6 +220,7 @@ def run_nl():
     t1 = int(TIMES[-1])
     t0 = t1 - 3 * 3600
     rows = []
+    NLB, NLS = (3.3, 50.7, 7.3, 53.7), (166, 142)      # ~2-km comparison grid
     _rt = {}
     def rtcor_at(lat, lon, te):
         t = dt.datetime.fromtimestamp(te, dt.UTC)
@@ -229,18 +230,20 @@ def run_nl():
             key = (t - dt.timedelta(minutes=5 * k)).strftime("%Y%m%dT%H%M")
             if key not in _rt:
                 try:
-                    _rt[key] = kr.fields(key)["rate"]
+                    _rt[key] = kr.rate(key, NLB, NLS)
                 except Exception:
                     _rt[key] = None
             f = _rt[key]
             if f is None:
                 continue
-            try:
-                r, c = kr._rowcol(lat, lon)
-                blk = f[max(0, r - 1):r + 2, max(0, c - 1):c + 2]
-                vals.append(float(np.nanmax(blk)))
-            except Exception:
-                pass
+            c = int((lon - NLB[0]) / (NLB[2] - NLB[0]) * NLS[1])
+            r = int((NLB[3] - lat) / (NLB[3] - NLB[1]) * NLS[0])
+            if not (0 <= r < NLS[0] and 0 <= c < NLS[1]):
+                continue
+            blk = f[max(0, r - 1):r + 2, max(0, c - 1):c + 2]
+            blk = blk[np.isfinite(blk)]
+            if blk.size:
+                vals.append(float(blk.max()))
         return float(np.mean(vals)) if vals else np.nan
 
     te = t0 - (t0 % 600) + 600
