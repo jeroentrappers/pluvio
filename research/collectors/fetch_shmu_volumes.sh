@@ -31,7 +31,9 @@ for r in $RADARS; do
     # Directory listing → newest N files. SHMU names files like
     # T_PAG...<code>_<YYYYmmddHHMMSS>.hdf; keep the original name in the token
     # slot and normalise the prefix so find_volume's globs match.
-    curl -sk -m 60 "${BASE}/${r}/${prm}/" \
+    # param dirs are date-partitioned (…/dBZ/20260901/), ~a month deep
+    UDAY=$(date -u +%Y%m%d)
+    curl -sk -m 60 "${BASE}/${r}/${prm}/${UDAY}/" \
       | grep -oE 'href="[^"]+\.(hdf|h5)"' | sed 's/href="//;s/"//' \
       | sort | tail -n "$LOOKBACK_FILES" | while read -r fn; do
         stamp=$(echo "$fn" | grep -oE '20[0-9]{12}' | head -1)
@@ -40,7 +42,7 @@ for r in $RADARS; do
         p_up=$(echo "$prm" | tr 'a-z' 'A-Z' | sed 's/DBZ$/DBZH/')
         out="${dest}/${r}@${short}@vol@${p_up}.h5"
         [ -s "$out" ] && continue
-        if curl -skf -m 120 -o "${out}.part" "${BASE}/${r}/${prm}/${fn}"; then
+        if curl -skf -m 120 -o "${out}.part" "${BASE}/${r}/${prm}/${UDAY}/${fn}"; then
           mv "${out}.part" "$out"
         else
           rm -f "${out}.part"
