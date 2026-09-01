@@ -304,3 +304,29 @@ stories the OPERA-void FAILs had conflated:
 **Admission set from the round: robob, robuc, romed, ltlau, ltvil** — pulls the
 serving box east (E 24.5→30.0, ≈+15% pixels at 1.5 km). eehar holds (single radar,
 no peers, reference void — recheck against Finnish neighbours on a wet day).
+
+## Pan-European sweep round 2 + consolidated rollout results (2026-09-01)
+
+**Rollout landed:** Italy (DPC SRI) and Austria (GeoSphere INCA) fills live at 100%
+coverage in their boxes; **Ireland freeze cleared** (watchdog freeze_frac 0.67 → 0.0)
+by the UKMO slot-morph + OPERA-first layering. New watchdog flag under
+investigation: PARITY-PULSE over BE/DK/IE/UK on the fresh cube (lag-1 −0.49..−0.98)
+— morph/mask interaction or thresholds too hot on low-wet morning fields; verdict on
+the east-extension cube.
+
+**New sources verified this round:**
+- **Slovakia (opendata.shmu.sk, TLS chain broken — fetch with -k):** ODIM HDF5
+  composites (zmax/cappi2km/etop/pac01, 5-min, ~9-min latency) AND four single-site
+  volumes (skjav skkoj skkub sklaz) with FULL dual-pol (dBZ dBuZ ZDR RhoHV PhiDP KDP
+  V W) — chain-grade radars, standard gate applies. Best new catch of the sweep.
+- **Hungary (odp.met.hu, CC-BY-SA):** 5-min national composite, classic NetCDF-3
+  inside zip (refl2D 813×961, regular lat/lon via La1/Lo1/Dx/Dy), ~9-min latency.
+  Fill-layer grade (reflectivity → Marshall-Palmer).
+- **Nordics/IS/MT from the bucket:** FI×12 NO×12 SE×11 IS×4 MT×1 — 40 candidates in
+  the standard gate (running).
+- **Outer ring closed:** RS/BA/BG/TR/UA — website imagery only, nothing open.
+
+Integration ladder (each addition = gate/verify → config → one rebuild):
+E-extension (LT/RO) live next; then SK volumes + HU fill (in-box, no geometry
+change); then Nordics decision (N→71 doubles rows — payload/cadence tier to choose
+deliberately); HR/SI wait on the Doppler declutter build.
