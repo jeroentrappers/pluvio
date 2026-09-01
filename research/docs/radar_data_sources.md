@@ -349,3 +349,16 @@ deliberately); HR/SI wait on the Doppler declutter build.
 frabb/frtra/deoft/defld, dedrs/deeis/defbg/deisn/demem/deneu/depro/deros/detur/deumd,
 plgdy/plswi, czbrd, robar/roora (+rocra/rotim suspect), eehar, SK×4, most of NO,
 FI ambiguous set. HR×6+SI blocked on the Doppler-declutter build instead.
+
+### Nordic battery complete (2026-09-01)
+
+**Admitted (wet footprints, clean):** fikau filuo finur fiuta (FI), noand (NO),
+sekrn (SE). **Strong-hold:** sehem (geocorr 0.708 at 0.89% wet — one shower short of
+admission). **Near-dry holds:** remaining SE/NO/FI sets. **IS:** reference void
+(NO-REF ×2) + dry — peer round when wet. **MT:** dry hold, thin reference.
+
+All six admits lie north of the serving box (N=60). North tier analysis:
+N→71 at 1.5 km = 2109×1907 (+62% pixels), frame ≈90 s, live tick safe only with
+PLUVIO_OBS_BACKFILL=3 for the timer (worst tick ~4.5 min); staleness watchdog is the
+tripwire, documented fallback = 2-km uniform. Staged as rollout_north.sh — launches
+after the east cube verifies.
