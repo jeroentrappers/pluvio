@@ -141,3 +141,16 @@ but not regionally. Final scheme: motion-aligned morph + per-24-cell-block suppo
 trim and wet-mean gain to the f-interpolated endpoints. Measured end state: area
 ratio 1.03-1.04, wet-mean ratio 1.01-1.03, interpolant flips below scan flips in
 both test regions. Display interpolation is now strictly smoother than raw playback.
+
+## Oresund pulsation (2026-09-01 morning): alternating scan programs at the fill seam
+
+Measured east of Copenhagen: consecutive 5-min SCANS alternated wet area
+0.32→2.48→0.65→2.59→0.65→2.05% (median scan-to-scan area change 111% of the level)
+while interpolants smoothly bridged — so not an interpolation defect. Root cause:
+DMI alternates radar scan programs every 5 minutes; DK volumes exist at every stamp
+but their coverage of the box flips 76%→99%→75%→100%, so a band of pixels alternates
+own-composite ↔ OPERA fill each frame, and the two sources disagreed in LEVEL.
+Fix: gain-match the fill to the own composite in their wet overlap (median ratio,
+clipped 0.5–2) before gap-filling — the handover becomes invisible in intensity.
+If residual pattern-level pulsing remains, the next lever is coverage hysteresis
+(only downgrade a pixel to fill after two consecutive own-NaN scans).
