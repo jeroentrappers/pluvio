@@ -187,8 +187,8 @@ def _ukmo_fill(stamp: str):
         return None
     import urllib.request
 
-    t0 = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
-    t0 -= dt.timedelta(minutes=t0.minute % 15)
+    t_req = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    t0 = t_req - dt.timedelta(minutes=t_req.minute % 15)
     path = None
     for k in range(3):
         t = t0 - dt.timedelta(minutes=15 * k)
@@ -243,9 +243,69 @@ def _ukmo_fill(stamp: str):
         lon = np.linspace(bw, be, OBS_SHAPE[1])[None, :]
         lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
         dst[~((lon <= 2.2) & (lat >= 49.5))] = np.nan
+        # 15-min slots against 5-min frames froze cells for two frames then jumped
+        # ("moving, stopping, moving" over the British Isles). For stamps between
+        # slots, morph this slot toward the NEXT one at the right fraction — the
+        # same motion-aligned scheme the frame interpolants use. The newest live
+        # frames fall back to the static slot until the next one publishes; the
+        # late-data upgrade loop re-renders them smooth soon after.
+        frac = (t_req - t).total_seconds() / 900.0
+        if 0.0 < frac < 1.0:
+            nxt = _ukmo_slot_field(t + dt.timedelta(minutes=15))
+            if nxt is not None:
+                fl = _flow(dst, nxt)
+                dst = _interpolate(dst, nxt, fl, float(frac))
         return dst
     except Exception as exc:
         LOG.warning("UKMO fill failed for %s (%s)", stamp, exc)
+        return None
+
+
+def _ukmo_slot_field(t):
+    """One UKMO slot warped to the serving grid, or None (no lookback)."""
+    fn = f"{t:%Y%m%d%H%M}_ODIM_ng_radar_rainrate_composite_1km_UK.h5"
+    cand = UKMO_CACHE / fn
+    if not (cand.exists() and cand.stat().st_size > 0):
+        UKMO_CACHE.mkdir(parents=True, exist_ok=True)
+        import urllib.request
+        tmp = UKMO_CACHE / (fn + ".part")
+        try:
+            with urllib.request.urlopen(
+                    f"{UKMO_BUCKET}/radar/{t:%Y/%m/%d}/{fn}", timeout=90) as r, \
+                    open(tmp, "wb") as fh:
+                fh.write(r.read())
+            tmp.replace(cand)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            return None
+    try:
+        import h5py
+        import pyproj
+        from rasterio.crs import CRS
+        from rasterio.transform import Affine, from_bounds
+        from rasterio.warp import Resampling, reproject
+
+        with h5py.File(cand, "r") as f:
+            w = f["where"].attrs
+            arr = f["dataset1"]["data1"]["data"][:].astype("float32")
+            projdef = w["projdef"]
+            if isinstance(projdef, bytes):
+                projdef = projdef.decode()
+            ux, uy = pyproj.Proj(projdef)(float(w["UL_lon"]), float(w["UL_lat"]))
+            xs, ys = float(w["xscale"]), float(w["yscale"])
+        arr[arr < 0] = np.nan
+        src_tr = Affine(xs, 0.0, ux, 0.0, -ys, uy)
+        bw, bs, be, bn = BE_BOUNDS
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        reproject(arr, dst, src_transform=src_tr, src_crs=CRS.from_proj4(projdef),
+                  dst_transform=from_bounds(bw, bs, be, bn, OBS_SHAPE[1], OBS_SHAPE[0]),
+                  dst_crs=CRS.from_epsg(4326), resampling=Resampling.average,
+                  src_nodata=np.nan, dst_nodata=np.nan)
+        lon = np.linspace(bw, be, OBS_SHAPE[1])[None, :]
+        lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
+        dst[~((lon <= 2.2) & (lat >= 49.5))] = np.nan
+        return dst
+    except Exception:
         return None
 
 
@@ -470,8 +530,20 @@ def compose(stamp: str, store=None):
 
     fill = _opera_fill(stamp)
     ukmo = _ukmo_fill(stamp)
-    if ukmo is not None:                    # British Isles: national composite wins
-        fill = ukmo if fill is None else np.where(np.isfinite(ukmo), ukmo, fill)
+    if ukmo is not None:
+        # OPERA first: it is 5-min native and covers Ireland/SE-England (Met
+        # Eireann contributes), so those areas keep real 5-min motion. UKMO (15-min
+        # slots, now morphed between them) covers only where OPERA is blind — the
+        # British interior — gain-matched to OPERA where both see rain so the
+        # internal seam carries no intensity step.
+        if fill is None:
+            fill = ukmo
+        else:
+            both = np.isfinite(fill) & np.isfinite(ukmo) & (fill > 0.1) & (ukmo > 0.1)
+            if both.sum() >= 100:
+                g = float(np.median(fill[both]) / max(float(np.median(ukmo[both])), 1e-3))
+                ukmo = ukmo * float(np.clip(g, 0.5, 2.0))
+            fill = np.where(np.isfinite(fill), fill, ukmo)
     if fill is not None:
         # Gain-match the fill to OUR composite where both see rain before letting
         # it in. Several radars alternate scan programs every 5 min (measured:
