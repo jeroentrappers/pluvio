@@ -168,9 +168,9 @@ def main(argv=None) -> int:
         # against that void. Where the reference has almost no wet signal inside
         # the candidate's view, say NO-REF instead of FAIL — and pick a peer
         # reference (--reference with the neighbouring candidates) instead.
-        ref_wet = float(np.nan_to_num(refmax)[np.isfinite(a)] > 0.1).__class__ and \
-            100 * float(np.nanmean(np.nan_to_num(refmax)[np.isfinite(a)] > 0.1)) \
-            if np.isfinite(a).any() else 0.0
+        view = np.isfinite(a)
+        ref_wet = (100 * float(np.nanmean(np.nan_to_num(refmax)[view] > 0.1))
+                   if view.any() else 0.0)
         if ref_wet < 0.3:
             print(f"{r:7s} {sc:9.3f} {'':>9s} {wet:6.2f}%  NO-REF "
                   f"(reference wet {ref_wet:.2f}% inside view — use peers)")
