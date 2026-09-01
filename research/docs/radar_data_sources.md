@@ -237,5 +237,13 @@ Serving now: 27 radars + dual fill on the 1-km continental grid (1948×2476) wit
 gauge adjustment live (hourly feeds from KNMI/KMI/DWD/EA), viewport-tiled hi-res
 serving + 4x block-mean overview, calibration including the DK/dehnr/deboo relative
 fits (the central-DE ring and DK seams). Remaining open items: DE-east stays fill
-until its radars' wet-day regates; a live 1-km timer-cycle timing to confirm cadence
-headroom (fallback documented: 1.5 km).
+until its radars' wet-day regates.
+
+**1-km live-cadence verdict (measured 2026-09-01 ~04:45Z):** the first live timer
+cycle ran >6 minutes without completing (each catch-up/upgrade frame ~2 min at
+1948×2476, plus ~3 s/gap reassembly of 44 gaps) — the cube's newest frame aged to
+54 min and the staleness guard was minutes from 503. The documented fallback
+executed: serving grid 1301×1652 (~1.5 km, still 2.7x the 4-km era), identical
+config otherwise. The road back to true 1-km serving: cache optical flows per gap
+(cuts reassembly from ~2.5 min to seconds) and make upgrade recomputes incremental
+per radar rather than full-frame.
