@@ -67,9 +67,13 @@ import pandas as pd
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from model.build_aux import AWS_CHANNELS  # noqa: E402
+# moved into build() — the truth-backfill path must not drag in
+# the aux/collector dependency web (httpx etc.):
+# from model.build_aux import AWS_CHANNELS  # noqa: E402
 from model.geo import grid_latlon  # noqa: E402
-from notebooks._lib import ANALYSIS_GRID, load_forecast_h5  # noqa: E402
+# moved into build() — the truth-backfill path must not drag in
+# the aux/collector dependency web (httpx etc.):
+# from notebooks._lib import ANALYSIS_GRID, load_forecast_h5  # noqa: E402
 
 LOG = logging.getLogger("pluvio.build_zarr")
 
@@ -450,6 +454,9 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
           msg_max_age_min: int, aws_max_age_min: int,
           append: bool, truth: str = "none") -> int:
     import zarr
+
+    from model.build_aux import AWS_CHANNELS  # noqa: E402
+    from notebooks._lib import ANALYSIS_GRID, load_forecast_h5  # noqa: E402
 
     glat, glon = grid_latlon()
     H, W = ANALYSIS_GRID
