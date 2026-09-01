@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import maplibregl, { type CanvasSource } from 'maplibre-gl'
+import maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { STYLE_URL } from '../config'
@@ -12,19 +12,7 @@ import type { HistoryTiles, RadarFrame, RadarSprite } from '../api'
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)
 
-const RADAR_SOURCE = 'radar'
-const RADAR_LAYER = 'radar-layer'
 const RADAR_OPACITY = 0.8
-
-// Image-source coordinate order: top-left, top-right, bottom-right, bottom-left.
-function cornersOf(b: Bounds): [[number, number], [number, number], [number, number], [number, number]] {
-  return [
-    [b.west, b.north],
-    [b.east, b.north],
-    [b.east, b.south],
-    [b.west, b.south],
-  ]
-}
 
 interface Props {
   center: { lat: number; lon: number }
@@ -63,7 +51,19 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   onPickRef.current = onPick
   const centerRef = useRef(center)
   centerRef.current = center
+  // Offscreen canvas holding the current frame's pixels (the draw paths below
+  // paint into it). It is COMPOSITED IN THE DOM, not fed to MapLibre: a
+  // second, screen-sized canvas sits above the map and simply drawImage()s
+  // this one between the projected corners of its geographic box on every map
+  // move. MapLibre canvas/image sources were abandoned here after a chain of
+  // texture-lifecycle races (stale tiles rendering unbound textures as an
+  // opaque black veil, uploads racing pause) — DOM compositing has none of
+  // that: the browser samples the canvas the moment it paints.
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const screenCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  // Geographic box the offscreen canvas currently covers (null = nothing).
+  const boxRef = useRef<Bounds | null>(null)
+  const repaintRef = useRef<() => void>(() => {})
   const [spriteReady, setSpriteReady] = useState(0)
   const appliedBoundsRef = useRef(bounds)
   // Hi-res tile mode: cache of tile sprite images keyed mtime_tx_ty, and a
@@ -77,15 +77,6 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // history and forecast sheets at t=0 without re-downloading either.
   const spriteCacheRef = useRef(new Map<string, HTMLImageElement>())
   const [viewGen, setViewGen] = useState(0)   // bumped on moveend/zoomend
-  // JSON of the corners the current radar source was created with. Calling
-  // setCoordinates on a live canvas source desyncs maplibre's tile
-  // bookkeeping — the source cache keeps rendering stale tiles whose textures
-  // were never initialized (opaque black), which showed as a dark veil over
-  // the whole basemap with no radar at all. So the source is IMMUTABLE: when
-  // the box changes (t=0 crossing, tile-union move), we remove and recreate
-  // source + layer instead. Box changes are rare; recreation costs ~ms.
-  const overlayBoxRef = useRef('')
-  const pauseTimerRef = useRef(0)
   // Readiness as STATE (not just the ref): effects that ran before the style
   // finished loading early-return; without a dep to re-trigger them, their
   // work (fit camera to the domain, first draw) got deferred until the next
@@ -96,10 +87,6 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // Init the map once.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    // The overlay is a *canvas* source: we draw the current frame's tile onto
-    // this canvas and MapLibre reads its pixels straight to a GPU texture — no
-    // per-frame image URL (so nothing shows up in the Network panel, and no
-    // PNG re-encoding). Created once; reused for the map's whole lifetime.
     const overlayCanvas = document.createElement('canvas')
     overlayCanvas.width = 100
     overlayCanvas.height = 100
@@ -126,6 +113,50 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     // Diagnostics handle (harmless in prod, used by headless probes).
     ;(window as unknown as Record<string, unknown>).__pluvioMap = map
 
+    // The screen-sized compositing canvas: above the basemap, below controls,
+    // transparent to input.
+    const screen = document.createElement('canvas')
+    screen.style.position = 'absolute'
+    screen.style.inset = '0'
+    screen.style.pointerEvents = 'none'
+    screen.style.zIndex = '1'
+    map.getContainer().appendChild(screen)
+    screenCanvasRef.current = screen
+
+    // Project the offscreen canvas's geo box onto the screen and draw it.
+    // Runs on every map move (continuously during pan/zoom) and after each
+    // frame draw — a single scaled drawImage, cheap enough for both.
+    const repaint = () => {
+      const el = map.getContainer()
+      const cvs = screenCanvasRef.current
+      if (!cvs) return
+      const dpr = window.devicePixelRatio || 1
+      const w = el.clientWidth
+      const h = el.clientHeight
+      if (cvs.width !== Math.round(w * dpr) || cvs.height !== Math.round(h * dpr)) {
+        cvs.width = Math.round(w * dpr)
+        cvs.height = Math.round(h * dpr)
+        cvs.style.width = `${w}px`
+        cvs.style.height = `${h}px`
+      }
+      const c2 = cvs.getContext('2d')
+      if (!c2) return
+      c2.setTransform(dpr, 0, 0, dpr, 0, 0)
+      c2.clearRect(0, 0, w, h)
+      const box = boxRef.current
+      const src = canvasRef.current
+      if (!box || !src || src.width === 0 || src.height === 0) return
+      const tl = map.project([box.west, box.north])
+      const br = map.project([box.east, box.south])
+      if (!(br.x > tl.x) || !(br.y > tl.y)) return
+      c2.globalAlpha = RADAR_OPACITY
+      c2.imageSmoothingEnabled = true
+      c2.drawImage(src, tl.x, tl.y, br.x - tl.x, br.y - tl.y)
+    }
+    repaintRef.current = repaint
+    map.on('move', repaint)
+    map.on('resize', repaint)
+
     // Tap/click anywhere to query the forecast for that spot.
     map.on('click', (e) => onPickRef.current?.(e.lngLat.lat, e.lngLat.lng))
     map.getCanvas().style.cursor = 'crosshair'
@@ -133,13 +164,13 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     map.on('load', () => {
       readyRef.current = true
       setMapReady(true)
-      // The radar source/layer are (re)created by the draw path via
-      // ensureOverlay() — see below for why they are never mutated in place.
     })
 
     const marker = new maplibregl.Marker({ color: '#3182bd', draggable: true })
       .setLngLat([center.lon, center.lat])
       .addTo(map)
+    // Keep the pin above the radar compositing canvas.
+    marker.getElement().style.zIndex = '2'
     // Drag the pin to query a different spot.
     marker.on('dragend', () => {
       const ll = marker.getLngLat()
@@ -161,6 +192,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
 
     return () => {
       ro.disconnect()
+      screen.remove()
       map.remove()
       mapRef.current = null
       readyRef.current = false
@@ -264,62 +296,23 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     return out.length > 0 && out.length <= MAX_TILES ? out : null
   }
 
-  // Render the current frame. Two paths share the one overlay canvas:
+  // Render the current frame. Two paths share the one offscreen canvas:
   //   overview — crop the frame from the whole-domain sprite (low zoom);
   //   tiles    — draw each visible hi-res tile's crop at native resolution and
-  //              point the canvas source at the union of those tiles only.
+  //              set the box to the union of those tiles only.
   useEffect(() => {
     const map = mapRef.current
     const canvas = canvasRef.current
     if (!map || !readyRef.current || !canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    // Create (or recreate) the radar source for this overlay box. Never
-    // mutate a live source's coordinates — see overlayBoxRef.
-    const ensureOverlay = (corners: ReturnType<typeof cornersOf>): CanvasSource | undefined => {
-      const key = JSON.stringify(corners)
-      const existing = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
-      if (existing && overlayBoxRef.current === key) return existing
-      if (map.getLayer(RADAR_LAYER)) map.removeLayer(RADAR_LAYER)
-      if (existing) map.removeSource(RADAR_SOURCE)
-      map.addSource(RADAR_SOURCE, {
-        type: 'canvas',
-        canvas,
-        coordinates: corners,
-        // Static by default (no continuous repaint / battery drain); push()
-        // plays the source until the map goes idle after each draw.
-        animate: false,
-      })
-      map.addLayer({
-        id: RADAR_LAYER,
-        type: 'raster',
-        source: RADAR_SOURCE,
-        paint: { 'raster-opacity': RADAR_OPACITY, 'raster-fade-duration': 0 },
-      })
-      overlayBoxRef.current = key
-      return map.getSource(RADAR_SOURCE) as CanvasSource | undefined
-    }
-    const push = (src: CanvasSource | undefined) => {
-      // Static-by-default upload: play the canvas source and pause it only
-      // once the map reaches IDLE. Pausing on the next 'render' event raced —
-      // with a render already in flight (style load, camera move), the source
-      // was paused BEFORE the repaint that samples the canvas, so the texture
-      // never refreshed and the overlay stayed blank. 'idle' fires only after
-      // all pending renders settle, so at least one full render has read the
-      // playing canvas. During playback repaints are continuous, idle never
-      // fires, and the source simply stays live until the animation rests.
-      if (!src) return
-      src.play()
-      map.triggerRepaint()
-      // Pause shortly AFTER the last draw: pausing on 'render' or 'idle'
-      // raced a freshly created source's tile load, freezing an uninitialized
-      // (opaque black) texture — the dark veil. Canvas sources load instantly,
-      // so a re-armed timer is deterministic; playback keeps it live.
-      window.clearTimeout(pauseTimerRef.current)
-      pauseTimerRef.current = window.setTimeout(() => src.pause(), 1500)
+    // Publish the drawn frame: record its geo box and composite to screen.
+    const show = (box: Bounds) => {
+      boxRef.current = box
+      repaintRef.current()
     }
     // Temporary diagnostics: expose what each draw actually produced so a
-    // headless probe can separate "2D draw is empty" from "GL upload fails".
+    // headless probe can inspect the offscreen canvas.
     const probe = (path: string, extra: Record<string, unknown>) => {
       if (!(window as unknown as Record<string, unknown>).__pluvioDebug) return
       let visiblePx = -1
@@ -357,7 +350,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
         // rather than a stale frame, and forget the entry so a revisit retries.
         overlayImgsRef.current.delete(overlay.url)
         ctx.clearRect(0, 0, canvas.width, canvas.height)
-        push(ensureOverlay(cornersOf(overlay.bounds)))
+        show(overlay.bounds)
         return
       }
       if (!(got instanceof Image)) return
@@ -365,7 +358,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       if (canvas.height !== got.height) canvas.height = got.height
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(got, 0, 0)
-      push(ensureOverlay(cornersOf(overlay.bounds)))
+      show(overlay.bounds)
       return
     }
     if (!frame || frame.spriteIndex == null) return
@@ -443,7 +436,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
         zoom: map.getZoom(), vis: vis.length, loaded,
       }
       probe('tiles', { idx, vis: vis.length, loaded })
-      push(ensureOverlay([[west, north], [east, north], [east, south], [west, south]]))
+      show({ west, north, east, south })
       return
     }
 
@@ -458,7 +451,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     const sy = Math.floor(idx / cols) * tileH
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
     probe('overview', { idx, sheet: sprite.url.slice(-24) })
-    push(ensureOverlay(cornersOf(bounds)))
+    show(bounds)
   }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen, overlay, overlayReady, mapReady])
 
   return <div ref={containerRef} className="map" />
