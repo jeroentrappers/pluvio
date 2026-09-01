@@ -85,6 +85,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // the box changes (t=0 crossing, tile-union move), we remove and recreate
   // source + layer instead. Box changes are rare; recreation costs ~ms.
   const overlayBoxRef = useRef('')
+  const pauseTimerRef = useRef(0)
   // Readiness as STATE (not just the ref): effects that ran before the style
   // finished loading early-return; without a dep to re-trigger them, their
   // work (fit camera to the domain, first draw) got deferred until the next
@@ -310,7 +311,12 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       if (!src) return
       src.play()
       map.triggerRepaint()
-      map.once('idle', () => src.pause())
+      // Pause shortly AFTER the last draw: pausing on 'render' or 'idle'
+      // raced a freshly created source's tile load, freezing an uninitialized
+      // (opaque black) texture — the dark veil. Canvas sources load instantly,
+      // so a re-armed timer is deterministic; playback keeps it live.
+      window.clearTimeout(pauseTimerRef.current)
+      pauseTimerRef.current = window.setTimeout(() => src.pause(), 1500)
     }
     // Temporary diagnostics: expose what each draw actually produced so a
     // headless probe can separate "2D draw is empty" from "GL upload fails".
