@@ -284,3 +284,23 @@ decision to take deliberately.
   (OPERA reference, per-country boxes). Admission implies an east/南 box decision:
   E→~30 (+16% pixels at 1.5 km) for RO/Baltics; HR fits the current south edge bar
   Dubrovnik.
+
+### Peer-gate round for HR/SI/RO (2026-09-01 afternoon)
+
+Peer-referencing (candidates vs their overlapping neighbours) separated two failure
+stories the OPERA-void FAILs had conflated:
+
+- **HR (all 6) + silis: static clutter, not geometry.** Site coords correct, rows
+  north-aligned (startazA≈359.6), self-corr 0.86–0.96 — but negative geocorr even
+  against their own peers. A ~0.95 self-correlation on a 1–4%-wet field is a STATIC
+  pattern: these volumes carry only DBZH/TH/VRADH (no RhoHV), the fuzzy declutter
+  cannot run, and Dinaric/Alpine ground echoes dominate. Admission blocked on a
+  Doppler-based clutter filter (VRADH is present: near-zero radial velocity + static
+  echo → clutter) — engineering item, queued.
+- **RO: romed PASSES against peers** (its OPERA-void FAIL was a reference artifact);
+  rocra/rotim stay negative even vs peers (Carpathian clutter suspected, same class);
+  robar/roora near-dry holds.
+
+**Admission set from the round: robob, robuc, romed, ltlau, ltvil** — pulls the
+serving box east (E 24.5→30.0, ≈+15% pixels at 1.5 km). eehar holds (single radar,
+no peers, reference void — recheck against Finnish neighbours on a wet day).
