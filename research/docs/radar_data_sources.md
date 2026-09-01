@@ -362,3 +362,14 @@ N→71 at 1.5 km = 2109×1907 (+62% pixels), frame ≈90 s, live tick safe only 
 PLUVIO_OBS_BACKFILL=3 for the timer (worst tick ~4.5 min); staleness watchdog is the
 tripwire, documented fallback = 2-km uniform. Staged as rollout_north.sh — launches
 after the east cube verifies.
+
+### East tier live (2026-09-01 13:15 CEST)
+
+Box −11→30E at 1.5 km (1301×1907, 8×6 tiles), 32 radars (+robob robuc romed ltlau
+ltvil). Vilnius and Bucharest serve full frame stacks; BE/NL/DE-both/IE/FR-nord
+watchdog-clean. Remaining PARITY-PULSE flags are source-cadence signatures, not
+display defects: UK −0.98 = UKMO's 15-min slots sampled at 5 min (motion is smooth
+via slot-morph; wet-area carries period-3 structure); DK/Øresund/PL ≈−0.5 = the
+networks' alternating scan programs. The watchdog reports data reality — flags stay,
+annotated here. North tier (N→71, +fikau filuo finur fiuta noand sekrn, HU fill,
+overview DS=4, timer BACKFILL=3) launched next.
