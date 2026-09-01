@@ -260,7 +260,7 @@ interpolants, viewport tiles (7×6 × 256 px) + 3x overview, Met Office palette.
 |---|---|---|
 | **IT** | DPC Radar-DPC API (radar-api.protezionecivile.it) | **OPEN, VERIFIED**: `findLastProductByType?type=SRI` → `POST downloadProduct` → presigned GeoTIFF. SRI = surface rain rate mm/h, 5-min, 1400×1200 covering 4.5–20.5E / 35.1–47.8N (all Italy), CC-BY-SA, no auth. Smoke-tested end to end. |
 | **AT** | GeoSphere Data Hub (dataset.api.hub.geosphere.at) | **OPEN, VERIFIED**: `/grid/forecast/nowcast-v1-15min-1km` carries `rr` (INCA analysis+nowcast, radar+stations), bbox 8.1–17.7E / 45.5–49.5N (all Austria), 15-min, 1 km. Needs UKMO-style slot morphing for 5-min display. Also `inca-v1-1h-1km` historical to 2011 for training truth. |
-| **ES** | AEMET OpenData | GeoTIFF radar confirmed to exist (peninsula reflectivity composite + 15 regional radars incl. 1h/6h accumulation, EPSG:4326) — but requires a free API key via email registration. **Needs a user-registered key.** |
+| **ES** | AEMET OpenData | **Dead end for now (probed with a registered key, 2026-09-01):** `/api/red/radar/nacional` returns 404 persistently; `/api/red/radar/regional/{r}` returns non-georeferenced 480×530 GIFs; the help page advertises georeferenced GeoTIFFs (EPSG:4326, RGBA + ESCALA colour map) but no public endpoint exists in the API spec, the product catalog, or the site pages. Key stored in .env (AEMET_API_KEY) — re-probe periodically; their radar modernization and EUMETNET's open-radar-data program may open it. |
 | **PT** | IPMA | api.ipma.pt/open-data has NO radar entries — website imagery only. Closed for now. |
 
 Integration plan: IT SRI as a third fill layer (outranks OPERA over Italy, where OPERA
