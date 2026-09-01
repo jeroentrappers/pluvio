@@ -113,3 +113,19 @@ GPU node constraint: asusprime runs python 3.10 → zarr 2.x only. Stores
 shipped there must be written `zarr_format=2` (hetz1's radarproc venv is
 zarr 3; pass `zarr_format=2` at group creation). Transfer as a single tar —
 per-issue chunks make ~10^5 files and per-file rsync crawls.
+
+## Smoke result (2026-09-01 ~23:20 UTC+2)
+
+PASSED on asusprime with `model.train` + the truth store: 1028 train / 258 val
+samples (33 channels, chronological split), 2 epochs in 0.7 min, AMP on the
+RTX 2060, checkpoint written, val_rmse 0.2388. Pipeline bugs found on the way
+(all fixed): the staged launcher pointed at train_seamless (wrong store
+format); the live store grows during a slice read so per-issue arrays must be
+sliced with a length tolerance and the export length-aligned to
+min(per-issue lengths) — shipping unaligned arrays gave lookup indices past
+the sliced truth.
+
+Full run: entire aligned store (~35.7k issues, 14 GB zarr-v2, direct
+hetz1→asusprime rsync via authorized key), `model.train --epochs 300
+--batch-size 32` — no wall-clock cap, early stopping on the val-RMSE plateau
+decides convergence.
