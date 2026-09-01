@@ -433,3 +433,22 @@ reach — already inside our box to 30E) · Algeria-N 2.2% · Tunisia 0.0% ·
 Turkey-W 0.0%. None of DGM-MA, INM-TN, UHMC-UA, MGM-TR publish open radar.
 Coverage there = satellite frontier (H-SAF P-IN-SEVIRI 15-min / IMERG), the
 documented next build for beyond-radar fill.
+
+### ORD / meteogate verification (2026-09-01 evening, probed live)
+
+EUMETNET's Open Radar Data API (RODEO/HVD outcome) is live and anonymous at
+`api.meteogate.eu/eu-eumetnet-weather-radar` (OGC EDR): 128 platforms = exactly the
+19 countries already in the CloudFerro bucket + the `0-20010-0-OPERA` composite
+platform, all **CC-BY-4.0** (a cleaner licence statement than the bucket's).
+Single-instant `datetime` queries work; **the advertised archive-since-2012 is NOT
+exposed yet** (2015/2020/2023 probes → 0 items; only the ~24 h window serves).
+Value today: licensing clarity + MQTT notifications + a second retrieval path.
+Re-probe for the archive periodically — 13 years of 5-min pan-EU composites would
+be a pretrain corpus and historical fill.
+
+**Per-country availability verdict (all probed, 2026-09-01):** open radar data in
+Europe = the 19 OPERA-bucket countries + national servers for IT/AT/HU/SK/UKMO
+(integrated) + ES behind a non-functional GeoTIFF door (key stored). NOTHING open,
+verified individually: GR (HVD category exists, 0 radar datasets on data.gov.gr),
+BG (absent from ORD too), RS/BA/ME/MK, TR, UA (website imagery only), MA/TN/DZ.
+Beyond-radar coverage = satellite frontier (H-SAF).
