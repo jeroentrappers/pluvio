@@ -268,3 +268,19 @@ holds ~45%); AT rr as a fourth (outranks OPERA over Austria, ~20%), slot-morphed
 UKMO. Both fit the current box only partially (box S=42.5 cuts Italy at Rome's
 latitude) — full-Italy coverage means widening the box to S≈35, a +43% pixel payload
 decision to take deliberately.
+
+## GR/MA/Balkans/Baltics sweep (2026-09-01)
+
+- **Greece**: closed — HNMS publishes radar as website imagery only, is absent from
+  the OPERA single-site bucket, and contributes nothing to the COMP composite
+  (measured 0.0% in-raster over a GR box). Satellite-only territory.
+- **Morocco**: radar-dark (0.7% ≈ noise at the Alboran edge). Satellite-only.
+- **Satellite frontier** (GR/MA/open sea/beyond-radar): EUMETSAT H-SAF P-IN-SEVIRI
+  (15-min rain rate, registration) or GPM IMERG Early (30-min, ~4 h latency — too
+  slow for live history). A coarse outermost fill ring is feasible; separate build.
+- **Balkans/Baltics — single-site feeds EXIST in the bucket**: HR hrbil hrdeb hrgol
+  hrgra hrpun hrulj · RO robar robob robuc rocra romed roora rotim · SI silis sipas ·
+  EE eehar · LT ltlau ltvil. All 18 sent through the standard verification gate
+  (OPERA reference, per-country boxes). Admission implies an east/南 box decision:
+  E→~30 (+16% pixels at 1.5 km) for RO/Baltics; HR fits the current south edge bar
+  Dubrovnik.
