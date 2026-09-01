@@ -49,7 +49,9 @@ DEFAULT_LEADS: tuple[int, ...] = (30, 60, 90, 120)
 RAIN_THRESHOLD = 0.1  # mm/h, for the optional dry-sample filter
 
 # Channels NOT treated as per-issue aux (handled explicitly or as static).
-_NON_AUX = {"radar", "issue_time", "leads_min"}
+# "truth" is the TARGET (build_zarr --truth) — auto-detecting it as an aux
+# input would leak the label into the features.
+_NON_AUX = {"radar", "issue_time", "leads_min", "truth"}
 
 
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
@@ -121,6 +123,9 @@ class ZarrCorrectionDataset(Dataset):
         self._epoch_to_idx = {int(e): i for i, e in enumerate(self._issue_epoch)}
 
         # Aux + static channels (auto-detect from the store unless given).
+        # v2 curriculum: a "truth" array (build_zarr --truth rtcor|qpe) becomes
+        # the target; the operational radar stays an input. Auto-detected.
+        self._has_truth = "truth" in set(root.array_keys())
         self.aux_channels = (aux_channels if aux_channels is not None
                              else self._discover(root, per_issue=True))
         self.static_channels = (self._discover(root, per_issue=False)
@@ -214,8 +219,16 @@ class ZarrCorrectionDataset(Dataset):
                 if tgt is None:
                     n_missing_tgt += 1
                     continue
+                if self._has_truth:
+                    t_arr = np.asarray(root["truth"][tgt])
+                    if not np.isfinite(t_arr).any():   # truth source missing here
+                        n_missing_tgt += 1
+                        continue
+                else:
+                    t_arr = None
                 if self.require_rain_fraction is not None:
-                    frac = float(np.mean(radar[tgt, 0] >= RAIN_THRESHOLD))
+                    field = t_arr if t_arr is not None else radar[tgt, 0]
+                    frac = float(np.mean(np.nan_to_num(field) >= RAIN_THRESHOLD))
                     if frac < self.require_rain_fraction:
                         n_dry += 1
                         continue
@@ -294,7 +307,10 @@ class ZarrCorrectionDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         s = self.index[idx]
         chans = self.build_input(s.issue_idx, s.lead_min, s.history_idx)
-        y = np.asarray(self._open()["radar"][s.target_idx, 0])[None, ...].astype("float32")
+        src = "truth" if self._has_truth else "radar"
+        y = (np.asarray(self._open()["truth"][s.target_idx])
+             if self._has_truth
+             else np.asarray(self._open()["radar"][s.target_idx, 0]))[None, ...].astype("float32")
         np.nan_to_num(y, copy=False, nan=0.0)
         return torch.from_numpy(chans), torch.from_numpy(y)
 

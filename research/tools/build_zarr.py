@@ -362,10 +362,43 @@ AWS_VAR_NAMES = {
 }
 
 
+def _truth_frame(mode: str, ts: datetime, bounds, shape):
+    """Training-truth analysis at `ts` from the chosen source, or None.
+
+    v2 curriculum (docs/training_run_v2.md): pretrain against RTCOR (KNMI's
+    gauge-adjusted 5-min product, tars 2019->), fine-tune against OUR archived
+    composite (/mnt/storagebox/qpe). Kept as a SEPARATE per-issue array so the
+    operational-nowcast channel (RAC_FM) is untouched and old stores stay valid.
+    """
+    stamp = ts.strftime("%Y%m%dT%H%M")
+    if mode == "rtcor":
+        from tools import knmi_rtcor as kr
+        try:
+            return kr.rate(stamp, bounds, shape)
+        except Exception:
+            return None
+    if mode == "qpe":
+        try:
+            import cv2
+            import zarr as _z
+            day = _z.open_group(
+                f"/mnt/storagebox/qpe/{ts:%Y/%m}/{ts:%d}.zarr", mode="r")
+            times = np.asarray(day["times"][:], dtype="int64")
+            idx = np.where(times == int(ts.timestamp()))[0]
+            if idx.size == 0:
+                return None
+            rate = np.asarray(day["rate"][int(idx[0])], dtype="float32")
+            return cv2.resize(rate, (shape[1], shape[0]),
+                              interpolation=cv2.INTER_AREA)
+        except Exception:
+            return None
+    return None
+
+
 def build(data_root: pathlib.Path, out_path: pathlib.Path,
           start: datetime | None, end: datetime | None,
           msg_max_age_min: int, aws_max_age_min: int,
-          append: bool) -> int:
+          append: bool, truth: str = "none") -> int:
     import zarr
 
     glat, glon = grid_latlon()
@@ -496,6 +529,8 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
 
     # Per-issue data arrays.
     z_radar = _ensure_per_issue_array(root, "radar", (n_lead, H, W), n_total, base)
+    z_truth = (_ensure_per_issue_array(root, "truth", (H, W), n_total, base)
+               if truth != "none" else None)
     z_aws = {var: _ensure_per_issue_array(root, var, (H, W), n_total, base)
              for var in AWS_VAR_NAMES.values()}
     z_raster = {ch.var: _ensure_per_issue_array(root, ch.var, (H, W), n_total, base)
@@ -519,6 +554,13 @@ def build(data_root: pathlib.Path, out_path: pathlib.Path,
         except Exception as exc:
             LOG.warning("[%d/%d] %s: radar decode failed: %s", j + 1, k, ts, exc)
             z_radar[i] = np.full((n_lead, H, W), np.nan, dtype="float32")
+
+        if z_truth is not None:
+            glat_b = (float(glon.min()), float(glat.min()),
+                      float(glon.max()), float(glat.max()))
+            tf = _truth_frame(truth, ts, glat_b, (H, W))
+            z_truth[i] = (tf.astype("float32") if tf is not None
+                          else np.full((H, W), np.nan, dtype="float32"))
 
         if aws_df is not None:
             grids = _build_aws_idw(aws_df, ts, glat, glon, aws_max_age_min)
@@ -571,6 +613,9 @@ def main(argv: list[str] | None = None) -> int:
                         default=REPO_ROOT / "data" / "timeseries.zarr")
     parser.add_argument("--start", help="UTC ISO start (inclusive). Default: all radar files on disk.")
     parser.add_argument("--end", help="UTC ISO end (inclusive). Default: all radar files on disk.")
+    parser.add_argument("--truth", choices=["none", "rtcor", "qpe"], default="none",
+                        help="write a per-issue training-truth array from RTCOR "
+                             "tars or the QPE archive (docs/training_run_v2.md)")
     parser.add_argument("--append", action="store_true",
                         help="Append only radar issue-times not already in the "
                              "store (extends every per-issue array). Falls back "
@@ -591,7 +636,8 @@ def main(argv: list[str] | None = None) -> int:
     end = _iso(args.end) if args.end else None
 
     return build(args.data, args.out, start, end,
-                 args.msg_max_age_min, args.aws_max_age_min, args.append)
+                 args.msg_max_age_min, args.aws_max_age_min, args.append,
+                 truth=args.truth)
 
 
 def _iso(s: str) -> datetime:
