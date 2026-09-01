@@ -48,15 +48,30 @@ def opera_ref(stamp, shape, bounds):
     from rasterio.transform import from_bounds
     from rasterio.warp import Resampling, reproject
 
-    fn = f"OPERA@{stamp[:8]}T{stamp[9:13]}@0@DBZH.tiff"
-    day = f"{stamp[0:4]}/{stamp[4:6]}/{stamp[6:8]}"
+    import datetime as _dt
     cache = pathlib.Path("/opt/pluvio/cache/opera_comp")
     cache.mkdir(parents=True, exist_ok=True)
-    path = cache / fn
-    if not (path.exists() and path.stat().st_size > 0):
-        url = f"https://s3.waw3-1.cloudferro.com/openradar-24h/{day}/OPERA/COMP/{fn}"
-        with urllib.request.urlopen(url, timeout=120) as r, open(path, "wb") as fh:
-            fh.write(r.read())
+    t0 = _dt.datetime.strptime(stamp, "%Y%m%dT%H%M")
+    path = None
+    err = None
+    for k in range(4):                    # publish gaps happen; look back 15 min
+        t = t0 - _dt.timedelta(minutes=5 * k)
+        fn = f"OPERA@{t:%Y%m%d}T{t:%H%M}@0@DBZH.tiff"
+        cand = cache / fn
+        if cand.exists() and cand.stat().st_size > 0:
+            path = cand
+            break
+        url = (f"https://s3.waw3-1.cloudferro.com/openradar-24h/"
+               f"{t:%Y/%m/%d}/OPERA/COMP/{fn}")
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r, open(cand, "wb") as fh:
+                fh.write(r.read())
+            path = cand
+            break
+        except Exception as exc:
+            err = exc
+    if path is None:
+        raise RuntimeError(f"no OPERA COMP within 15 min of {stamp}: {err}")
     with rasterio.open(path) as src:
         dbz = src.read(1, masked=True)
         tr, crs = src.transform, src.crs
