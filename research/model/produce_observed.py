@@ -1114,6 +1114,16 @@ def main(argv=None) -> int:
     if not frames:
         LOG.error("no observed frames available")
         return 1
+    # No-work ticks (nothing composed, store unchanged) used to pay the full
+    # assembly anyway — interp loads, hi-cube rewrite (~880 MB), overview, npz —
+    # measured ~2.5 min of pure waste every idle cycle. A fingerprint of the
+    # store's (name, mtime) set skips assembly when the inputs are identical.
+    fp = "|".join(f"{f.name}:{int(f.stat().st_mtime)}" for f in frames)
+    fp_path = pathlib.Path(args.out).with_suffix(".fingerprint")
+    if pathlib.Path(args.out).exists() and fp_path.exists() \
+            and fp_path.read_text() == fp:
+        LOG.info("store unchanged — assembly skipped")
+        return 0
     times, rates = [], []
     for f in frames:
         try:
@@ -1232,6 +1242,10 @@ def main(argv=None) -> int:
              grid=np.asarray(ov_shape, dtype="int64"))
     tmp.replace(out)
     out.chmod(0o644)
+    try:
+        fp_path.write_text(fp)
+    except Exception:
+        pass
     LOG.info("wrote %s: %d frames, %s → %s", out, len(times),
              dt.datetime.fromtimestamp(times[0], dt.UTC).strftime("%H:%M"),
              dt.datetime.fromtimestamp(times[-1], dt.UTC).strftime("%H:%M"))
