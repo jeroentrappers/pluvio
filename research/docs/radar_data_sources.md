@@ -373,3 +373,17 @@ via slot-morph; wet-area carries period-3 structure); DK/Øresund/PL ≈−0.5 =
 networks' alternating scan programs. The watchdog reports data reality — flags stay,
 annotated here. North tier (N→71, +fikau filuo finur fiuta noand sekrn, HU fill,
 overview DS=4, timer BACKFILL=3) launched next.
+
+### North tier live — full-map state (2026-09-01 14:18 CEST)
+
+Serving box **−11→30E, 42.5→71N** at 1.5 km (2109×1907, 8×9 viewport tiles + DS=4
+overview): **38 verified radars** (NL2 BE3 DE5 FR3 DK5 PL8 CZ1 RO3 LT2 FI4 NO1 SE1)
++ **6 national fill layers** (OPERA pan-EU, UKMO British Isles, DPC Italy, GeoSphere
+Austria, HungaroMet Hungary — each gain-matched and cadence-handled) + gauge
+adjustment from 4 networks + stable-source masking + morphed interpolation + hourly
+QC. Tromsø/Budapest/Vilnius/Bucharest/Brussels all verified serving. Timer runs with
+BACKFILL=3 at this grid; steady-state tick timing is the final measurement.
+
+Remaining ledger: wet-day regates (see recheck list), HR/SI Doppler declutter build,
+IS/MT peer rounds, ES key re-probe, satellite frontier (GR/MA/sea), incremental npz
+writes during long rebuilds (removes the staleness window a cold rebuild opens).
