@@ -102,6 +102,15 @@ def observed_on(valid_epoch: int, bounds, shape):
     return _area_resample(np.nan_to_num(rate[r0:r1, c0:c1]), shape)
 
 
+def issue_meta(issue: int) -> dict | None:
+    """Leads available for one archived run (the UI's scrubber range)."""
+    fc = load_forecast(issue)
+    if fc is None:
+        return None
+    return {"issue": issue, "leads": [int(x) for x in fc["leads"]],
+            "bounds": fc["bounds"]}
+
+
 def frame_png(issue: int, lead: int, kind: str) -> bytes | None:
     from PIL import Image
 

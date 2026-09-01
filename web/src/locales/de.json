@@ -46,11 +46,29 @@
  "mode": {
   "label": "Ansicht",
   "forecast": "Vorhersage",
-  "history": "Letzte 3 Std"
+  "history": "Letzte 3 Std",
+  "timeline": "Zeitleiste",
+  "verify": "Prüfung"
  },
  "history": {
   "headline": "Gemessener Niederschlag — letzte 3 Stunden.",
   "chartTitle": "Gemessene Intensität (mm/h)",
   "observedAt": "Letzte Radarmessung {{time}}"
+ },
+ "timeline": {
+  "headline": "Radar und Vorhersage in einer Zeitleiste."
+ },
+ "verify": {
+  "issue": "Vorhersagelauf",
+  "kind": {
+   "forecast": "Vorhersage",
+   "observed": "Gemessen",
+   "diff": "Differenz"
+  },
+  "diffNote": "Rot = zu nass vorhergesagt · blau = zu trocken vorhergesagt",
+  "noObserved": "Messdaten für diesen Zeitpunkt sind noch nicht archiviert.",
+  "scoresTitle": "Vergleich mit Messung",
+  "empty": "Noch keine archivierten Läufe — neue Läufe erscheinen in wenigen Minuten.",
+  "headline": "Frühere Vorhersagen, abgespielt gegen den tatsächlichen Niederschlag."
  }
 }

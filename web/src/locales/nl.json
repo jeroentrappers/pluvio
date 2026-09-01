@@ -46,11 +46,29 @@
  "mode": {
   "label": "Weergave",
   "forecast": "Verwachting",
-  "history": "Afgelopen 3 u"
+  "history": "Afgelopen 3 u",
+  "timeline": "Tijdlijn",
+  "verify": "Controle"
  },
  "history": {
   "headline": "Gemeten neerslag — afgelopen 3 uur.",
   "chartTitle": "Gemeten intensiteit (mm/u)",
   "observedAt": "Laatste radarwaarneming {{time}}"
+ },
+ "timeline": {
+  "headline": "Radar en verwachting in één tijdlijn."
+ },
+ "verify": {
+  "issue": "Voorspellingsrun",
+  "kind": {
+   "forecast": "Verwachting",
+   "observed": "Gemeten",
+   "diff": "Verschil"
+  },
+  "diffNote": "Rood = te nat voorspeld · blauw = te droog voorspeld",
+  "noObserved": "Gemeten data voor dit tijdstip is nog niet gearchiveerd.",
+  "scoresTitle": "Score t.o.v. gemeten",
+  "empty": "Nog geen gearchiveerde runs — nieuwe runs verschijnen binnen enkele minuten.",
+  "headline": "Eerdere voorspellingen, vergeleken met wat er echt viel."
  }
 }

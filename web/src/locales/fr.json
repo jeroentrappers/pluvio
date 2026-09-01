@@ -46,11 +46,29 @@
  "mode": {
   "label": "Vue",
   "forecast": "Prévisions",
-  "history": "3 dernières h"
+  "history": "3 dernières h",
+  "timeline": "Chronologie",
+  "verify": "Vérification"
  },
  "history": {
   "headline": "Précipitations observées — 3 dernières heures.",
   "chartTitle": "Intensité observée (mm/h)",
   "observedAt": "Dernière observation radar {{time}}"
+ },
+ "timeline": {
+  "headline": "Radar et prévision sur une même chronologie."
+ },
+ "verify": {
+  "issue": "Run de prévision",
+  "kind": {
+   "forecast": "Prévision",
+   "observed": "Observé",
+   "diff": "Écart"
+  },
+  "diffNote": "Rouge = prévision trop humide · bleu = trop sèche",
+  "noObserved": "Les observations pour cet instant ne sont pas encore archivées.",
+  "scoresTitle": "Score par rapport à l'observé",
+  "empty": "Aucun run archivé pour l'instant — les nouveaux runs apparaissent en quelques minutes.",
+  "headline": "Les prévisions passées, rejouées face à ce qui est réellement tombé."
  }
 }

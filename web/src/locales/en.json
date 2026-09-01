@@ -46,11 +46,29 @@
  "mode": {
   "label": "View",
   "forecast": "Forecast",
-  "history": "Last 3 h"
+  "history": "Last 3 h",
+  "timeline": "Timeline",
+  "verify": "Verify"
  },
  "history": {
   "headline": "Observed rainfall — last 3 hours.",
   "chartTitle": "Observed intensity (mm/h)",
   "observedAt": "Latest radar observation {{time}}"
+ },
+ "timeline": {
+  "headline": "Radar and forecast in one timeline."
+ },
+ "verify": {
+  "issue": "Forecast run",
+  "kind": {
+   "forecast": "Forecast",
+   "observed": "Observed",
+   "diff": "Difference"
+  },
+  "diffNote": "Red = forecast too wet · blue = forecast too dry",
+  "noObserved": "Observed data for this time isn't archived yet.",
+  "scoresTitle": "Score vs observed",
+  "empty": "No archived forecast runs yet — new runs appear within minutes.",
+  "headline": "Past forecasts, replayed against what actually fell."
  }
 }

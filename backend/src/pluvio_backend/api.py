@@ -378,6 +378,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def verify_issues() -> list:
         return verify.list_issues()
 
+    @app.get("/v1/verify/issue")
+    def verify_issue_meta(issue: int) -> dict:
+        got = verify.issue_meta(issue)
+        if got is None:
+            raise HTTPException(status_code=404, detail="unknown issue")
+        return got
+
     @app.get("/v1/verify/frame.png")
     def verify_frame(issue: int, lead: int, kind: str = "diff") -> Response:
         if kind not in ("forecast", "observed", "diff"):

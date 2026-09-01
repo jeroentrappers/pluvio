@@ -276,3 +276,39 @@ body {
   border-color: #3182bd;
   color: #fff;
 }
+
+/* Seamless timeline: the slider track carries a tick where measured composite
+   hands over to forecast (t=0). */
+.range-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+.range-wrap input[type="range"] { width: 100%; }
+.now-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* Verify mode: run picker + forecast/observed/diff toggle + score chips. */
+.verify-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.verify-issue { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.verify-issue select {
+  background: #232326;
+  color: inherit;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.kind-toggle { margin: 0; }
+.score-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.score-chips .chip {
+  background: #232326;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}

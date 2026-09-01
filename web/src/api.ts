@@ -10,6 +10,9 @@ export const DEFAULT_BOUNDS: Bounds = { west: 1.5, east: 7.5, south: 48.9, north
 
 // One lead-time of the forecast, normalised for the UI.
 export interface RadarFrame {
+  // Which side of t=0 this frame sits on in the seamless timeline:
+  // 'obs' = measured composite, 'fc' = forecast. Absent in single-source modes.
+  kind?: 'obs' | 'fc'
   leadMin: number
   validTime: Date
   rateMmPerH: number
@@ -188,5 +191,67 @@ export async function getHistory(
     frames,
     sprite,
     tiles,
+  }
+}
+
+
+// ---- Forecast verification (/v1/verify/*): replay archived runs against the
+// observed composite. ----
+
+export interface VerifyIssue {
+  issue: number // unix epoch of the run's issue time
+  issuedAt: Date
+}
+
+export interface VerifyMeta {
+  issue: number
+  leads: number[] // minutes
+  bounds: Bounds
+}
+
+export interface VerifyScores {
+  biasMmH: number
+  maeMmH: number
+  csi01: number
+  csi05: number
+  csi10: number
+}
+
+export async function getVerifyIssues(signal?: AbortSignal): Promise<VerifyIssue[]> {
+  const rows = await getJson<{ issue: number; issued_at: string }[]>('/v1/verify/issues', signal)
+  return rows.map((r) => ({ issue: r.issue, issuedAt: new Date(r.issued_at) }))
+}
+
+export async function getVerifyIssueMeta(issue: number, signal?: AbortSignal): Promise<VerifyMeta> {
+  const m = await getJson<{ issue: number; leads: number[]; bounds: number[] }>(
+    `/v1/verify/issue?issue=${issue}`,
+    signal,
+  )
+  return {
+    issue: m.issue,
+    leads: m.leads,
+    bounds: { west: m.bounds[0], south: m.bounds[1], east: m.bounds[2], north: m.bounds[3] },
+  }
+}
+
+// Frame PNGs are plain URLs — the map's overlay loader fetches and caches them.
+export const verifyFrameUrl = (issue: number, lead: number, kind: string) =>
+  `${API_BASE}/v1/verify/frame.png?issue=${issue}&lead=${lead}&kind=${kind}`
+
+export async function getVerifyScores(
+  issue: number,
+  lead: number,
+  signal?: AbortSignal,
+): Promise<VerifyScores> {
+  const s = await getJson<Record<string, number>>(
+    `/v1/verify/scores?issue=${issue}&lead=${lead}`,
+    signal,
+  )
+  return {
+    biasMmH: s.bias_mm_h,
+    maeMmH: s.mae_mm_h,
+    csi01: s['csi_0.1'],
+    csi05: s['csi_0.5'],
+    csi10: s['csi_1.0'],
   }
 }

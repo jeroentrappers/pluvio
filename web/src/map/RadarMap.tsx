@@ -39,9 +39,17 @@ interface Props {
   recenter?: number
   // Hi-res history tile manifest (1-km cube, viewport-tiled). Null = overview only.
   tiles?: HistoryTiles | null
+  // Camera lock: when set, panning limits and the fit-on-change behaviour use
+  // this box instead of `bounds`, so the seamless timeline can flip the overlay
+  // between the wide observed domain and the forecast box without yanking the
+  // camera at t=0.
+  domain?: Bounds
+  // Verify mode: draw this single image (a per-lead PNG) instead of a sprite
+  // crop. `frame`/`sprite` are ignored while set.
+  overlay?: { url: string; bounds: Bounds } | null
 }
 
-export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter, tiles }: Props) {
+export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter, tiles, domain, overlay }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -60,6 +68,12 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // counter bumped when any of them finishes loading (re-triggers the draw).
   const tileImgsRef = useRef(new Map<string, HTMLImageElement | 'loading'>())
   const [tileReady, setTileReady] = useState(0)
+  // Verify-mode overlay: plain per-(issue,lead,kind) PNGs, cached by URL.
+  const overlayImgsRef = useRef(new Map<string, HTMLImageElement | 'loading' | 'error'>())
+  const [overlayReady, setOverlayReady] = useState(0)
+  // Sprite sheets cached by URL so the seamless timeline can flip between the
+  // history and forecast sheets at t=0 without re-downloading either.
+  const spriteCacheRef = useRef(new Map<string, HTMLImageElement>())
   const [viewGen, setViewGen] = useState(0)   // bumped on moveend/zoomend
 
   // Init the map once.
@@ -158,14 +172,18 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
+    // The camera is governed by `domain` when provided (seamless timeline:
+    // stay locked to the wide observed box while the overlay flips between
+    // sources at t=0); otherwise by the overlay bounds as before.
+    const cam = domain ?? bounds
     const prev = appliedBoundsRef.current
     const changed =
-      prev.west !== bounds.west || prev.east !== bounds.east ||
-      prev.south !== bounds.south || prev.north !== bounds.north
-    appliedBoundsRef.current = bounds
+      prev.west !== cam.west || prev.east !== cam.east ||
+      prev.south !== cam.south || prev.north !== cam.north
+    appliedBoundsRef.current = cam
     map.setMaxBounds([
-      [bounds.west, bounds.south],
-      [bounds.east, bounds.north],
+      [cam.west, cam.south],
+      [cam.east, cam.north],
     ])
     const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
     src?.setCoordinates?.(cornersOf(bounds))
@@ -174,11 +192,12 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     // box and the new coverage sits off-screen with no way to reach it.
     if (changed) {
       map.fitBounds(
-        [[bounds.west, bounds.south], [bounds.east, bounds.north]],
+        [[cam.west, cam.south], [cam.east, cam.north]],
         { padding: 24, duration: 600 },
       )
     }
-  }, [bounds.west, bounds.east, bounds.south, bounds.north])
+  }, [bounds.west, bounds.east, bounds.south, bounds.north,
+      domain?.west, domain?.east, domain?.south, domain?.north])
 
   // Explicit recenter (e.g. "locate me" or first geolocation fix).
   useEffect(() => {
@@ -191,10 +210,23 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // the API is a different origin (dev); same-origin in prod needs nothing.
   useEffect(() => {
     if (!sprite?.url) return
+    const cached = spriteCacheRef.current.get(sprite.url)
+    if (cached) {
+      spriteImgRef.current = cached
+      setSpriteReady((n) => n + 1)
+      return
+    }
     let cancelled = false
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
+      spriteCacheRef.current.set(sprite.url, img)
+      // Keep the cache small: the timeline only ever needs the current
+      // history + forecast sheets (plus a refresh's replacements).
+      for (const k of spriteCacheRef.current.keys()) {
+        if (spriteCacheRef.current.size <= 8) break
+        if (k !== sprite.url) spriteCacheRef.current.delete(k)
+      }
       if (cancelled) return
       spriteImgRef.current = img
       setSpriteReady((n) => n + 1)
@@ -239,7 +271,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   useEffect(() => {
     const map = mapRef.current
     const canvas = canvasRef.current
-    if (!map || !readyRef.current || !canvas || !frame || frame.spriteIndex == null) return
+    if (!map || !readyRef.current || !canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
@@ -249,6 +281,44 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       map.triggerRepaint()
       map.once('render', () => src.pause())
     }
+
+    // Verify mode: a single plain PNG per (issue, lead, kind) instead of a
+    // sprite sheet. Cached by URL, so scrubbing back over seen leads is instant.
+    if (overlay) {
+      const got = overlayImgsRef.current.get(overlay.url)
+      if (!got) {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => {
+          overlayImgsRef.current.set(overlay.url, img)
+          setOverlayReady((n) => n + 1)
+        }
+        img.onerror = () => {
+          overlayImgsRef.current.set(overlay.url, 'error')
+          setOverlayReady((n) => n + 1)
+        }
+        img.src = overlay.url
+        overlayImgsRef.current.set(overlay.url, 'loading')
+        return
+      }
+      if (got === 'error') {
+        // Frame unavailable (e.g. observed not archived yet): show nothing
+        // rather than a stale frame, and forget the entry so a revisit retries.
+        overlayImgsRef.current.delete(overlay.url)
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        push()
+        return
+      }
+      if (!(got instanceof Image)) return
+      if (canvas.width !== got.width) canvas.width = got.width
+      if (canvas.height !== got.height) canvas.height = got.height
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(got, 0, 0)
+      src.setCoordinates?.(cornersOf(overlay.bounds))
+      push()
+      return
+    }
+    if (!frame || frame.spriteIndex == null) return
 
     const vis = visibleTiles()
     if (vis && tiles) {
@@ -302,7 +372,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       // Progressive: scaled overview underneath first, so streaming tiles
       // enhance rather than gate — no all-or-nothing wait.
       const ov = spriteImgRef.current
-      if (ov && sprite) {
+      if (ov && sprite && ov.src === sprite.url) {
         const sw = (wPx / tiles.gridW) * sprite.tileW
         const sh = (hPx / tiles.gridH) * sprite.tileH
         const sxo = (idx % sprite.cols) * sprite.tileW + (tx0 * px / tiles.gridW) * sprite.tileW
@@ -328,7 +398,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     }
 
     const img = spriteImgRef.current
-    if (!img || !sprite) return
+    if (!img || !sprite || img.src !== sprite.url) return
     const { tileW, tileH, cols } = sprite
     if (canvas.width !== tileW) canvas.width = tileW
     if (canvas.height !== tileH) canvas.height = tileH
@@ -339,7 +409,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
     src.setCoordinates?.(cornersOf(bounds))
     push()
-  }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen])
+  }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen, overlay, overlayReady])
 
   return <div ref={containerRef} className="map" />
 }
