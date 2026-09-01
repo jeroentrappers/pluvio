@@ -452,3 +452,13 @@ Europe = the 19 OPERA-bucket countries + national servers for IT/AT/HU/SK/UKMO
 verified individually: GR (HVD category exists, 0 radar datasets on data.gov.gr),
 BG (absent from ORD too), RS/BA/ME/MK, TR, UA (website imagery only), MA/TN/DZ.
 Beyond-radar coverage = satellite frontier (H-SAF).
+
+### South tier live (2026-09-01 17:27 CEST) — final map state
+
+Box **−11→30E, 35.5→71N** at 1.5 km (2627×1907, 8×11 tiles): Palermo and Rome
+serve full stacks (DPC fills all Italy incl. Sicily), alongside Tromsø, Bucharest,
+Vilnius, Budapest, Brussels. This is the complete open-data map of Europe:
+**38 own radars + 6 national fills**, Gibraltar latitude to the North Cape.
+Southern Spain/Greece render as honest empty basemap (verified: nothing open).
+Steady-tick cadence at this grid is the final pending measurement; fallback levers
+(coarser grid or trimmed box) stay documented if it can't hold the 5-min budget.
