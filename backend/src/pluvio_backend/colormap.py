@@ -72,3 +72,24 @@ def rgba_for_array(mm_per_h: np.ndarray, alpha: int = 220) -> np.ndarray:
     # Trace/no rain → fully transparent (matches the web client's dry cutoff).
     rgba[rate < RAIN_THRESHOLD_MM_H] = (0, 0, 0, 0)
     return rgba
+
+
+# Diverging palette for forecast-minus-observed: red = over-forecast, blue =
+# under-forecast, transparent near zero. Scaled to +/-8 mm/h — beyond that the
+# sign is what matters, not the magnitude.
+def diff_rgba(diff_mm_h: np.ndarray, alpha: int = 220) -> np.ndarray:
+    d = np.nan_to_num(diff_mm_h, nan=0.0).astype("float32")
+    h, w = d.shape
+    rgba = np.zeros((h, w, 4), dtype="uint8")
+    mag = np.clip(np.abs(d) / 8.0, 0.0, 1.0)
+    over = d > 0.15
+    under = d < -0.15
+    rgba[over, 0] = 220
+    rgba[over, 1] = (120 * (1 - mag[over])).astype("uint8")
+    rgba[over, 2] = (120 * (1 - mag[over])).astype("uint8")
+    rgba[under, 2] = 220
+    rgba[under, 0] = (120 * (1 - mag[under])).astype("uint8")
+    rgba[under, 1] = (120 * (1 - mag[under])).astype("uint8")
+    visible = over | under
+    rgba[visible, 3] = (80 + 140 * mag[visible]).astype("uint8")
+    return rgba

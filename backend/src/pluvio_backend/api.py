@@ -19,6 +19,7 @@ from . import schedules
 from .cache import ForecastCache
 from .config import Settings, get_settings
 from . import history
+from . import verify
 
 LOG = logging.getLogger("pluvio.api")
 
@@ -372,6 +373,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sprite=sprite_dto,
             bounds=data["bounds"],
         )
+
+    @app.get("/v1/verify/issues")
+    def verify_issues() -> list:
+        return verify.list_issues()
+
+    @app.get("/v1/verify/frame.png")
+    def verify_frame(issue: int, lead: int, kind: str = "diff") -> Response:
+        if kind not in ("forecast", "observed", "diff"):
+            raise HTTPException(status_code=400, detail="kind: forecast|observed|diff")
+        png = verify.frame_png(issue, lead, kind)
+        if png is None:
+            raise HTTPException(status_code=404, detail="frame unavailable")
+        return Response(content=png, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/v1/verify/scores")
+    def verify_scores(issue: int, lead: int) -> dict:
+        got = verify.scores(issue, lead)
+        if got is None:
+            raise HTTPException(status_code=404, detail="pair unavailable")
+        return got
 
     @app.get("/v1/history/tiles")
     def history_tiles() -> dict:
