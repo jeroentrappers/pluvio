@@ -85,6 +85,30 @@ def _champion_env():
 _PREV: dict = {}
 
 
+WARP_CACHE = pathlib.Path(os.environ.get("PLUVIO_WARP_CACHE",
+                                         "/opt/pluvio/cache/fill_warp"))
+
+
+def _warp_cached(tag, src_name, compute):
+    """Fill warps re-ran for every FRAME though each source slot serves 2-3 frames
+    (15-min sources: up to 9). Cache the warped grid keyed by (source file, grid)."""
+    try:
+        WARP_CACHE.mkdir(parents=True, exist_ok=True)
+        cpath = WARP_CACHE / f"{tag}_{src_name}_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}.npz"
+        if cpath.exists():
+            with np.load(cpath) as z:
+                return z["d"].astype("float32")
+        out = compute()
+        if out is not None:
+            tmpc = cpath.with_name(cpath.name + ".part")
+            with open(tmpc, "wb") as fh:
+                np.savez(fh, d=out.astype("float16"))
+            tmpc.replace(cpath)
+        return out
+    except Exception:
+        return compute()
+
+
 FILL_MODE = os.environ.get("PLUVIO_OBS_FILL", "comp")
 FILL_CACHE = pathlib.Path(os.environ.get("PLUVIO_OBS_FILL_CACHE",
                                          "/opt/pluvio/cache/opera_comp"))
@@ -139,7 +163,7 @@ def _opera_fill(stamp: str):
     for f in FILL_CACHE.glob("OPERA@*.tiff"):
         if f.stat().st_mtime < cutoff:
             f.unlink(missing_ok=True)
-    try:
+    def _compute():
         import rasterio
         from rasterio.crs import CRS
         from rasterio.transform import from_bounds
@@ -159,6 +183,8 @@ def _opera_fill(stamp: str):
                   dst_crs=CRS.from_epsg(4326), resampling=Resampling.average,
                   src_nodata=np.nan, dst_nodata=np.nan)
         return dst
+    try:
+        return _warp_cached("opera", path.name, _compute)
     except Exception as exc:
         LOG.warning("OPERA fill failed for %s (%s)", stamp, exc)
         return None
@@ -278,7 +304,7 @@ def _ukmo_slot_field(t):
         except Exception:
             tmp.unlink(missing_ok=True)
             return None
-    try:
+    def _compute():
         import h5py
         import pyproj
         from rasterio.crs import CRS
@@ -305,6 +331,8 @@ def _ukmo_slot_field(t):
         lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
         dst[~((lon <= 2.2) & (lat >= 49.5))] = np.nan
         return dst
+    try:
+        return _warp_cached("ukmo", cand.name, _compute)
     except Exception:
         return None
 
@@ -643,7 +671,7 @@ def _dpc_fill(stamp: str):
     for f in DPC_CACHE.glob("SRI_*.tif"):
         if f.stat().st_mtime < cutoff:
             f.unlink(missing_ok=True)
-    try:
+    def _compute():
         import rasterio
         from rasterio.crs import CRS
         from rasterio.transform import from_bounds
@@ -665,6 +693,8 @@ def _dpc_fill(stamp: str):
         lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
         dst[~((lat <= 47.5) & (lon >= 6.5))] = np.nan
         return dst
+    try:
+        return _warp_cached("dpc", path.name, _compute)
     except Exception as exc:
         LOG.warning("DPC fill failed for %s (%s)", stamp, exc)
         return None
@@ -711,8 +741,19 @@ PARALLEL = int(os.environ.get("PLUVIO_OBS_PARALLEL", "1"))
 _POOL = None
 
 
+FIELD_CACHE = pathlib.Path(os.environ.get("PLUVIO_FIELD_CACHE",
+                                          "/opt/pluvio/cache/fields"))
+
+
 def _radar_one(args):
-    """One radar -> (rate, q, h) grids; top-level so a process pool can run it."""
+    """One radar -> (rate, q, h) grids; top-level so a process pool can run it.
+
+    Field cache: upgrade recomputes used to redo declutter+gridding for all 38
+    radars although a late tick usually changes ONE radar's data. The volume is
+    still read (cheap), a signature of the sweeps (count, angles, checksums) keys
+    the cache, and only signature misses pay the expensive part. Entries prune
+    after 2 h — only the upgrade window ever re-reads a stamp.
+    """
     radar, stamp = args
     from tools.radar_single_site import polar_to_grid
     from tools import rtcor_chain as rc
@@ -720,9 +761,30 @@ def _radar_one(args):
         sw = rc.read_sweeps_any(radar, stamp)
         if not sw:
             return None
+        sig = "%d_%x" % (len(sw), abs(hash(tuple(
+            (round(float(x["elangle"]), 2), x["dbz"].shape,
+             float(np.nansum(x["dbz"][::8, ::8])))
+            for x in sw))) & 0xffffffffffff)
+        cpath = FIELD_CACHE / f"{radar}_{stamp}_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}_{sig}.npz"
+        if cpath.exists():
+            try:
+                with np.load(cpath) as z:
+                    return (z["r"].astype("float32"), z["q"].astype("float32"),
+                            z["h"].astype("float32"))
+            except Exception:
+                pass
         rate, q, h = rc.single_radar_h(sw, OBS_SHAPE, BE_BOUNDS, polar_to_grid)
         if sw[0].get("rhohv") is None:      # no dual-pol: persistence QC
             rate = _persistence_filter(radar, stamp, rate, OBS_SHAPE, BE_BOUNDS)
+        try:
+            FIELD_CACHE.mkdir(parents=True, exist_ok=True)
+            tmpc = cpath.with_name(cpath.name + ".part")
+            with open(tmpc, "wb") as fh:
+                np.savez(fh, r=rate.astype("float16"), q=q.astype("float16"),
+                         h=h.astype("float16"))
+            tmpc.replace(cpath)
+        except Exception:
+            pass
         return rate, q, h
     except Exception as exc:                # a broken radar must not sink the frame
         LOG.debug("%s unusable at %s (%s)", radar, stamp, exc)
@@ -1184,6 +1246,13 @@ def main(argv=None) -> int:
     for old_f in icache.glob("*.npz"):
         if old_f.stat().st_mtime < cutoff_i:
             old_f.unlink(missing_ok=True)
+    now_ts = dt.datetime.now(dt.UTC).timestamp()
+    for old_f in FIELD_CACHE.glob("*.npz"):
+        if now_ts - old_f.stat().st_mtime > 2 * 3600:
+            old_f.unlink(missing_ok=True)
+    for old_f in WARP_CACHE.glob("*.npz"):
+        if now_ts - old_f.stat().st_mtime > 6 * 3600:
+            old_f.unlink(missing_ok=True)
 
     out_t, out_r = [times[0]], [rates[0].astype("float16")]
     for i in range(1, len(rates)):
@@ -1209,17 +1278,49 @@ def main(argv=None) -> int:
         import json as _json
         hi = pathlib.Path(hi_out)
         hi.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=hi.parent, suffix=".npy", delete=False) as tf:
-            htmp = pathlib.Path(tf.name)
-        np.save(htmp, stack)
-        htmp.replace(hi)
-        hi.chmod(0o644)
+        # Incremental slot writes: rewriting the whole ~880 MB cube every tick was
+        # the largest single I/O. When the shape matches and the new time axis
+        # mostly overlaps the sidecar's, only changed/new slots are written into
+        # the memmap in place; the sidecar swap stays the atomic commit point.
+        wrote_incremental = False
+        meta_path = hi.with_suffix(".json")
+        try:
+            if hi.exists() and meta_path.exists():
+                old_meta = _json.loads(meta_path.read_text())
+                if list(old_meta["shape"])[1:] == list(stack.shape)[1:] \
+                        and old_meta["shape"][0] == stack.shape[0]:
+                    old_times = old_meta["times"]
+                    mm = np.lib.format.open_memmap(hi, mode="r+")
+                    changed = 0
+                    for i2, t2 in enumerate(times):
+                        if i2 >= len(old_times) or old_times[i2] != int(t2):
+                            mm[i2] = stack[i2]
+                            changed += 1
+                        # same time slot: frame content may still differ (upgrade)
+                        elif not np.array_equal(mm[i2], stack[i2]):
+                            mm[i2] = stack[i2]
+                            changed += 1
+                    mm.flush()
+                    del mm
+                    wrote_incremental = True
+                    LOG.info("hi cube: %d/%d slots updated in place",
+                             changed, stack.shape[0])
+        except Exception as exc:
+            LOG.warning("incremental hi write failed (%s) — full rewrite", exc)
+            wrote_incremental = False
+        if not wrote_incremental:
+            with tempfile.NamedTemporaryFile(dir=hi.parent, suffix=".npy",
+                                             delete=False) as tf:
+                htmp = pathlib.Path(tf.name)
+            np.save(htmp, stack)
+            htmp.replace(hi)
+            hi.chmod(0o644)
         meta = {"times": [int(t) for t in times],
                 "bounds": list(BE_BOUNDS), "shape": list(stack.shape)}
         mtmp = hi.with_suffix(".json.tmp")
         mtmp.write_text(_json.dumps(meta))
-        mtmp.replace(hi.with_suffix(".json"))
-        hi.with_suffix(".json").chmod(0o644)
+        mtmp.replace(meta_path)
+        meta_path.chmod(0o644)
 
     ds = int(os.environ.get("PLUVIO_OBS_OVERVIEW_DS", "1"))
     if ds > 1:
