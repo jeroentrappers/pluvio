@@ -75,6 +75,12 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // history and forecast sheets at t=0 without re-downloading either.
   const spriteCacheRef = useRef(new Map<string, HTMLImageElement>())
   const [viewGen, setViewGen] = useState(0)   // bumped on moveend/zoomend
+  // Readiness as STATE (not just the ref): effects that ran before the style
+  // finished loading early-return; without a dep to re-trigger them, their
+  // work (fit camera to the domain, first draw) got deferred until the next
+  // prop change — which in the seamless timeline was the t=0 crossing, so the
+  // zoom suddenly jumped when reaching the forecast.
+  const [mapReady, setMapReady] = useState(false)
 
   // Init the map once.
   useEffect(() => {
@@ -113,6 +119,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
 
     map.on('load', () => {
       readyRef.current = true
+      setMapReady(true)
       map.addSource(RADAR_SOURCE, {
         type: 'canvas',
         canvas: overlayCanvas,
@@ -197,7 +204,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       )
     }
   }, [bounds.west, bounds.east, bounds.south, bounds.north,
-      domain?.west, domain?.east, domain?.south, domain?.north])
+      domain?.west, domain?.east, domain?.south, domain?.north, mapReady])
 
   // Explicit recenter (e.g. "locate me" or first geolocation fix).
   useEffect(() => {
@@ -409,7 +416,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
     src.setCoordinates?.(cornersOf(bounds))
     push()
-  }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen, overlay, overlayReady])
+  }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen, overlay, overlayReady, mapReady])
 
   return <div ref={containerRef} className="map" />
 }
