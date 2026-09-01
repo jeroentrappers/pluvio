@@ -152,5 +152,10 @@ but their coverage of the box flips 76%→99%→75%→100%, so a band of pixels 
 own-composite ↔ OPERA fill each frame, and the two sources disagreed in LEVEL.
 Fix: gain-match the fill to the own composite in their wet overlap (median ratio,
 clipped 0.5–2) before gap-filling — the handover becomes invisible in intensity.
-If residual pattern-level pulsing remains, the next lever is coverage hysteresis
-(only downgrade a pixel to fill after two consecutive own-NaN scans).
+Gain-matching alone reduced the pulse only to 87% of level — the sources also
+disagree on wet AREA in the alternating band. The decisive fix was the
+**stable-source mask**: a pixel renders from the own composite only when covered in
+both of the last two scans (bit-packed mask persisted between runs), so the
+alternating band renders from the fill every frame. Measured result: scan-to-scan
+area change **111% → 87% → 19% of level** (mean-wet 14%) — the series became a
+smooth weather ramp. Display product only; the QPE archive keeps full own coverage.
