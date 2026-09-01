@@ -253,3 +253,18 @@ ticks complete in 33 s and 70 s (catch-up tick 3:21), cube advancing every 5-min
 slot. Serving end state: 27 verified radars + UKMO/OPERA fills, gauge adjustment
 (r_s=20 km) from four national networks, merged calibration, motion-morphed
 interpolants, viewport tiles (7×6 × 256 px) + 3x overview, Met Office palette.
+
+## ES/PT/IT/AT open-data sweep (2026-09-01, verified empirically)
+
+| country | source | verdict |
+|---|---|---|
+| **IT** | DPC Radar-DPC API (radar-api.protezionecivile.it) | **OPEN, VERIFIED**: `findLastProductByType?type=SRI` → `POST downloadProduct` → presigned GeoTIFF. SRI = surface rain rate mm/h, 5-min, 1400×1200 covering 4.5–20.5E / 35.1–47.8N (all Italy), CC-BY-SA, no auth. Smoke-tested end to end. |
+| **AT** | GeoSphere Data Hub (dataset.api.hub.geosphere.at) | **OPEN, VERIFIED**: `/grid/forecast/nowcast-v1-15min-1km` carries `rr` (INCA analysis+nowcast, radar+stations), bbox 8.1–17.7E / 45.5–49.5N (all Austria), 15-min, 1 km. Needs UKMO-style slot morphing for 5-min display. Also `inca-v1-1h-1km` historical to 2011 for training truth. |
+| **ES** | AEMET OpenData | GeoTIFF radar confirmed to exist (peninsula reflectivity composite + 15 regional radars incl. 1h/6h accumulation, EPSG:4326) — but requires a free API key via email registration. **Needs a user-registered key.** |
+| **PT** | IPMA | api.ipma.pt/open-data has NO radar entries — website imagery only. Closed for now. |
+
+Integration plan: IT SRI as a third fill layer (outranks OPERA over Italy, where OPERA
+holds ~45%); AT rr as a fourth (outranks OPERA over Austria, ~20%), slot-morphed like
+UKMO. Both fit the current box only partially (box S=42.5 cuts Italy at Rome's
+latitude) — full-Italy coverage means widening the box to S≈35, a +43% pixel payload
+decision to take deliberately.
