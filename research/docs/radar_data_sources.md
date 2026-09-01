@@ -409,3 +409,12 @@ overview + ~8 MB/frame store. Remaining perf ideas (unimplemented): per-radar fi
 cache for upgrade recomputes (bounded LRU ~2.4 GB), incremental hi-cube writes
 (removes rebuild staleness windows), true idle detection when only window-pruning
 changed.
+
+### South extension (2026-09-01 evening)
+
+User-driven: the map clamps panning to the served box, and S=42.5 cut Italy at
+Rome while DPC's composite reaches 35.1°N. New box **−11→30E, 35.5→71N**
+(2627×1907, +26% rows; post-optimization tick budget absorbs it at ~88 s frames):
+full Italy incl. Sicily fills from DPC; southern Spain and Greece render as honest
+empty basemap until any source opens (none exists — documented above). Malta's
+mtgud would slot in here once it passes a wet-day gate.
