@@ -418,3 +418,18 @@ Rome while DPC's composite reaches 35.1°N. New box **−11→30E, 35.5→71N**
 full Italy incl. Sicily fills from DPC; southern Spain and Greece render as honest
 empty basemap until any source opens (none exists — documented above). Malta's
 mtgud would slot in here once it passes a wet-day gate.
+
+### OPERA-contribution completeness + outer-rim probe (2026-09-01 evening)
+
+Everything OPERA composites reaches our product through the COMP fill even where
+no single-site volumes exist — nothing OPERA has is missing from the map; the gap
+is only own-chain vs fill quality in held regions. Of the ~130 single-site radars
+in the open bucket we run 38 gate-passed; the rest are on the wet-day/declutter
+ledger above.
+
+Outer-rim COMP content (edge-reach only, no national contributions):
+Morocco-N 8.4% (Spanish radars across the strait) · Ukraine-W/C ~6% (PL/RO/SK
+reach — already inside our box to 30E) · Algeria-N 2.2% · Tunisia 0.0% ·
+Turkey-W 0.0%. None of DGM-MA, INM-TN, UHMC-UA, MGM-TR publish open radar.
+Coverage there = satellite frontier (H-SAF P-IN-SEVIRI 15-min / IMERG), the
+documented next build for beyond-radar fill.
