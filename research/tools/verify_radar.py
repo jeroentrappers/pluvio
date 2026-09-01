@@ -163,6 +163,18 @@ def main(argv=None) -> int:
               & ((np.nan_to_num(a) > 0.1) | (np.nan_to_num(refmax) > 0.1)))
         sc, gc = logcorr(a, b, m), logcorr(a, refmax, mo)
         wet = 100 * float(np.nanmean(np.nan_to_num(a) > 0.1))
+        # A verdict is only as good as its reference: OPERA holds 2.2% of Croatia
+        # and 0.1% of Slovenia, and six geometrically sound HR radars "FAILED"
+        # against that void. Where the reference has almost no wet signal inside
+        # the candidate's view, say NO-REF instead of FAIL — and pick a peer
+        # reference (--reference with the neighbouring candidates) instead.
+        ref_wet = float(np.nan_to_num(refmax)[np.isfinite(a)] > 0.1).__class__ and \
+            100 * float(np.nanmean(np.nan_to_num(refmax)[np.isfinite(a)] > 0.1)) \
+            if np.isfinite(a).any() else 0.0
+        if ref_wet < 0.3:
+            print(f"{r:7s} {sc:9.3f} {'':>9s} {wet:6.2f}%  NO-REF "
+                  f"(reference wet {ref_wet:.2f}% inside view — use peers)")
+            continue
         ok = (np.isnan(gc) or gc > 0.05) and (np.isnan(sc) or sc > 0.0)
         note = " (near-dry: unreliable, re-verify on a wet day)" if wet < 1.0 else ""
         print(f"{r:7s} {sc:9.3f} {gc:9.3f} {wet:6.2f}%  "
