@@ -389,8 +389,17 @@ def _gauge_adjust_field(stamp: str, store: pathlib.Path):
             _GADJ[hour] = None
             return None
         from tools import gauge_adjust as ga
-        f_db = ga.adjustment_field(gmm[ok], rmm[ok], glat[ok], glon[ok],
-                                   np.ones(int(ok.sum())), BE_BOUNDS, OBS_SHAPE)
+        # The Appendix-B field is a sum of 30-km/500-km Gaussians — smooth by
+        # construction — but its cost scales with grid area: at the full grid one
+        # hourly computation took ~6 minutes and blew the 5-min tick (measured
+        # 8:13). Compute at 1/8 resolution and upsample: numerically near-identical
+        # for kernels this wide, ~60x cheaper.
+        coarse = (max(OBS_SHAPE[0] // 8, 8), max(OBS_SHAPE[1] // 8, 8))
+        f_c = ga.adjustment_field(gmm[ok], rmm[ok], glat[ok], glon[ok],
+                                  np.ones(int(ok.sum())), BE_BOUNDS, coarse)
+        import cv2
+        f_db = cv2.resize(f_c, (OBS_SHAPE[1], OBS_SHAPE[0]),
+                          interpolation=cv2.INTER_LINEAR)
         f_db = np.clip(f_db, -GADJ_CLIP_DB, GADJ_CLIP_DB).astype("float32")
         GADJ_CACHE.mkdir(parents=True, exist_ok=True)
         tmp = cache.with_name(cache.name + ".part")
