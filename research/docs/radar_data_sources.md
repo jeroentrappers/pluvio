@@ -203,3 +203,19 @@ lower — the expected cost of average-resampling their 1-km product to our 4-km
 Conclusion: cells over the UK are where the Met Office puts them, at the intensity
 they publish; a visual A/B against weather.metoffice.gov.uk's radar layer is
 trustworthy by construction (same underlying product, licensed via the AWS bucket).
+
+## Overnight stratiform verdict + 1-km cost (2026-09-01, 00:25–03:25Z window)
+
+**DE-west (own radar core) statistically TIES RADOLAN at all four thresholds** in the
+stratiform regime (ours .295/.288/.254/.142 vs .288/.314/.304/.176, every bootstrap
+CI spanning zero; bias@wet +1.06 vs +0.53) — with NO gauge adjustment active. The
+convective-evening gap was therefore bias-dominated, exactly what the adjustment
+battery showed (winner: Appendix-B adjustment with r_s=20 km; Z-R variants were
+noise). DE-east (OPERA fill) still loses at all thresholds in both regimes: the fill
+is the weak half, and the fix is admitting the eastern-DE radars on their wet day,
+not more tuning.
+
+1-km continental frame cost, measured warm under contention: ~2 min (expect 60–90 s
+quiet), assembly ~3 s/gap — borderline for the live 5-min cadence; deploy plan is
+1-km with a measured end-to-end timer cycle and a documented fallback to 1.5 km if
+it overruns.
