@@ -444,6 +444,17 @@ def compose(stamp: str, store=None):
     if ukmo is not None:                    # British Isles: national composite wins
         fill = ukmo if fill is None else np.where(np.isfinite(ukmo), ukmo, fill)
     if fill is not None:
+        # Gain-match the fill to OUR composite where both see rain before letting
+        # it in. Several radars alternate scan programs every 5 min (measured:
+        # DK coverage over the Oresund flips 76%->99%->75%->100% at consecutive
+        # stamps), so a band of pixels alternates own<->fill each frame; if the
+        # two sources disagree in level, that band pulses at 5-min parity. With
+        # the fill scaled to our level in the overlap, the handover is invisible
+        # (placement already verified to agree).
+        both = np.isfinite(rate) & np.isfinite(fill) & (rate > 0.1) & (fill > 0.1)
+        if both.sum() >= 200:
+            g = float(np.median(rate[both]) / max(float(np.median(fill[both])), 1e-3))
+            fill = fill * float(np.clip(g, 0.5, 2.0))
         gap = ~np.isfinite(rate) & np.isfinite(fill)
         rate = np.where(gap, fill, rate)
     if store is not None:
