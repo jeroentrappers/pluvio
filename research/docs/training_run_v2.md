@@ -73,6 +73,6 @@ Ultimate arbiter: KNMI/KMI/DWD/EA gauges via `tools/regional_eval.py` windows.
 ## Immediate next actions
 
 1. Shard builder script (RTCOR reader exists: `tools/knmi_rtcor.py`).
-2. Backfill check: RTCOR tar completeness 2019→ (spot-quarterly).
+2. ~~Backfill check~~ DONE 2026-09-01: 7/7 quarterly spot-checks 2019–2025 return 200 on `nl_rdr_data_rtcor_5m_tar` — the pretrain corpus is complete.
 3. Extend `dataset.py` with the qpe-zarr target loader (quality → loss weight).
 4. First pretrain launch on asusprime once shards land.
