@@ -222,6 +222,39 @@ def run_nl():
     rows = []
     NLB, NLS = (3.3, 50.7, 7.3, 53.7), (166, 142)      # ~2-km comparison grid
     _rt = {}
+    _rc = {}
+    def _rac_rt(key):
+        import json as _json
+        import urllib.request
+        import h5py
+        fn = f"RAD_NL25_RAC_RT_{key[:8]}{key[9:13]}.h5"
+        dest = pathlib.Path("/tmp/rtcor_rt") / fn
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            try:
+                api = "https://api.dataplatform.knmi.nl/open-data/v1/datasets"
+                keyf = [ln.split("=", 1)[1].strip().strip('\'\"')
+                        for ln in open("/opt/pluvio/research/.env")
+                        if ln.startswith("KNMI_API_KEY=")][0]
+                req = urllib.request.Request(
+                    f"{api}/nl_rdr_data_rtcor_5m/versions/1.0/files/{fn}/url",
+                    headers={"Authorization": keyf})
+                url = _json.load(urllib.request.urlopen(req, timeout=60))["temporaryDownloadUrl"]
+                dest.write_bytes(urllib.request.urlopen(url, timeout=120).read())
+            except Exception:
+                return None
+        try:
+            with h5py.File(dest, "r") as f:
+                mm5 = kr._calibrated(f["image1"])
+            if "map" not in _rc:
+                _rc["map"] = kr._rowcol(NLB, NLS)
+            rr, cc = _rc["map"]
+            out = np.full(NLS, np.nan, "float32")
+            inb = (rr >= 0) & (rr < mm5.shape[0]) & (cc >= 0) & (cc < mm5.shape[1])
+            out[inb] = mm5[rr[inb], cc[inb]] * 12.0
+            return out
+        except Exception:
+            return None
     def rtcor_at(lat, lon, te):
         t = dt.datetime.fromtimestamp(te, dt.UTC)
         t -= dt.timedelta(minutes=t.minute % 5, seconds=t.second)
@@ -233,6 +266,10 @@ def run_nl():
                     _rt[key] = kr.rate(key, NLB, NLS)
                 except Exception:
                     _rt[key] = None
+                if _rt[key] is None:
+                    # Day tars publish ~08:00 next morning; fresh stamps live in
+                    # the 5-min RAC_RT files instead (same product, same units).
+                    _rt[key] = _rac_rt(key)
             f = _rt[key]
             if f is None:
                 continue
