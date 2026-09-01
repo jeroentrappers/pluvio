@@ -57,7 +57,8 @@ CHURN_SCAN_WARN = 55.0        # a1gate-class scrambling measured 93-98%
 INTERP_RATIO_WARN = 1.3       # healthy morph measured 0.7-0.9x of scan churn
 PARITY_WARN = -0.45           # Oresund ping-pong measured ~-0.8; healthy ~0
 FREEZE_WARN = 0.34            # UKMO slot reuse froze 2 of every 3 pairs (0.67)
-STALE_WARN_S = 1500
+STALE_WARN_S = 2100        # structural floor is ~20-26 min (slot + feed lag +
+                            # tick); warn only when ABNORMAL, not by design
 GAUGE_BIAS_WARN = 5.0         # mm/h at wet gauges; DE convective bug measured +7-8
 
 

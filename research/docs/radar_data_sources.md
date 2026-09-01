@@ -462,3 +462,12 @@ Vilnius, Budapest, Brussels. This is the complete open-data map of Europe:
 Southern Spain/Greece render as honest empty basemap (verified: nothing open).
 Steady-tick cadence at this grid is the final pending measurement; fallback levers
 (coarser grid or trimmed box) stay documented if it can't hold the 5-min budget.
+
+### Cadence certified at the final grid (2026-09-01 18:25 CEST)
+
+Steady-state ticks **2:03–2:21** at 2627×1907 with all caches warm (interpolant,
+field, warp, geometry) and incremental hi-cube writes — comfortably inside the
+5-minute budget at the full Gibraltar-to-North-Cape box. Structural freshness
+floor ≈20–26 min (slot + feed latency + tick); watchdog stale threshold calibrated
+to 35 min so the alarm means abnormal. The performance campaign is closed:
+every optimization measured before and after, every fallback documented.
