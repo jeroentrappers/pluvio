@@ -408,6 +408,103 @@ def _gauge_adjust_field(stamp: str, store: pathlib.Path):
 
 
 DPC_CACHE = pathlib.Path("/opt/pluvio/cache/dpc_sri")
+GS_CACHE = pathlib.Path("/opt/pluvio/cache/geosphere_rr")
+GS_URL = ("https://dataset.api.hub.geosphere.at/v1/grid/forecast/"
+          "nowcast-v1-15min-1km?parameters=rr&bbox=45.4,8.0,49.5,17.8"
+          "&output_format=netcdf")
+
+
+def _geosphere_fill(stamp: str):
+    """Austrian INCA nowcast (GeoSphere, CC-BY) as a fill layer over Austria.
+
+    OPERA holds ~20% of Austria. The Data Hub serves the 15-min 1-km INCA `rr`
+    (radar+station analysis + nowcast; kg/m2 per 15 min, scale 0.01) — but ONLY the
+    latest run: past runs return empty, so each fetched run is cached and OUR cache
+    is the archive (cold-start backfills simply lack AT fill; the sidecar upgrade
+    loop fills live frames). Between 15-min runs the run's own nowcast leadtimes
+    provide the intermediate fields, so motion stays smooth without extra morphing.
+    """
+    if FILL_MODE != "comp":
+        return None
+    import urllib.request
+
+    t_req = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    # candidate runs: the two 15-min slots at/before the stamp
+    t0 = t_req - dt.timedelta(minutes=t_req.minute % 15)
+    run_path = None
+    run_t = None
+    for k in range(3):
+        t = t0 - dt.timedelta(minutes=15 * k)
+        cand = GS_CACHE / f"run_{t:%Y%m%d%H%M}.nc"
+        if cand.exists() and cand.stat().st_size > 0:
+            run_path, run_t = cand, t
+            break
+    if run_path is None:
+        GS_CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = GS_CACHE / "run.part"
+        try:
+            with urllib.request.urlopen(GS_URL, timeout=90) as r, open(tmp, "wb") as fh:
+                fh.write(r.read())
+            import h5py
+            with h5py.File(tmp, "r") as f:
+                if f["time"].shape[0] == 0:
+                    tmp.unlink(missing_ok=True)
+                    return None
+                rt = dt.datetime.fromtimestamp(float(f["time"][0]) * 86400.0, dt.UTC)
+            dest = GS_CACHE / f"run_{rt:%Y%m%d%H%M}.nc"
+            tmp.replace(dest)
+            if rt > t_req:
+                return None
+            run_path, run_t = dest, rt
+        except Exception as exc:
+            LOG.debug("geosphere fetch failed (%s)", exc)
+            tmp.unlink(missing_ok=True)
+            return None
+    cutoff = dt.datetime.now(dt.UTC).timestamp() - 36 * 3600
+    for f in GS_CACHE.glob("run_*.nc"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink(missing_ok=True)
+    try:
+        import h5py
+        from scipy.spatial import cKDTree
+
+        with h5py.File(run_path, "r") as f:
+            lead_h = np.asarray(f["leadtime"][:], "float64")
+            li = int(np.clip(round(((t_req - run_t).total_seconds() / 3600.0
+                                    - lead_h[0]) / 0.25), 0, len(lead_h) - 1))
+            rr = np.asarray(f["rr"][li], "float64")
+            lat = np.asarray(f["lat"][:], "float64")
+            lon = np.asarray(f["lon"][:], "float64")
+        rate = rr * 0.01 * 4.0                    # kg/m2 per 15 min -> mm/h
+        rate[rr <= -999] = np.nan
+        # KDTree regrid, indices cached per grid shape (the source grid is static)
+        idx_path = GS_CACHE / f"idx_{OBS_SHAPE[0]}x{OBS_SHAPE[1]}.npz"
+        bw, bs, be, bn = BE_BOUNDS
+        if idx_path.exists():
+            with np.load(idx_path) as zz:
+                rows, cols, binidx = zz["rows"], zz["cols"], zz["binidx"]
+        else:
+            tree = cKDTree(np.column_stack([lon.ravel(), lat.ravel()]))
+            glo = np.linspace(bw, be, OBS_SHAPE[1])
+            gla = np.linspace(bn, bs, OBS_SHAPE[0])
+            sel_c = np.where((glo >= 8.0) & (glo <= 17.8))[0]
+            sel_r = np.where((gla >= 45.4) & (gla <= 49.5))[0]
+            pts = np.array([(glo[c], gla[r]) for r in sel_r for c in sel_c])
+            d, bi = tree.query(pts, k=1)
+            ok = d < 0.02
+            rows = np.repeat(sel_r, len(sel_c))[ok]
+            cols = np.tile(sel_c, len(sel_r))[ok]
+            binidx = bi[ok]
+            tmpz = idx_path.with_name(idx_path.name + ".part")
+            with open(tmpz, "wb") as fh:
+                np.savez(fh, rows=rows, cols=cols, binidx=binidx)
+            tmpz.replace(idx_path)
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        dst[rows, cols] = rate.ravel()[binidx]
+        return dst
+    except Exception as exc:
+        LOG.warning("geosphere fill failed for %s (%s)", stamp, exc)
+        return None
 
 
 def _dpc_fill(stamp: str):
@@ -616,6 +713,17 @@ def compose(stamp: str, store=None):
                 g = float(np.median(fill[both]) / max(float(np.median(dpc[both])), 1e-3))
                 dpc = dpc * float(np.clip(g, 0.5, 2.0))
             fill = np.where(np.isfinite(dpc), dpc, fill)
+    gs = _geosphere_fill(stamp)
+    if gs is not None:
+        # Austria: INCA (radar+stations) outranks OPERA's ~20% edge coverage.
+        if fill is None:
+            fill = gs
+        else:
+            both = np.isfinite(fill) & np.isfinite(gs) & (fill > 0.1) & (gs > 0.1)
+            if both.sum() >= 100:
+                g2 = float(np.median(fill[both]) / max(float(np.median(gs[both])), 1e-3))
+                gs = gs * float(np.clip(g2, 0.5, 2.0))
+            fill = np.where(np.isfinite(gs), gs, fill)
     ukmo = _ukmo_fill(stamp)
     if ukmo is not None:
         # OPERA first: it is 5-min native and covers Ireland/SE-England (Met
