@@ -76,3 +76,17 @@ Ultimate arbiter: KNMI/KMI/DWD/EA gauges via `tools/regional_eval.py` windows.
 2. ~~Backfill check~~ DONE 2026-09-01: 7/7 quarterly spot-checks 2019–2025 return 200 on `nl_rdr_data_rtcor_5m_tar` — the pretrain corpus is complete.
 3. Extend `dataset.py` with the qpe-zarr target loader (quality → loss weight).
 4. First pretrain launch on asusprime once shards land.
+
+## Launch log (2026-09-01 evening)
+
+- Store discovery: `timeseries.zarr` already spans **2024-08-14 → now, 35,672
+  issues** with the full aux stack — no RAC_FM backfill needed; only truth values.
+- Truth backfill running as **4 day-shards in parallel** (8.9k issues each,
+  newest-first, resumable; disjoint tars → disjoint zarr chunks). Serial estimate
+  was days; sharded ≈ overnight. GPU is irrelevant here — the job is
+  network+decode bound; production compositing likewise stays CPU-on-hetz1
+  (2:03–2:21 ticks, in budget; WAN-shipping volumes to a home GPU would trade
+  reliability for nothing).
+- asusprime: RTX 2060 6GB, torch env installing, code synced to ~/pluvio_v2,
+  smoke launcher staged. AMP confirmed in train_seamless (autocast + GradScaler);
+  6 GB implies batch ~4-8 at the 256 grid with accumulation if needed.
