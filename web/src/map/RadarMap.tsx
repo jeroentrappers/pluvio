@@ -47,9 +47,13 @@ interface Props {
   // Verify mode: draw this single image (a per-lead PNG) instead of a sprite
   // crop. `frame`/`sprite` are ignored while set.
   overlay?: { url: string; bounds: Bounds } | null
+  // Auto-fit the camera when the domain box changes (default). The seamless
+  // timeline passes false: the user's zoom is never touched there — only the
+  // panning limits follow the domain.
+  fit?: boolean
 }
 
-export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter, tiles, domain, overlay }: Props) {
+export default function RadarMap({ center, bounds, frame, sprite, onPick, recenter, tiles, domain, overlay, fit }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -179,6 +183,11 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
+    // Nothing displayable means a transient state (a refetch in flight, props
+    // on their fallback defaults) — never let those drive the camera. Every
+    // refetch used to flip bounds to the fallback box and back, re-fitting the
+    // camera twice: the "auto-zoom" jumps.
+    if (!sprite && !tiles && !overlay) return
     // The camera is governed by `domain` when provided (seamless timeline:
     // stay locked to the wide observed box while the overlay flips between
     // sources at t=0); otherwise by the overlay bounds as before.
@@ -197,14 +206,15 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     // Jump out so the whole (possibly much wider) domain is on screen: without
     // this, switching forecast -> history keeps the camera zoomed to the old
     // box and the new coverage sits off-screen with no way to reach it.
-    if (changed) {
+    if (changed && fit !== false) {
       map.fitBounds(
         [[cam.west, cam.south], [cam.east, cam.north]],
         { padding: 24, duration: 600 },
       )
     }
   }, [bounds.west, bounds.east, bounds.south, bounds.north,
-      domain?.west, domain?.east, domain?.south, domain?.north, mapReady])
+      domain?.west, domain?.east, domain?.south, domain?.north,
+      mapReady, sprite, tiles, overlay, fit])
 
   // Explicit recenter (e.g. "locate me" or first geolocation fix).
   useEffect(() => {

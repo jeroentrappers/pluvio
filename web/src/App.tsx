@@ -269,6 +269,7 @@ export default function App() {
               center={location}
               bounds={mapBounds}
               domain={mapDomain}
+              fit={mode !== 'timeline'}
               frame={cur}
               sprite={mapSprite}
               tiles={mapTiles}
