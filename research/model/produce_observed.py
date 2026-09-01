@@ -1143,7 +1143,13 @@ def main(argv=None) -> int:
     frozen = os.environ.get("PLUVIO_OBS_NOW", "")
     now = (dt.datetime.strptime(frozen, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
            if frozen else dt.datetime.now(dt.UTC))
+    # Two tiers: MISSING stamps always outrank upgrades. With oldest-first only,
+    # a backlog of upgradeable frames (e.g. fill-less frames from a source outage)
+    # consumed the whole per-tick budget and STARVED the newest stamps — measured:
+    # feeds current at T1400 while the cube sat at 13:15Z, shrinking. Each tier
+    # stays chronological.
     work = []
+    upgrades = []
     for stamp in want:                                   # oldest -> newest
         f = store / f"{stamp}.npy"
         meta = store / f"{stamp}.json"
@@ -1161,7 +1167,8 @@ def main(argv=None) -> int:
                    .replace(tzinfo=dt.UTC)).total_seconds() / 60
         if (nrad < n_full or (FILL_MODE and not had_fill)) \
                 and age_min <= UPGRADE_WINDOW_MIN:
-            work.append(stamp)
+            upgrades.append(stamp)
+    work = work + upgrades                    # missing first, upgrades after
     for stamp in work[:BACKFILL_PER_RUN]:
         rate, nrad, had_fill = compose(stamp, store)
         if rate is not None:
