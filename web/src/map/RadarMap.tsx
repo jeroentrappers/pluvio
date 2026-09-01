@@ -205,15 +205,16 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     }
   }, [sprite?.url])
 
-  // Zoom threshold for the hi-res tiles: past this the overview pixels are
-  // visibly blocky and the viewport is small enough that a handful of 256-px
-  // tiles cover it; below it the overview keeps wide views cheap.
-  const TILE_ZOOM = 7.2
+  // Hi-res engages by VIEWPORT SIZE, not a zoom number: as soon as the view is
+  // small enough that a bounded number of 256-px tiles covers it, tiles win. A
+  // fixed zoom cutoff was screen-size dependent (a laptop hits it far later
+  // than a phone) and read as "tiling not linked to zoom".
+  const MAX_TILES = 12
 
   // Which hi-res tiles intersect the current viewport (null = overview mode).
   const visibleTiles = () => {
     const map = mapRef.current
-    if (!map || !tiles || map.getZoom() < TILE_ZOOM) return null
+    if (!map || !tiles) return null
     const b = tiles.bounds
     const v = map.getBounds()
     const degW = (b.east - b.west) / tiles.gridW
@@ -228,9 +229,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     const out: { tx: number; ty: number }[] = []
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) out.push({ tx, ty })
-    // A pathological viewport could still select too much — cap the download
-    // at 12 tiles and fall back to the overview beyond that.
-    return out.length > 0 && out.length <= 12 ? out : null
+    return out.length > 0 && out.length <= MAX_TILES ? out : null
   }
 
   // Render the current frame. Two paths share the one overlay canvas:
@@ -253,7 +252,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
 
     const vis = visibleTiles()
     if (vis && tiles) {
-      let allLoaded = true
+      let loaded = 0
       for (const { tx, ty } of vis) {
         const key = `${tiles.mtime}_${tx}_${ty}`
         const got = tileImgsRef.current.get(key)
@@ -264,52 +263,68 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
             tileImgsRef.current.set(key, img)
             setTileReady((n) => n + 1)
           }
+          // Without this, ONE failed download left the entry stuck on 'loading'
+          // forever and hi-res mode silently never engaged again.
+          img.onerror = () => {
+            tileImgsRef.current.delete(key)
+            setTileReady((n) => n + 1)
+          }
           img.src = tiles.urlFor(tx, ty)
           tileImgsRef.current.set(key, 'loading')
-          allLoaded = false
-        } else if (got === 'loading') {
-          allLoaded = false
+        } else if (got instanceof Image) {
+          loaded++
         }
       }
       if (tileImgsRef.current.size > 40) {          // evict older cubes' tiles
         for (const k of tileImgsRef.current.keys())
           if (!k.startsWith(`${tiles.mtime}_`)) tileImgsRef.current.delete(k)
       }
-      if (allLoaded) {
-        const txs = vis.map((t) => t.tx)
-        const tys = vis.map((t) => t.ty)
-        const tx0 = Math.min(...txs)
-        const ty0 = Math.min(...tys)
-        const tx1 = Math.max(...txs)
-        const ty1 = Math.max(...tys)
-        const px = tiles.tilePx
-        const wPx = Math.min((tx1 + 1) * px, tiles.gridW) - tx0 * px
-        const hPx = Math.min((ty1 + 1) * px, tiles.gridH) - ty0 * px
-        if (canvas.width !== wPx) canvas.width = wPx
-        if (canvas.height !== hPx) canvas.height = hPx
-        ctx.clearRect(0, 0, wPx, hPx)
-        const idx = frame.spriteIndex
-        for (const { tx, ty } of vis) {
-          const img = tileImgsRef.current.get(`${tiles.mtime}_${tx}_${ty}`)
-          if (!(img instanceof Image)) continue
-          const tw = Math.min(px, tiles.gridW - tx * px)
-          const th = Math.min(px, tiles.gridH - ty * px)
-          const sx = (idx % tiles.cols) * tw
-          const sy = Math.floor(idx / tiles.cols) * th
-          ctx.drawImage(img, sx, sy, tw, th, (tx - tx0) * px, (ty - ty0) * px, tw, th)
-        }
-        const b = tiles.bounds
-        const degW = (b.east - b.west) / tiles.gridW
-        const degH = (b.north - b.south) / tiles.gridH
-        const west = b.west + tx0 * px * degW
-        const north = b.north - ty0 * px * degH
-        const east = west + wPx * degW
-        const south = north - hPx * degH
-        src.setCoordinates?.([[west, north], [east, north], [east, south], [west, south]])
-        push()
-        return
+      const txs = vis.map((t) => t.tx)
+      const tys = vis.map((t) => t.ty)
+      const tx0 = Math.min(...txs)
+      const ty0 = Math.min(...tys)
+      const tx1 = Math.max(...txs)
+      const ty1 = Math.max(...tys)
+      const px = tiles.tilePx
+      const wPx = Math.min((tx1 + 1) * px, tiles.gridW) - tx0 * px
+      const hPx = Math.min((ty1 + 1) * px, tiles.gridH) - ty0 * px
+      const b = tiles.bounds
+      const degW = (b.east - b.west) / tiles.gridW
+      const degH = (b.north - b.south) / tiles.gridH
+      const west = b.west + tx0 * px * degW
+      const north = b.north - ty0 * px * degH
+      const east = west + wPx * degW
+      const south = north - hPx * degH
+      const idx = frame.spriteIndex
+      if (canvas.width !== wPx) canvas.width = wPx
+      if (canvas.height !== hPx) canvas.height = hPx
+      ctx.clearRect(0, 0, wPx, hPx)
+      // Progressive: scaled overview underneath first, so streaming tiles
+      // enhance rather than gate — no all-or-nothing wait.
+      const ov = spriteImgRef.current
+      if (ov && sprite) {
+        const sw = (wPx / tiles.gridW) * sprite.tileW
+        const sh = (hPx / tiles.gridH) * sprite.tileH
+        const sxo = (idx % sprite.cols) * sprite.tileW + (tx0 * px / tiles.gridW) * sprite.tileW
+        const syo = Math.floor(idx / sprite.cols) * sprite.tileH + (ty0 * px / tiles.gridH) * sprite.tileH
+        ctx.drawImage(ov, sxo, syo, sw, sh, 0, 0, wPx, hPx)
       }
-      // fall through to the overview while tile sprites stream in
+      for (const { tx, ty } of vis) {
+        const img = tileImgsRef.current.get(`${tiles.mtime}_${tx}_${ty}`)
+        if (!(img instanceof Image)) continue
+        const tw = Math.min(px, tiles.gridW - tx * px)
+        const th = Math.min(px, tiles.gridH - ty * px)
+        const sx = (idx % tiles.cols) * tw
+        const sy = Math.floor(idx / tiles.cols) * th
+        ctx.clearRect((tx - tx0) * px, (ty - ty0) * px, tw, th)
+        ctx.drawImage(img, sx, sy, tw, th, (tx - tx0) * px, (ty - ty0) * px, tw, th)
+      }
+      ;(window as unknown as Record<string, unknown>).__pluvioTiles = {
+        zoom: map.getZoom(), vis: vis.length, loaded,
+      }
+      src.setCoordinates?.([[west, north], [east, north], [east, south], [west, south]])
+      push()
+      return
     }
 
     const img = spriteImgRef.current
