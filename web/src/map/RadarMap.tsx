@@ -77,6 +77,14 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // history and forecast sheets at t=0 without re-downloading either.
   const spriteCacheRef = useRef(new Map<string, HTMLImageElement>())
   const [viewGen, setViewGen] = useState(0)   // bumped on moveend/zoomend
+  // JSON of the corners the current radar source was created with. Calling
+  // setCoordinates on a live canvas source desyncs maplibre's tile
+  // bookkeeping — the source cache keeps rendering stale tiles whose textures
+  // were never initialized (opaque black), which showed as a dark veil over
+  // the whole basemap with no radar at all. So the source is IMMUTABLE: when
+  // the box changes (t=0 crossing, tile-union move), we remove and recreate
+  // source + layer instead. Box changes are rare; recreation costs ~ms.
+  const overlayBoxRef = useRef('')
   // Readiness as STATE (not just the ref): effects that ran before the style
   // finished loading early-return; without a dep to re-trigger them, their
   // work (fit camera to the domain, first draw) got deferred until the next
@@ -114,6 +122,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
+    // Diagnostics handle (harmless in prod, used by headless probes).
+    ;(window as unknown as Record<string, unknown>).__pluvioMap = map
 
     // Tap/click anywhere to query the forecast for that spot.
     map.on('click', (e) => onPickRef.current?.(e.lngLat.lat, e.lngLat.lng))
@@ -122,20 +132,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     map.on('load', () => {
       readyRef.current = true
       setMapReady(true)
-      map.addSource(RADAR_SOURCE, {
-        type: 'canvas',
-        canvas: overlayCanvas,
-        coordinates: cornersOf(bounds),
-        // Static by default (no continuous repaint / battery drain). We force a
-        // one-shot upload after each draw via play()→render→pause().
-        animate: false,
-      })
-      map.addLayer({
-        id: RADAR_LAYER,
-        type: 'raster',
-        source: RADAR_SOURCE,
-        paint: { 'raster-opacity': RADAR_OPACITY, 'raster-fade-duration': 0 },
-      })
+      // The radar source/layer are (re)created by the draw path via
+      // ensureOverlay() — see below for why they are never mutated in place.
     })
 
     const marker = new maplibregl.Marker({ color: '#3182bd', draggable: true })
@@ -199,8 +197,6 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       [cam.west, cam.south],
       [cam.east, cam.north],
     ])
-    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
-    src?.setCoordinates?.(cornersOf(bounds))
     // Jump out so the whole (possibly much wider) domain is on screen: without
     // this, switching forecast -> history keeps the camera zoomed to the old
     // box and the new coverage sits off-screen with no way to reach it.
@@ -277,12 +273,58 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     if (!map || !readyRef.current || !canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const src = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
-    if (!src) return
-    const push = () => {
+    // Create (or recreate) the radar source for this overlay box. Never
+    // mutate a live source's coordinates — see overlayBoxRef.
+    const ensureOverlay = (corners: ReturnType<typeof cornersOf>): CanvasSource | undefined => {
+      const key = JSON.stringify(corners)
+      const existing = map.getSource(RADAR_SOURCE) as CanvasSource | undefined
+      if (existing && overlayBoxRef.current === key) return existing
+      if (map.getLayer(RADAR_LAYER)) map.removeLayer(RADAR_LAYER)
+      if (existing) map.removeSource(RADAR_SOURCE)
+      map.addSource(RADAR_SOURCE, {
+        type: 'canvas',
+        canvas,
+        coordinates: corners,
+        // Static by default (no continuous repaint / battery drain); push()
+        // plays the source until the map goes idle after each draw.
+        animate: false,
+      })
+      map.addLayer({
+        id: RADAR_LAYER,
+        type: 'raster',
+        source: RADAR_SOURCE,
+        paint: { 'raster-opacity': RADAR_OPACITY, 'raster-fade-duration': 0 },
+      })
+      overlayBoxRef.current = key
+      return map.getSource(RADAR_SOURCE) as CanvasSource | undefined
+    }
+    const push = (src: CanvasSource | undefined) => {
+      // Static-by-default upload: play the canvas source and pause it only
+      // once the map reaches IDLE. Pausing on the next 'render' event raced —
+      // with a render already in flight (style load, camera move), the source
+      // was paused BEFORE the repaint that samples the canvas, so the texture
+      // never refreshed and the overlay stayed blank. 'idle' fires only after
+      // all pending renders settle, so at least one full render has read the
+      // playing canvas. During playback repaints are continuous, idle never
+      // fires, and the source simply stays live until the animation rests.
+      if (!src) return
       src.play()
       map.triggerRepaint()
-      map.once('render', () => src.pause())
+      map.once('idle', () => src.pause())
+    }
+    // Temporary diagnostics: expose what each draw actually produced so a
+    // headless probe can separate "2D draw is empty" from "GL upload fails".
+    const probe = (path: string, extra: Record<string, unknown>) => {
+      if (!(window as unknown as Record<string, unknown>).__pluvioDebug) return
+      let visiblePx = -1
+      try {
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+        visiblePx = 0
+        for (let i = 3; i < d.length; i += 400) if (d[i] > 10) visiblePx++
+      } catch { /* tainted canvas */ }
+      const w = window as unknown as Record<string, unknown>
+      w.__pluvioDraw = { path, w: canvas.width, h: canvas.height, visiblePx, ...extra }
+      w.__pluvioCanvas = canvas
     }
 
     // Verify mode: a single plain PNG per (issue, lead, kind) instead of a
@@ -309,7 +351,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
         // rather than a stale frame, and forget the entry so a revisit retries.
         overlayImgsRef.current.delete(overlay.url)
         ctx.clearRect(0, 0, canvas.width, canvas.height)
-        push()
+        push(ensureOverlay(cornersOf(overlay.bounds)))
         return
       }
       if (!(got instanceof Image)) return
@@ -317,8 +359,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       if (canvas.height !== got.height) canvas.height = got.height
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(got, 0, 0)
-      src.setCoordinates?.(cornersOf(overlay.bounds))
-      push()
+      push(ensureOverlay(cornersOf(overlay.bounds)))
       return
     }
     if (!frame || frame.spriteIndex == null) return
@@ -395,8 +436,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       ;(window as unknown as Record<string, unknown>).__pluvioTiles = {
         zoom: map.getZoom(), vis: vis.length, loaded,
       }
-      src.setCoordinates?.([[west, north], [east, north], [east, south], [west, south]])
-      push()
+      probe('tiles', { idx, vis: vis.length, loaded })
+      push(ensureOverlay([[west, north], [east, north], [east, south], [west, south]]))
       return
     }
 
@@ -410,8 +451,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
     const sx = (idx % cols) * tileW
     const sy = Math.floor(idx / cols) * tileH
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH)
-    src.setCoordinates?.(cornersOf(bounds))
-    push()
+    probe('overview', { idx, sheet: sprite.url.slice(-24) })
+    push(ensureOverlay(cornersOf(bounds)))
   }, [frame, bounds, sprite, spriteReady, tiles, tileReady, viewGen, overlay, overlayReady, mapReady])
 
   return <div ref={containerRef} className="map" />
