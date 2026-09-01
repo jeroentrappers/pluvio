@@ -63,8 +63,6 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   onPickRef.current = onPick
   const centerRef = useRef(center)
   centerRef.current = center
-  // Sprite sheet: load the image once, then scrub by cropping tiles to a canvas.
-  const spriteImgRef = useRef<HTMLImageElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [spriteReady, setSpriteReady] = useState(0)
   const appliedBoundsRef = useRef(bounds)
@@ -226,14 +224,7 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
   // animation). crossOrigin so the canvas we crop from it isn't tainted when
   // the API is a different origin (dev); same-origin in prod needs nothing.
   useEffect(() => {
-    if (!sprite?.url) return
-    const cached = spriteCacheRef.current.get(sprite.url)
-    if (cached) {
-      spriteImgRef.current = cached
-      setSpriteReady((n) => n + 1)
-      return
-    }
-    let cancelled = false
+    if (!sprite?.url || spriteCacheRef.current.has(sprite.url)) return
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
@@ -244,14 +235,9 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
         if (spriteCacheRef.current.size <= 8) break
         if (k !== sprite.url) spriteCacheRef.current.delete(k)
       }
-      if (cancelled) return
-      spriteImgRef.current = img
       setSpriteReady((n) => n + 1)
     }
     img.src = sprite.url
-    return () => {
-      cancelled = true
-    }
   }, [sprite?.url])
 
   // Hi-res engages by VIEWPORT SIZE, not a zoom number: as soon as the view is
@@ -388,8 +374,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       ctx.clearRect(0, 0, wPx, hPx)
       // Progressive: scaled overview underneath first, so streaming tiles
       // enhance rather than gate — no all-or-nothing wait.
-      const ov = spriteImgRef.current
-      if (ov && sprite && ov.src === sprite.url) {
+      const ov = sprite ? spriteCacheRef.current.get(sprite.url) : undefined
+      if (ov && sprite) {
         const sw = (wPx / tiles.gridW) * sprite.tileW
         const sh = (hPx / tiles.gridH) * sprite.tileH
         const sxo = (idx % sprite.cols) * sprite.tileW + (tx0 * px / tiles.gridW) * sprite.tileW
@@ -414,8 +400,8 @@ export default function RadarMap({ center, bounds, frame, sprite, onPick, recent
       return
     }
 
-    const img = spriteImgRef.current
-    if (!img || !sprite || img.src !== sprite.url) return
+    const img = sprite ? spriteCacheRef.current.get(sprite.url) : undefined
+    if (!img || !sprite) return
     const { tileW, tileH, cols } = sprite
     if (canvas.width !== tileW) canvas.width = tileW
     if (canvas.height !== tileH) canvas.height = tileH
