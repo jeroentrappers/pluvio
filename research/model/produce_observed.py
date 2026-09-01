@@ -409,6 +409,88 @@ def _gauge_adjust_field(stamp: str, store: pathlib.Path):
 
 DPC_CACHE = pathlib.Path("/opt/pluvio/cache/dpc_sri")
 GS_CACHE = pathlib.Path("/opt/pluvio/cache/geosphere_rr")
+HU_CACHE = pathlib.Path("/opt/pluvio/cache/hungaromet")
+
+
+def _hungaromet_fill(stamp: str):
+    """Hungarian national composite (HungaroMet, CC-BY-SA) as a fill over Hungary.
+
+    OPERA holds ~13% of Hungary. odp.met.hu serves a 5-min national reflectivity
+    composite (~9-min latency, verified 2026-09-01) as classic NetCDF-3 zipped:
+    refl2D 813x961 on a regular lat/lon grid (La1/Lo1/Dx/Dy). Reflectivity ->
+    Marshall-Palmer, then a plain array-slice regrid (both grids regular lat/lon).
+    """
+    if FILL_MODE != "comp":
+        return None
+    import io
+    import urllib.request
+    import zipfile
+
+    t0 = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    path = None
+    for k in range(3):
+        t = t0 - dt.timedelta(minutes=5 * k)
+        fn = f"radar_composite-refl2D-{t:%Y%m%d_%H%M}.nc"
+        cand = HU_CACHE / fn
+        if cand.exists() and cand.stat().st_size > 0:
+            path = cand
+            break
+        HU_CACHE.mkdir(parents=True, exist_ok=True)
+        url = ("https://odp.met.hu/weather/radar/composite/nc/refl2D/"
+               f"{fn}.zip")
+        try:
+            raw = urllib.request.urlopen(url, timeout=90).read()
+            z = zipfile.ZipFile(io.BytesIO(raw))
+            data = z.read(z.namelist()[0])
+            tmp = HU_CACHE / (fn + ".part")
+            tmp.write_bytes(data)
+            tmp.replace(cand)
+            path = cand
+            break
+        except Exception:
+            continue
+    if path is None:
+        return None
+    cutoff = dt.datetime.now(dt.UTC).timestamp() - 36 * 3600
+    for f in HU_CACHE.glob("radar_composite-*.nc"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink(missing_ok=True)
+    try:
+        from scipy.io import netcdf_file
+
+        f = netcdf_file(str(path), "r", mmap=False)
+        refl = np.asarray(f.variables["refl2D"][:], "float32")
+        la1 = float(np.asarray(f.variables["La1"]))
+        lo1 = float(np.asarray(f.variables["Lo1"]))
+        dx = float(np.asarray(f.variables["Dx"]))
+        dy = float(np.asarray(f.variables["Dy"]))
+        f.close()
+        nrow, ncol = refl.shape
+        # La1/Lo1 = grid origin (NW corner), Dx/Dy in degrees.
+        src_lat = la1 - np.arange(nrow) * abs(dy)
+        src_lon = lo1 + np.arange(ncol) * dx
+        rate = np.where(refl > -30,
+                        (10.0 ** (np.clip(refl, None, 55.0) / 10.0) / 200.0) ** (1 / 1.6),
+                        np.nan).astype("float32")
+        rate[refl <= 0] = np.where(refl[refl <= 0] > -30, 0.0, np.nan)
+        bw, bs, be, bn = BE_BOUNDS
+        glo = np.linspace(bw, be, OBS_SHAPE[1])
+        gla = np.linspace(bn, bs, OBS_SHAPE[0])
+        ci = np.round((glo - src_lon[0]) / dx).astype(int)
+        ri = np.round((src_lat[0] - gla) / abs(dy)).astype(int)
+        okc = (ci >= 0) & (ci < ncol)
+        okr = (ri >= 0) & (ri < nrow)
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        rr, cc = np.where(okr)[0], np.where(okc)[0]
+        dst[np.ix_(rr, cc)] = rate[ri[rr][:, None], ci[cc][None, :]]
+        # keep only the Hungarian box; OPERA and neighbours own the rest
+        lon2 = glo[None, :]
+        lat2 = gla[:, None]
+        dst[~((lon2 >= 16.0) & (lon2 <= 23.0) & (lat2 >= 45.6) & (lat2 <= 48.7))] = np.nan
+        return dst
+    except Exception as exc:
+        LOG.warning("hungaromet fill failed for %s (%s)", stamp, exc)
+        return None
 GS_URL = ("https://dataset.api.hub.geosphere.at/v1/grid/forecast/"
           "nowcast-v1-15min-1km?parameters=rr&bbox=45.4,8.0,49.5,17.8"
           "&output_format=netcdf")
@@ -713,6 +795,17 @@ def compose(stamp: str, store=None):
                 g = float(np.median(fill[both]) / max(float(np.median(dpc[both])), 1e-3))
                 dpc = dpc * float(np.clip(g, 0.5, 2.0))
             fill = np.where(np.isfinite(dpc), dpc, fill)
+    hu = _hungaromet_fill(stamp)
+    if hu is not None:
+        # Hungary: national 5-min composite outranks OPERA's ~13% edge coverage.
+        if fill is None:
+            fill = hu
+        else:
+            both = np.isfinite(fill) & np.isfinite(hu) & (fill > 0.1) & (hu > 0.1)
+            if both.sum() >= 100:
+                gh = float(np.median(fill[both]) / max(float(np.median(hu[both])), 1e-3))
+                hu = hu * float(np.clip(gh, 0.5, 2.0))
+            fill = np.where(np.isfinite(hu), hu, fill)
     gs = _geosphere_fill(stamp)
     if gs is not None:
         # Austria: INCA (radar+stations) outranks OPERA's ~20% edge coverage.
