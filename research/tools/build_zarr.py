@@ -399,7 +399,8 @@ def _truth_frame(mode: str, ts: datetime, bounds, shape):
     return None
 
 
-def truth_backfill(out_path: pathlib.Path, mode: str, batch: int = 0) -> int:
+def truth_backfill(out_path: pathlib.Path, mode: str, batch: int = 0,
+                   shard: str = "") -> int:
     """Fill the 'truth' array for issues ALREADY in the store (newest first).
 
     The store predates the truth pipeline (35k issues, 2024-08->), so the
@@ -427,6 +428,14 @@ def truth_backfill(out_path: pathlib.Path, mode: str, batch: int = 0) -> int:
               float(glon.max()), float(glat.max()))
     epochs = np.asarray(root["issue_time"][:], dtype="int64")
     order = np.argsort(epochs)[::-1]                  # newest first
+    # --shard i/N: the job is network+decode bound (one RTCOR day-tar per ~288
+    # slots), so N processes on DISJOINT DAYS write disjoint zarr chunks and
+    # scale nearly linearly. Sharding by day keeps each tar owned by one worker.
+    if shard:
+        i_s, n_s = (int(x) for x in shard.split("/"))
+        days = (epochs[order] // 86400)
+        order = order[days % n_s == i_s]
+        LOG.info("shard %d/%d: %d issues", i_s, n_s, len(order))
     done = skipped = failed = 0
     for i in order:
         if batch and done + failed >= batch:
@@ -673,6 +682,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--truth-backfill", action="store_true",
                         help="fill 'truth' for issues already in the store "
                              "(newest first, resumable) and exit")
+    parser.add_argument("--truth-shard", default="",
+                        help="i/N — process only day-shard i of N (parallel backfill)")
     parser.add_argument("--truth-batch", type=int, default=0,
                         help="max issues per backfill invocation (0 = all)")
     parser.add_argument("--truth", choices=["none", "rtcor", "qpe"], default="none",
@@ -700,7 +711,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.truth_backfill:
         if args.truth == "none":
             parser.error("--truth-backfill requires --truth rtcor|qpe")
-        return truth_backfill(args.out, args.truth, args.truth_batch)
+        return truth_backfill(args.out, args.truth, args.truth_batch, args.truth_shard)
     return build(args.data, args.out, start, end,
                  args.msg_max_age_min, args.aws_max_age_min, args.append,
                  truth=args.truth)
