@@ -407,6 +407,81 @@ def _gauge_adjust_field(stamp: str, store: pathlib.Path):
         return None
 
 
+DPC_CACHE = pathlib.Path("/opt/pluvio/cache/dpc_sri")
+
+
+def _dpc_fill(stamp: str):
+    """Italian national composite (Radar-DPC SRI) as a fill layer over Italy.
+
+    OPERA carries only ~45% of Italy; the DPC platform is open (CC-BY-SA, no auth)
+    and publishes SRI — surface rain rate, mm/h, 5-min cadence, 1400x1200 GeoTIFF
+    covering 4.5-20.5E / 35.1-47.8N — via findLastProductByType/downloadProduct
+    (presigned S3). Verified end to end 2026-09-01. Restricted here to south of
+    47.5N / east of 6.5E so the Alps seam stays with OPERA's Swiss radars.
+    """
+    if FILL_MODE != "comp":
+        return None
+    import json as _json
+    import urllib.request
+
+    t0 = dt.datetime.strptime(stamp, "%Y%m%dT%H%M").replace(tzinfo=dt.UTC)
+    path = None
+    for k in range(3):
+        t = t0 - dt.timedelta(minutes=5 * k)
+        fn = f"SRI_{t:%Y%m%d%H%M}.tif"
+        cand = DPC_CACHE / fn
+        if cand.exists() and cand.stat().st_size > 0:
+            path = cand
+            break
+        DPC_CACHE.mkdir(parents=True, exist_ok=True)
+        try:
+            req = urllib.request.Request(
+                "https://radar-api.protezionecivile.it/downloadProduct",
+                data=_json.dumps({"productType": "SRI",
+                                  "productDate": int(t.timestamp() * 1000)}).encode(),
+                headers={"content-type": "application/json"})
+            url = _json.load(urllib.request.urlopen(req, timeout=60))["url"]
+            tmp = DPC_CACHE / (fn + ".part")
+            with urllib.request.urlopen(url, timeout=90) as r, open(tmp, "wb") as fh:
+                fh.write(r.read())
+            tmp.replace(cand)
+            path = cand
+            break
+        except Exception:
+            continue
+    if path is None:
+        return None
+    cutoff = dt.datetime.now(dt.UTC).timestamp() - 36 * 3600
+    for f in DPC_CACHE.glob("SRI_*.tif"):
+        if f.stat().st_mtime < cutoff:
+            f.unlink(missing_ok=True)
+    try:
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+        from rasterio.warp import Resampling, reproject
+
+        with rasterio.open(path) as src:
+            a = src.read(1).astype("float32")
+            tr, crs, nod = src.transform, src.crs, src.nodata
+        if nod is not None:
+            a[a == nod] = np.nan
+        a[a < 0] = np.nan
+        bw, bs, be, bn = BE_BOUNDS
+        dst = np.full(OBS_SHAPE, np.nan, "float32")
+        reproject(a, dst, src_transform=tr, src_crs=crs,
+                  dst_transform=from_bounds(bw, bs, be, bn, OBS_SHAPE[1], OBS_SHAPE[0]),
+                  dst_crs=CRS.from_epsg(4326), resampling=Resampling.average,
+                  src_nodata=np.nan, dst_nodata=np.nan)
+        lon = np.linspace(bw, be, OBS_SHAPE[1])[None, :]
+        lat = np.linspace(bn, bs, OBS_SHAPE[0])[:, None]
+        dst[~((lat <= 47.5) & (lon >= 6.5))] = np.nan
+        return dst
+    except Exception as exc:
+        LOG.warning("DPC fill failed for %s (%s)", stamp, exc)
+        return None
+
+
 def _persistence_filter(radar, stamp, rate, shape, bounds):
     """Two-scan confirmation for radars without dual-pol moments.
 
@@ -529,6 +604,18 @@ def compose(stamp: str, store=None):
         pass
 
     fill = _opera_fill(stamp)
+    dpc = _dpc_fill(stamp)
+    if dpc is not None:
+        # Italy: national 5-min SRI outranks OPERA (which holds ~45% there),
+        # gain-matched in the wet overlap like every other source handover.
+        if fill is None:
+            fill = dpc
+        else:
+            both = np.isfinite(fill) & np.isfinite(dpc) & (fill > 0.1) & (dpc > 0.1)
+            if both.sum() >= 100:
+                g = float(np.median(fill[both]) / max(float(np.median(dpc[both])), 1e-3))
+                dpc = dpc * float(np.clip(g, 0.5, 2.0))
+            fill = np.where(np.isfinite(dpc), dpc, fill)
     ukmo = _ukmo_fill(stamp)
     if ukmo is not None:
         # OPERA first: it is 5-min native and covers Ireland/SE-England (Met
