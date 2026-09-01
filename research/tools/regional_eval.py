@@ -15,7 +15,8 @@ import csv, glob, io, json, pathlib, sys, zipfile
 import datetime as dt
 import numpy as np
 
-NPZ = "/opt/pluvio/serve/observed.npz"
+import os
+NPZ = os.environ.get("EVAL_NPZ", "/opt/pluvio/serve/observed.npz")
 THRESHOLDS = (0.1, 0.5, 1.0, 2.0)
 
 z = np.load(NPZ)
@@ -206,7 +207,60 @@ def run_uk():
             rows.append((g, o, opera_at(lat, lon, te)))
     report("UK (truth: EA 15-min gauges; ours = UKMO composite via fill)", rows, ("OPERA",))
 
+# --- NL guard: the served cube must not regress where we already tie RTCOR ------
+def run_nl():
+    """Ours vs RTCOR against KNMI 10-min gauges, on the served cube's NL slice.
+
+    This is the deployment guard for serving-side changes (gauge adjustment uses
+    KNMI gauges over NL; calibration touches neighbours): the BE/NL standing —
+    statistical ties with RTCOR — must survive on the SERVED product too."""
+    from tools.gauge_validate import fetch_knmi_10min, read_gauges
+    from tools import knmi_rtcor as kr
+
+    t1 = int(TIMES[-1])
+    t0 = t1 - 3 * 3600
+    rows = []
+    _rt = {}
+    def rtcor_at(lat, lon, te):
+        t = dt.datetime.fromtimestamp(te, dt.UTC)
+        t -= dt.timedelta(minutes=t.minute % 5, seconds=t.second)
+        vals = []
+        for k in (0, 1):                       # the two 5-min fields of the window
+            key = (t - dt.timedelta(minutes=5 * k)).strftime("%Y%m%dT%H%M")
+            if key not in _rt:
+                try:
+                    _rt[key] = kr.fields(key)["rate"]
+                except Exception:
+                    _rt[key] = None
+            f = _rt[key]
+            if f is None:
+                continue
+            try:
+                r, c = kr._rowcol(lat, lon)
+                blk = f[max(0, r - 1):r + 2, max(0, c - 1):c + 2]
+                vals.append(float(np.nanmax(blk)))
+            except Exception:
+                pass
+        return float(np.mean(vals)) if vals else np.nan
+
+    te = t0 - (t0 % 600) + 600
+    while te <= t1:
+        stamp = dt.datetime.fromtimestamp(te, dt.UTC).strftime("%Y%m%dT%H%M")
+        gp = fetch_knmi_10min(stamp)
+        if gp is not None:
+            for st, la, lo, obs in read_gauges(gp):
+                if not (3.3 <= lo <= 7.3 and 50.7 <= la <= 53.7):
+                    continue
+                o = ours_window(la, lo, te, 600)
+                if not np.isfinite(o):
+                    continue
+                rows.append((obs, o, rtcor_at(la, lo, te)))
+        te += 600
+    report("NL guard (truth: KNMI 10-min gauges)", rows, ("RTCOR",))
+
+
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
     if which in ("all", "de"): run_de()
     if which in ("all", "uk"): run_uk()
+    if which in ("all", "nl"): run_nl()
