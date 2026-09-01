@@ -90,3 +90,26 @@ Ultimate arbiter: KNMI/KMI/DWD/EA gauges via `tools/regional_eval.py` windows.
 - asusprime: RTX 2060 6GB, torch env installing, code synced to ~/pluvio_v2,
   smoke launcher staged. AMP confirmed in train_seamless (autocast + GradScaler);
   6 GB implies batch ~4-8 at the 256 grid with accumulation if needed.
+
+## Trainer/dataset pairing (measured 2026-09-01, smoke bring-up)
+
+Two dataset stacks coexist and are NOT interchangeable:
+
+- `model/zarr_dataset.py` (`ZarrCorrectionDataset`) + `model/train.py` — pairs
+  with OUR stores from `tools/build_zarr.py` (arrays `radar`, `truth`,
+  `issue_time`; truth excluded from aux = leak protection). This is the v2
+  smoke/fine-tune path.
+- `model/seamless_dataset.py` + `model/train_seamless.py` — pairs with the
+  c15-era stores from `build_seamless_zarr.py` (arrays `opera_rate`,
+  `oflow_rate`/`oflow_leads`/`rate_tendency` via `tools/add_nowcast_channels.py`).
+  Running it against a v2 store fails: KeyError `opera_rate`.
+
+Follow-ups before the fine-tune phase, if we want advection priors on the v2
+store: port `tools/add_nowcast_channels.py` to read `radar` instead of
+`opera_rate` (name is hardcoded), or add the advection channels in
+`build_zarr.py` itself.
+
+GPU node constraint: asusprime runs python 3.10 → zarr 2.x only. Stores
+shipped there must be written `zarr_format=2` (hetz1's radarproc venv is
+zarr 3; pass `zarr_format=2` at group creation). Transfer as a single tar —
+per-issue chunks make ~10^5 files and per-file rsync crawls.
