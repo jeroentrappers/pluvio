@@ -196,7 +196,10 @@ def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime
         if w <= 0.0:
             continue
         scale = dt_min / span_min
-        adv = _warp(newest, -scale * fy, -scale * fx)  # extrapolate obs forward
+        # _warp(f, D) translates content BY +D, so forward extrapolation is
+        # +scale*flow. (A negative sign here advected cells BACKWARDS along
+        # their own motion — cells visibly reversed direction at the seam.)
+        adv = _warp(newest, scale * fy, scale * fx)
         blended[k] = np.clip(w * adv + (1 - w) * out[k], 0.0, None)
     LOG.info("nowcast lagrangian blend: obs_age=%.0f min issue_age=%.0f min flow_span=%.0f min",
              (datetime.now(UTC).timestamp() - t_obs) / 60,
