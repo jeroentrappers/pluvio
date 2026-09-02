@@ -157,7 +157,7 @@ Live-run confirmation accumulates independently via the forecast archive +
 The epoch-5 base-64 checkpoint (val_rmse 0.6749; beats the operational
 baseline at 100% of leads on RMSE and CSI) now serves production:
 installed as /opt/pluvio/research/checkpoints/pluvio_unet.pt on hetz1, picked
-up by the existing */15 cron (build_zarr --append -> model.infer_latest ->
+up by the append+infer cron, tightened to */5 on 2026-09-02 (build_zarr --append -> model.infer_latest ->
 model_nowcast.npz). Rollback: pluvio_unet_legacy_b32.pt.bak alongside.
 The base-64 training run continues on asusprime; refresh the served file the
 same way when a converged best lands. A same-split eval of the legacy
@@ -177,3 +177,14 @@ legacy = the base-32 UNet that served until 2026-09-02 12:07 (wet bias
 +0.005..+0.010). Checkpoint val_rmse values are NOT comparable across
 checkpoints trained on different windows (legacy said 0.2537, v2 says 0.6749
 — on this common split v2 is far stronger); only same-split evals count.
+
+## Seam lag + Lagrangian blend (2026-09-02 afternoon)
+
+The v2 artifact's issue age is 30-70 min: 30-min store issue cadence + late
+aux feeds + (formerly) a */15 append cron, now */5. Perf work on the
+composite pipeline does NOT touch this — different pipeline. Visual fix
+shipped: the nowcast band Lagrangian-blends the advected latest observation
+into the model field over the first future hour (model.py _lagrangian_blend),
+anchoring granularity and cell drift exactly at t=0. Further lag reduction
+would need a low-latency feature path (infer on radar-complete issues before
+all aux lands) — quality impact unmeasured, not done.
