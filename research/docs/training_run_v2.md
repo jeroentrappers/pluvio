@@ -129,3 +129,25 @@ Full run: entire aligned store (~35.7k issues, 14 GB zarr-v2, direct
 hetz1→asusprime rsync via authorized key), `model.train --epochs 300
 --batch-size 32` — no wall-clock cap, early stopping on the val-RMSE plateau
 decides convergence.
+
+## First head-to-head vs the operational nowcast (2026-09-02, epoch-5 snapshot)
+
+`model.evaluate` on the full chronological val window (>= 2026-04-02, 28,268
+samples, 56.5M sampled cells, tau=1 mm/h). Baseline = channel 6 =
+`radar[issue, lead]`, the nowcast actually served for that issue+lead;
+identical truth and cells for both sides.
+
+| lead | RMSE op->model | CSI op->model | bias op->model |
+|------|----------------|---------------|----------------|
+| 30   | 1.163 -> 1.075 | 0.100 -> 0.372 | +0.004 -> +0.005 |
+| 60   | 1.150 -> 1.070 | 0.092 -> 0.316 | +0.004 -> +0.006 |
+| 90   | 0.944 -> 0.857 | 0.084 -> 0.260 | +0.003 -> +0.008 |
+| 120  | 0.965 -> 0.884 | 0.077 -> 0.214 | +0.002 -> +0.010 |
+
+Model beats operational at 100% of leads on both metrics — and this is the
+epoch-5 snapshot of the base-64 + ReduceLROnPlateau run (val_rmse 0.6749),
+before the scheduler has even engaged. Caveats: truth is our composite (the
+operational engine historically optimized against OPERA-era truth), and CSI
+is at cell scale on a sharper analysis — the operational falls harder there.
+Live-run confirmation accumulates independently via the forecast archive +
+/v1/verify scores.
