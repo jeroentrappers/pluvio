@@ -188,3 +188,16 @@ into the model field over the first future hour (model.py _lagrangian_blend),
 anchoring granularity and cell drift exactly at t=0. Further lag reduction
 would need a low-latency feature path (infer on radar-complete issues before
 all aux lands) — quality impact unmeasured, not done.
+
+## Run converged (2026-09-02 ~17:00 CEST)
+
+The base-64 + ReduceLROnPlateau run early-stopped at epoch 35 (~13 h,
+patience 30, LR decayed 2e-4 -> 3.1e-6). Best: val_rmse 0.6749 at epoch 5 —
+the checkpoint that has been serving production since 12:07. Thirty further
+epochs never beat it (closest 0.6764 at epoch 35), so the served model is the
+converged optimum of this configuration. No swap needed.
+
+Next levers, in expected-value order: native higher-resolution retrain over
+the same box (truth archive already supports ~1 km), the RTCOR 2019-2025
+pretrain phase (corpus verified complete), 5-min issue densification (x12),
+and a low-latency feature path for fresher inference issues.
