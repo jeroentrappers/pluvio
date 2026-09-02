@@ -17,8 +17,7 @@ import VerifyView from './components/VerifyView'
 // frames play 150 ms ticks for fluid motion; forecast frames (5–10 min steps)
 // keep the slower 400 ms so each lead stays readable. The seamless timeline
 // mixes both cadences frame-by-frame.
-const PLAY_TICK_MS = 400
-const PLAY_TICK_HISTORY_MS = 150
+
 
 // Timeline (default) crosses t=0: the last 3 h of measured composite flow
 // straight into the forecast. Verify replays archived forecast runs against
@@ -148,12 +147,18 @@ export default function App() {
   const frames = ok ? ok.data.frames : []
   const cur = frames[index] ?? null
 
-  // Playback loop: one timeout per frame so the seamless timeline can honour
-  // each frame's native cadence (observed fast, forecast slow).
+  // Playback loop: one timeout per frame, paced by the REAL time-gap to the
+  // next frame so playback speed is constant across the whole seamless
+  // timeline (observed 100 s frames and 2-min morphed forecast frames play
+  // at the same rate; hourly outlook frames cap at 600 ms). 1.5 ms per real
+  // second ≈ the history mode's classic 150 ms per 100 s frame.
   useEffect(() => {
     if (!isPlaying || frames.length < 2) return
-    const obsFrame = mode === 'history' || (mode === 'timeline' && cur?.kind !== 'fc')
-    const tick = obsFrame ? PLAY_TICK_HISTORY_MS : PLAY_TICK_MS
+    const next = frames[(index + 1) % frames.length]
+    const dtSec = cur && next && next.validTime > cur.validTime
+      ? (next.validTime.getTime() - cur.validTime.getTime()) / 1000
+      : 100
+    const tick = Math.min(600, Math.max(120, dtSec * 1.5))
     const id = window.setTimeout(() => setIndex((i) => (i + 1) % frames.length), tick)
     return () => clearTimeout(id)
   }, [isPlaying, index, frames, mode, cur])

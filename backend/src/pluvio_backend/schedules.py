@@ -43,11 +43,13 @@ BANDS: dict[BandName, Band] = {
     "nowcast": Band(
         name="nowcast",
         lead_min_start=0,
-        # Inclusive of 120: the model field covers 0–120 min, so emit
-        # [0, 10, …, 120] (exclusive end 130). Stopping at 110 dropped the
-        # model's 120-min prediction and let the short-band stub fill +120.
-        lead_min_end=130,
-        step_min=10,
+        # Inclusive of 120: the model field covers 0–120 min. 2-min steps so
+        # the seamless timeline keeps its cadence across t=0 — the composite
+        # history plays ~100 s frames, and 10-min forecast jumps broke the
+        # temporal consistency. Intermediates are MOTION-interpolated between
+        # the model's native leads (model._band_from_cube + morph.py).
+        lead_min_end=122,
+        step_min=2,
         refresh_seconds=300,
         cron_expression="*/5 * * * *",
     ),

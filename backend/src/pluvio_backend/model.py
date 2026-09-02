@@ -82,11 +82,42 @@ def _load_fresh(path: pathlib.Path):
 
 
 def _band_from_cube(d, issued_at, band_name: schedules.BandName):
-    """Interpolate the full cube onto one band's lead steps."""
+    """Interpolate the full cube onto one band's lead steps.
+
+    Nowcast band: MOTION-morphed intermediates (cells move between the
+    model's native leads instead of cross-fading in place) — this is what
+    keeps the seamless timeline temporally consistent across t=0. Other
+    bands keep linear interpolation (their steps match the source spacing).
+    """
     src_leads = [int(x) for x in d["leads"]]
     src = d["rates"].astype("float32")
     band = schedules.band(band_name)
-    out = np.stack([_interp_lead(src, src_leads, L) for L in band.leads_min]).astype("float32")
+    if band_name != "nowcast":
+        out = np.stack([_interp_lead(src, src_leads, L) for L in band.leads_min]).astype("float32")
+        return out, issued_at
+
+    from .morph import flow_for_pair, morph_pair
+
+    flows: dict[tuple[int, int], np.ndarray] = {}
+    frames = []
+    for L in band.leads_min:
+        if L <= src_leads[0]:
+            frames.append(src[0])
+            continue
+        if L >= src_leads[-1]:
+            frames.append(src[-1])
+            continue
+        j = max(i for i in range(len(src_leads)) if src_leads[i] <= L)
+        a_lead, b_lead = src_leads[j], src_leads[j + 1]
+        if L == a_lead:
+            frames.append(src[j])
+            continue
+        key = (a_lead, b_lead)
+        if key not in flows:
+            flows[key] = flow_for_pair(src[j], src[j + 1])
+        w = (L - a_lead) / (b_lead - a_lead)
+        frames.append(morph_pair(src[j], src[j + 1], w, flow=flows[key]))
+    out = np.stack(frames).astype("float32")
     return out, issued_at
 
 
