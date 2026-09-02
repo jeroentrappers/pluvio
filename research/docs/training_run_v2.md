@@ -162,3 +162,18 @@ model_nowcast.npz). Rollback: pluvio_unet_legacy_b32.pt.bak alongside.
 The base-64 training run continues on asusprime; refresh the served file the
 same way when a converged best lands. A same-split eval of the legacy
 checkpoint is running for the three-way comparison record.
+
+## Three-way same-split comparison (2026-09-02, 28,268 val samples, tau=1)
+
+| lead | RMSE op / legacy / v2 | CSI op / legacy / v2 |
+|------|-----------------------|----------------------|
+| 30   | 1.163 / 1.155 / 1.075 | 0.100 / 0.109 / 0.372 |
+| 60   | 1.150 / 1.117 / 1.070 | 0.092 / 0.110 / 0.316 |
+| 90   | 0.944 / 0.908 / 0.857 | 0.084 / 0.107 / 0.260 |
+| 120  | 0.965 / 0.919 / 0.884 | 0.077 / 0.101 / 0.214 |
+
+legacy = the base-32 UNet that served until 2026-09-02 12:07 (wet bias
++0.025..+0.039); v2 = the epoch-5 base-64 checkpoint now serving (bias
++0.005..+0.010). Checkpoint val_rmse values are NOT comparable across
+checkpoints trained on different windows (legacy said 0.2537, v2 says 0.6749
+— on this common split v2 is far stronger); only same-split evals count.
