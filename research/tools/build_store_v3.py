@@ -90,6 +90,26 @@ def _remap(field: np.ndarray, rr: np.ndarray, cc: np.ndarray) -> np.ndarray:
                      borderValue=float("nan"))
 
 
+def _truth_rac(epoch: int) -> np.ndarray | None:
+    """Sharp truth on the new grid from the native 1-km RAC/RTCOR tars.
+
+    The deep QPE day-zarr archive turned out to be retention-pruned (~3 days),
+    so the single consistent historical truth is KNMI RTCOR (2019->, whole
+    domain incl. all of NL and most of BE; the far-SW corner of the box falls
+    outside the native domain and stays NaN). Reuses tools.knmi_rtcor: true
+    stereographic per-cell mapping, calibrated, gauge-adjusted product.
+    """
+    import tools.knmi_rtcor as kr
+
+    stamp = dt.datetime.fromtimestamp(int(epoch), dt.UTC).strftime("%Y%m%dT%H%M")
+    try:
+        r = kr.rate(stamp, BOX, (N_OUT, N_OUT))
+    except Exception as exc:
+        LOG.warning("rac truth failed for %s: %s", stamp, exc)
+        return None
+    return None if r is None else r.astype("float32")
+
+
 def _truth_qpe(qpe_root: pathlib.Path, epoch: int) -> np.ndarray | None:
     """Sharp truth over the southern (QPE) part of the box, on the new grid."""
     ts = dt.datetime.fromtimestamp(int(epoch), dt.UTC)
@@ -127,12 +147,37 @@ def _truth_qpe(qpe_root: pathlib.Path, epoch: int) -> np.ndarray | None:
     return out
 
 
+def prefetch_tars(t: np.ndarray) -> None:
+    """Download every daily RAC tar the issue list needs, sequentially —
+    shards then run compute-only against a warm cache (no download races)."""
+    import tools.knmi_rtcor as kr
+
+    stamps = sorted({dt.datetime.fromtimestamp(int(e), dt.UTC).strftime("%Y%m%dT%H%M")
+                     for e in t})
+    days = sorted({(s[:8], s) for s in stamps})
+    seen = set()
+    got = miss = 0
+    for i, (_day, stamp) in enumerate(days):
+        tar = kr._tar_for(stamp)
+        key = None if tar is None else tar.name
+        if key in seen:
+            continue
+        seen.add(key)
+        got += tar is not None
+        miss += tar is None
+        if (got + miss) % 25 == 0:
+            LOG.info("prefetch: %d tars ok, %d missing", got, miss)
+    LOG.info("prefetch complete: %d ok, %d missing", got, miss)
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--src", default="/opt/pluvio/zarr/timeseries.zarr")
     p.add_argument("--qpe", default="/mnt/storagebox/qpe")
     p.add_argument("--out", required=True)
     p.add_argument("--create", action="store_true")
+    p.add_argument("--prefetch", action="store_true",
+                   help="download all needed RAC tars sequentially, then exit")
     p.add_argument("--range", nargs=2, type=int, default=None)
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
@@ -145,6 +190,13 @@ def main(argv=None) -> int:
     n = min(src[k].shape[0] for k in per_issue)
     h, w = src["radar"].shape[-2:]
     (rr_t, cc_t), (rr_u, cc_u) = _legacy_index_maps(h, w)
+
+    if args.prefetch:
+        t = np.asarray(src["issue_time"][:n]).astype("int64")
+        if t.max() > 10**12:
+            t //= 1000
+        prefetch_tars(t)
+        return 0
 
     if args.create:
         dst = zarr.open_group(args.out, mode="w", zarr_format=2)
@@ -191,12 +243,15 @@ def main(argv=None) -> int:
             if k == "truth":
                 block = []
                 for i in range(s0, s1):
-                    north = _remap(np.asarray(a[i], dtype="float32"), rr_t, cc_t)
-                    q = _truth_qpe(qpe_root, t[i])
+                    rac = _truth_rac(t[i])
+                    if rac is None:
+                        # fall back to the legacy (coarse) truth reprojection
+                        rac = _remap(np.asarray(a[i], dtype="float32"), rr_t, cc_t)
+                    q = _truth_qpe(qpe_root, t[i])   # last ~3 days: composite wins
                     if q is not None:
                         use_q = np.isfinite(q)
-                        north[use_q] = q[use_q]      # QPE composite wins where present
-                    block.append(north)
+                        rac[use_q] = q[use_q]
+                    block.append(rac)
                 block = np.stack(block)
             elif a.ndim == 3:
                 # every 3-D per-issue array is an aux channel: they were
