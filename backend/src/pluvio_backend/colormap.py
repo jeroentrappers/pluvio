@@ -18,7 +18,7 @@ import numpy as np
 # Below this rate it's a trace (model noise), shown as nothing — kept in sync
 # with the web client's RAIN_THRESHOLD_MM_H (web/src/domain/precip.ts) so the
 # map overlay doesn't tint where the chart/headline say "dry".
-RAIN_THRESHOLD_MM_H = 0.1
+RAIN_THRESHOLD_MM_H = 0.05
 
 # (lower-bound mm/h, RGB) per band. The scale follows the Met Office rainfall
 # key (deep blue < 0.5 through dark red > 32): eight steps instead of the four
@@ -26,6 +26,10 @@ RAIN_THRESHOLD_MM_H = 0.1
 # in a field — the same rain looked flatter and weaker than on reference maps.
 # Colours must match MAP_RAMP in web/src/domain/precip.ts exactly.
 BANDS: list[tuple[float, tuple[int, int, int]]] = [
+    # Drizzle band: reference maps (Buienradar, Met Office) show trace rain
+    # below 0.1 mm/h; cutting it made our forecast look like it "missed"
+    # light rain. Dim navy, distinct from the 0.1 band.
+    (0.05, (12, 16, 120)),    # dim navy    #0c1078  → [0.05, 0.1)
     (0.1,  (18, 25, 200)),    # deep blue   #1219c8  → [0.1, 0.5)
     (0.5,  (60, 110, 230)),   # royal blue  #3c6ee6  → [0.5, 1)
     (1.0,  (105, 200, 240)),  # sky blue    #69c8f0  → [1, 2)

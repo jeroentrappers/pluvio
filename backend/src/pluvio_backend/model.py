@@ -127,7 +127,22 @@ def model_band(
     grid: GridSpec,
     band_name: schedules.BandName,
 ) -> tuple[np.ndarray, datetime]:
-    # 1) full-horizon cube serves every band.
+    # 1) The nowcast band prefers the dedicated nowcast artifact (the v2
+    #    correction UNet, refreshed every 15 min by the infer_latest cron).
+    #    Measured 2026-09-02: it tracks observed light-rain coverage almost
+    #    exactly (wet>0.1: 4.5% vs 4.6% observed) where the full-horizon cube
+    #    smears drizzle away (1.7% at lead 0, 0.4-0.6% by 30-60 min) — the
+    #    cube used to win here purely by load order.
+    if band_name == "nowcast":
+        loaded = _load_fresh(NPZ_PATH)
+        if loaded is not None:
+            d, issued_at = loaded
+            out, _ = _band_from_cube(d, issued_at, band_name)
+            LOG.info("nowcast served from v2 npz: issued=%s max=%.2f mm/h",
+                     issued_at.isoformat(), float(out.max()))
+            return out, issued_at
+
+    # 2) full-horizon cube serves every band (and the nowcast as fallback).
     loaded = _load_fresh(FORECAST_NPZ_PATH)
     if loaded is not None:
         d, issued_at = loaded
@@ -136,16 +151,6 @@ def model_band(
                  band_name, str(d["producer"]) if "producer" in d else "?",
                  issued_at.isoformat(), float(out.max()))
         return out, issued_at
-
-    # 2) legacy nowcast-only artifact covers just the nowcast band.
-    if band_name == "nowcast":
-        loaded = _load_fresh(NPZ_PATH)
-        if loaded is not None:
-            d, issued_at = loaded
-            out, _ = _band_from_cube(d, issued_at, band_name)
-            LOG.info("nowcast served from legacy npz: issued=%s max=%.2f mm/h",
-                     issued_at.isoformat(), float(out.max()))
-            return out, issued_at
 
     # 3) stub keeps the API alive.
     LOG.warning("no fresh forecast artifact for band=%s — falling back to stub", band_name)

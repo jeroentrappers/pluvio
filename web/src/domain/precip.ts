@@ -22,7 +22,10 @@ export function levelFromMmPerHour(mmPerHour: number): PrecipLevel {
 // through dark red > 32 mm/h). Must match BANDS in the backend's colormap.py
 // exactly: the overlay/sprite pixels are painted server-side.
 export const MAP_RAMP: { min: number; color: string; label: string }[] = [
-  { min: 0.1, color: '#1219c8', label: '<0.5' },
+  // Drizzle band: reference maps show trace rain below 0.1 mm/h; without it
+  // our forecast looked like it was missing light rain vs e.g. Buienradar.
+  { min: 0.05, color: '#0c1078', label: '<0.1' },
+  { min: 0.1, color: '#1219c8', label: '0.1\u20130.5' },
   { min: 0.5, color: '#3c6ee6', label: '0.5\u20131' },
   { min: 1, color: '#69c8f0', label: '1\u20132' },
   { min: 2, color: '#3cb43c', label: '2\u20134' },

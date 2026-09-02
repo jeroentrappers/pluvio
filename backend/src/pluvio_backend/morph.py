@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
-MAX_SHIFT = 4          # px search radius per block (≈ 140 km/h on the 6 km grid)
+MAX_SHIFT = 7          # px search radius per block — v2 leads are 30 min apart, so 60-80 km/h motion spans ~5-7 px on the 6 km grid
 BLOCKS = 4             # BLOCKS x BLOCKS overlapping estimation windows
 WET_THR = 0.05         # mm/h — cells that participate in matching
 
