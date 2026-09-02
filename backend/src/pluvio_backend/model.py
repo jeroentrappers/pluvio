@@ -121,6 +121,89 @@ def _band_from_cube(d, issued_at, band_name: schedules.BandName):
     return out, issued_at
 
 
+def _area_resample(a: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
+    """Block-mean resample (downsampling) without cv2."""
+    H, W = a.shape
+    oh, ow = out_hw
+    ri = np.clip(np.linspace(0, H, oh + 1).astype(int), 0, H)
+    ci = np.clip(np.linspace(0, W, ow + 1).astype(int), 0, W)
+    rows = np.add.reduceat(a, ri[:-1], axis=0) / np.maximum(np.diff(ri), 1)[:, None]
+    return (np.add.reduceat(rows, ci[:-1], axis=1) / np.maximum(np.diff(ci), 1)[None, :]).astype("float32")
+
+
+def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime,
+                      grid: GridSpec) -> np.ndarray:
+    """Anchor the seam: continue the OBSERVED composite into the forecast.
+
+    The v2 artifact's issue time lags wall clock by 30-70 min (store-append
+    latency), so the first frames the timeline shows after t=0 are 60-90-min
+    leads — smooth, and blind to the last hour of real cell drift: cells
+    visibly "stopped" or vanished at the seam. Fix, per nowcast lead:
+      valid time in the observed past  → the observed frame itself;
+      first future hour               → advected latest observation
+                                         cross-faded into the model field
+                                         (w: cos², 1 → 0 over 60 min);
+      beyond                          → pure model field.
+    Advection uses the same block-matching flow as the temporal morph,
+    estimated from the last ~17 min of observed frames.
+    """
+    import os
+
+    path = pathlib.Path(os.environ.get("PLUVIO_OBSERVED_NPZ", "/opt/pluvio/serve/observed.npz"))
+    if not path.exists():
+        return out
+    try:
+        z = np.load(path, allow_pickle=False)
+        times = z["times"].astype("int64")
+        rates = z["rates"]
+        W0, S0, E0, N0 = (float(x) for x in z["bounds"])
+    except Exception as exc:  # never break serving over the blend
+        LOG.warning("lagrangian blend: observed cube unreadable (%s)", exc)
+        return out
+    if len(times) < 12:
+        return out
+    b = grid.bounds
+    gh, gw = rates.shape[1:]
+    c0 = int((b["west"] - W0) / (E0 - W0) * gw)
+    c1 = int((b["east"] - W0) / (E0 - W0) * gw)
+    r0 = int((N0 - b["north"]) / (N0 - S0) * gh)
+    r1 = int((N0 - b["south"]) / (N0 - S0) * gh)
+    if not (0 <= c0 < c1 <= gw and 0 <= r0 < r1 <= gh):
+        return out
+
+    from .morph import _warp, flow_for_pair
+
+    def obs_at(i: int) -> np.ndarray:
+        return _area_resample(np.nan_to_num(np.asarray(rates[i, r0:r1, c0:c1], dtype="float32")),
+                              grid.shape)
+
+    newest = obs_at(len(times) - 1)
+    older = obs_at(len(times) - 11)
+    span_min = max(1.0, (int(times[-1]) - int(times[-11])) / 60.0)
+    fy, fx = flow_for_pair(older, newest)  # displacement over span_min
+    t_obs = int(times[-1])
+    issue_e = int(issued_at.timestamp())
+
+    blended = out.copy()
+    for k, lead in enumerate(leads_min):
+        dt_min = (issue_e + lead * 60 - t_obs) / 60.0
+        if dt_min <= 0:
+            # valid time lies in the observed record: use the observation itself
+            j = int(np.argmin(np.abs(times - (issue_e + lead * 60))))
+            blended[k] = obs_at(j)
+            continue
+        w = float(np.cos(np.pi / 2 * min(dt_min, 60.0) / 60.0) ** 2)
+        if w <= 0.0:
+            continue
+        scale = dt_min / span_min
+        adv = _warp(newest, -scale * fy, -scale * fx)  # extrapolate obs forward
+        blended[k] = np.clip(w * adv + (1 - w) * out[k], 0.0, None)
+    LOG.info("nowcast lagrangian blend: obs_age=%.0f min issue_age=%.0f min flow_span=%.0f min",
+             (datetime.now(UTC).timestamp() - t_obs) / 60,
+             (datetime.now(UTC).timestamp() - issue_e) / 60, span_min)
+    return blended
+
+
 def model_band(
     client: httpx.Client,
     base_url: str,
@@ -138,7 +221,9 @@ def model_band(
         if loaded is not None:
             d, issued_at = loaded
             out, _ = _band_from_cube(d, issued_at, band_name)
-            LOG.info("nowcast served from v2 npz: issued=%s max=%.2f mm/h",
+            out = _lagrangian_blend(out, schedules.band(band_name).leads_min,
+                                    issued_at, grid)
+            LOG.info("nowcast served from v2 npz + observed blend: issued=%s max=%.2f mm/h",
                      issued_at.isoformat(), float(out.max()))
             return out, issued_at
 
