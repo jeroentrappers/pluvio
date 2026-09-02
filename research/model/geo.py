@@ -84,23 +84,24 @@ def grid_latlon() -> tuple[np.ndarray, np.ndarray]:
     xmin, xmax = min(xs), max(xs)
     ymin, ymax = min(ys), max(ys)
 
-    # Cell centres: linspace across the projected extent. Row 0 = north (ymax).
+    # THE TRIM (root-caused 2026-09-02): the native KNMI product is 765x700;
+    # notebooks/_lib._resample block-means to (100,100) via integer factors —
+    # yh = 765//100 = 7 — and TRIMS to field[:700, :700]: the analysis fields
+    # only cover the NORTHERN 700/765 of the domain (columns untrimmed,
+    # 700//100 = 7 exactly). Mapping 100 rows across the full corner extent
+    # stretched content southward, linearly worse toward the south edge:
+    # ~0.5 deg = ~50 km at Belgium — user-visible at the timeline seam.
+    y_south = ymax - (700.0 / 765.0) * (ymax - ymin)
     cx = np.linspace(xmin, xmax, w)
-    cy = np.linspace(ymax, ymin, h)
+    cy = np.linspace(ymax, y_south, h)
     gx, gy = np.meshgrid(cx, cy)  # (h, w)
     lon, lat = to_ll.transform(gx, gy)
-    # Empirical registration calibration (2026-09-02): cross-correlating the
-    # store's analysis fields against the ground-truthed serving composite at
-    # identical valid times peaks at (+0.10 lat, +0.12 lon) — corr 0.35→0.58.
-    # Without it, everything model-side displays ~11-13 km south-west of
-    # reality (user-visible at the timeline seam). Applied here so serving
-    # reprojection places fields where the data actually is; override or
-    # disable with PLUVIO_GRID_LATLON_BIAS="dlat,dlon" (e.g. "0,0").
+    # Residual calibration knob (default off now the geometry is exact).
     try:
-        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0.10,0.12")
+        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0,0")
         _dlat, _dlon = (float(x) for x in _b.split(","))
     except ValueError:
-        _dlat, _dlon = 0.10, 0.12
+        _dlat, _dlon = 0.0, 0.0
     return (lat + _dlat).astype("float32"), (lon + _dlon).astype("float32")
 
 
@@ -126,6 +127,11 @@ def analysis_grid_dst():
         xs.append(x)
         ys.append(y)
     xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+    # Same 765->700 row trim as grid_latlon: the radar/truth fields the aux
+    # are meant to align with only cover the northern 700/765 of the domain.
+    # (Before this fix aux was regridded to the FULL extent — internally
+    # misaligned with radar/truth by up to ~0.5 deg in the south.)
+    ymin = ymax - (700.0 / 765.0) * (ymax - ymin)
     px = (xmax - xmin) / (w - 1)
     py = (ymax - ymin) / (h - 1)
     transform = from_origin(xmin - px / 2, ymax + py / 2, px, py)  # north-up
