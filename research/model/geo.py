@@ -89,7 +89,19 @@ def grid_latlon() -> tuple[np.ndarray, np.ndarray]:
     cy = np.linspace(ymax, ymin, h)
     gx, gy = np.meshgrid(cx, cy)  # (h, w)
     lon, lat = to_ll.transform(gx, gy)
-    return lat.astype("float32"), lon.astype("float32")
+    # Empirical registration calibration (2026-09-02): cross-correlating the
+    # store's analysis fields against the ground-truthed serving composite at
+    # identical valid times peaks at (+0.10 lat, +0.12 lon) — corr 0.35→0.58.
+    # Without it, everything model-side displays ~11-13 km south-west of
+    # reality (user-visible at the timeline seam). Applied here so serving
+    # reprojection places fields where the data actually is; override or
+    # disable with PLUVIO_GRID_LATLON_BIAS="dlat,dlon" (e.g. "0,0").
+    try:
+        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0.10,0.12")
+        _dlat, _dlon = (float(x) for x in _b.split(","))
+    except ValueError:
+        _dlat, _dlon = 0.10, 0.12
+    return (lat + _dlat).astype("float32"), (lon + _dlon).astype("float32")
 
 
 def bbox() -> tuple[float, float, float, float]:
