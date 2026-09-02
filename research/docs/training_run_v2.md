@@ -151,3 +151,14 @@ operational engine historically optimized against OPERA-era truth), and CSI
 is at cell scale on a sharper analysis — the operational falls harder there.
 Live-run confirmation accumulates independently via the forecast archive +
 /v1/verify scores.
+
+## v2 GO-LIVE (2026-09-02 12:07 CEST)
+
+The epoch-5 base-64 checkpoint (val_rmse 0.6749; beats the operational
+baseline at 100% of leads on RMSE and CSI) now serves production:
+installed as /opt/pluvio/research/checkpoints/pluvio_unet.pt on hetz1, picked
+up by the existing */15 cron (build_zarr --append -> model.infer_latest ->
+model_nowcast.npz). Rollback: pluvio_unet_legacy_b32.pt.bak alongside.
+The base-64 training run continues on asusprime; refresh the served file the
+same way when a converged best lands. A same-split eval of the legacy
+checkpoint is running for the three-way comparison record.
