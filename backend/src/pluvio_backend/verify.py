@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from .colormap import diff_rgba, rgba_for_array
+from .colormap import diff_rgba, rgba_for_array, upsample_field
 
 LOG = logging.getLogger("pluvio.verify")
 
@@ -122,13 +122,17 @@ def frame_png(issue: int, lead: int, kind: str) -> bytes | None:
         return None
     li = leads.index(lead)
     f_rate = fc["rates"][li]
+    w, s_, e, n = fc["bounds"]
+    up = (max(round((n - s_) * 74.0), f_rate.shape[0]),
+          max(round((e - w) * 46.51), f_rate.shape[1]))
     if kind == "forecast":
-        rgba = rgba_for_array(f_rate)
+        rgba = rgba_for_array(upsample_field(f_rate, up))
     else:
         obs = observed_on(issue + lead * 60, fc["bounds"], f_rate.shape)
         if obs is None:
             return None
-        rgba = rgba_for_array(obs) if kind == "observed" else diff_rgba(f_rate - obs)
+        rgba = (rgba_for_array(upsample_field(obs, up)) if kind == "observed"
+                else diff_rgba(upsample_field(f_rate, up) - upsample_field(obs, up)))
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

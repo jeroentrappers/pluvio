@@ -93,3 +93,19 @@ def diff_rgba(diff_mm_h: np.ndarray, alpha: int = 220) -> np.ndarray:
     visible = over | under
     rgba[visible, 3] = (80 + 140 * mag[visible]).astype("uint8")
     return rgba
+
+
+def upsample_field(mm_per_h: np.ndarray, target_hw: tuple[int, int]) -> np.ndarray:
+    """Bicubic-upsample a rate FIELD (mm/h) for display, so band edges render
+    as smooth contours instead of model-grid blocks. Interpolating the field
+    and then colorizing keeps band thresholds exact; interpolating colors
+    would smear between palette entries. Never downsamples."""
+    from PIL import Image
+
+    h, w = mm_per_h.shape
+    th, tw = target_hw
+    if th <= h or tw <= w:
+        return mm_per_h
+    img = Image.fromarray(np.nan_to_num(mm_per_h).astype("float32"), mode="F")
+    up = np.asarray(img.resize((tw, th), Image.BICUBIC), dtype="float32")
+    return np.clip(up, 0.0, None)

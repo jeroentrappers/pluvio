@@ -13,11 +13,13 @@ import pathlib
 import numpy as np
 from PIL import Image
 
-from .colormap import rgba_for_array
+from .colormap import rgba_for_array, upsample_field
 
 
-def render_overlay(mm_per_h: np.ndarray) -> bytes:
+def render_overlay(mm_per_h: np.ndarray, target_hw: tuple[int, int] | None = None) -> bytes:
     """Render a single precipitation field as PNG bytes."""
+    if target_hw is not None:
+        mm_per_h = upsample_field(mm_per_h, target_hw)
     rgba = rgba_for_array(mm_per_h)
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
@@ -25,14 +27,16 @@ def render_overlay(mm_per_h: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
-def render_overlay_to_path(mm_per_h: np.ndarray, path: pathlib.Path) -> pathlib.Path:
+def render_overlay_to_path(mm_per_h: np.ndarray, path: pathlib.Path,
+                           target_hw: tuple[int, int] | None = None) -> pathlib.Path:
     """Convenience wrapper: render and write to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(render_overlay(mm_per_h))
+    path.write_bytes(render_overlay(mm_per_h, target_hw))
     return path
 
 
-def render_sprite(fields: list[np.ndarray], cols: int = 12) -> tuple[bytes, int, int]:
+def render_sprite(fields: list[np.ndarray], cols: int = 12,
+                  target_hw: tuple[int, int] | None = None) -> tuple[bytes, int, int]:
     """Tile many precipitation fields into one RGBA sprite-sheet PNG.
 
     The web client downloads this single image per prediction and scrubs by
@@ -43,6 +47,8 @@ def render_sprite(fields: list[np.ndarray], cols: int = 12) -> tuple[bytes, int,
     """
     if not fields:
         raise ValueError("no fields to tile")
+    if target_hw is not None:
+        fields = [upsample_field(f, target_hw) for f in fields]
     h, w = fields[0].shape
     rows = -(-len(fields) // cols)  # ceil
     sheet = np.zeros((rows * h, cols * w, 4), dtype="uint8")

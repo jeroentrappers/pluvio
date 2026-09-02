@@ -138,6 +138,25 @@ class ForecastCache:
         z.attrs["band"] = band_name
         return path
 
+    def _render_shape(self) -> tuple[int, int]:
+        """Overlay render resolution: the radar composite's angular pixel
+        density (wide serving grid: 1907 px / 41 deg lon, 2627 px / 35.5 deg
+        lat) applied to this grid's bounds — so forecast frames match the
+        measured composite's scale exactly when the timeline crosses t=0.
+        Override with PLUVIO_OVERLAY_PXDEG="lon,lat"; values <= native
+        resolution disable upscaling."""
+        import os
+
+        try:
+            px_lon, px_lat = (float(x) for x in
+                              os.environ.get("PLUVIO_OVERLAY_PXDEG", "46.51,74.0").split(","))
+        except ValueError:
+            px_lon, px_lat = 46.51, 74.0
+        b = self.grid.bounds
+        th = round((b["north"] - b["south"]) * px_lat)
+        tw = round((b["east"] - b["west"]) * px_lon)
+        return max(th, self.grid.shape[0]), max(tw, self.grid.shape[1])
+
     def write_overlays(
         self,
         snapshot_dir: pathlib.Path,
@@ -148,10 +167,11 @@ class ForecastCache:
         from .tiler import render_overlay_to_path
 
         band = schedules.band(band_name)
+        shape = self._render_shape()
         n_written = 0
         for i, lead in enumerate(band.leads_min):
             target = snapshot_dir / "overlays" / band_name / f"{lead}.png"
-            render_overlay_to_path(rates_mm_per_h[i], target)
+            render_overlay_to_path(rates_mm_per_h[i], target, target_hw=shape)
             n_written += 1
         return n_written
 
@@ -226,10 +246,11 @@ class ForecastCache:
                 ordered.append((lead, band_name, arr[i]))
         ordered.sort(key=lambda t: t[0])
 
-        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols)
+        shape = self._render_shape()
+        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols, target_hw=shape)
         (snapshot_dir / "sprite.png").write_bytes(png)
 
-        h, w = self.grid.shape
+        h, w = shape
         return {
             "tile_w": w,
             "tile_h": h,
