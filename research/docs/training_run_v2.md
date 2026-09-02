@@ -201,3 +201,31 @@ Next levers, in expected-value order: native higher-resolution retrain over
 the same box (truth archive already supports ~1 km), the RTCOR 2019-2025
 pretrain phase (corpus verified complete), 5-min issue densification (x12),
 and a low-latency feature path for fresher inference issues.
+
+## Input-validation night (2026-09-02 evening) — user-driven rigor pass
+
+Root-caused, fixed, verified:
+- Advection sign in the Lagrangian blend (cells reversed at the seam).
+- THE TRIM: notebooks/_lib._resample crops the native 765x700 KNMI field to
+  [:700,:700] before block-meaning; grid_latlon spread 100 rows across the
+  UNTRIMMED extent -> content stretched ~0.5 deg south at Belgium (the
+  "50-100 km" seam offset seen by eye). geo now maps the trimmed extent;
+  multi-issue registration fit after the fix: dlat 0.00, residual dlon +0.07
+  (calibrated default), median corr 0.728.
+- INPUT DEFECT for the current model: aux channels were regridded via
+  analysis_grid_dst to the untrimmed extent -> aux sits up to ~0.5 deg south
+  of radar/truth in the training store. The trained model partially absorbed
+  this; the store rebuild must regrid aux with the corrected geometry (or
+  move everything to one regular lat/lon grid — the plan).
+- Absolute skill (the user's "trivial validation"): +30 min over 400 val
+  samples — CSI@0.5 model 0.295 vs persistence 0.070; CSI@1.0 0.248 vs
+  0.052; RMSE 0.519 vs 0.754.
+
+New automation: tools/qc_inputs.py (registration offset fit, aux alignment,
+channel NaN/range health, staleness; exits 1 on WARN) + crop-mark fiducials
+(PLUVIO_DEBUG_FIDUCIALS=1 stamps city crosses on both overlay families).
+
+Retrain (paused pending these fixes) re-scoped: bigger box covering all of
+the Netherlands (~1.5-7.5E, 48.9-54.2N), everything on ONE regular lat/lon
+grid, truth = QPE composite (BE/south) + RTCOR (NL, 2019->) — aligns with
+the RTCOR pretrain phase and retires the KNMI-stereo legacy entirely.
