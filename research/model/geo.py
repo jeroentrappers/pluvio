@@ -96,12 +96,16 @@ def grid_latlon() -> tuple[np.ndarray, np.ndarray]:
     cy = np.linspace(ymax, y_south, h)
     gx, gy = np.meshgrid(cx, cy)  # (h, w)
     lon, lat = to_ll.transform(gx, gy)
-    # Residual calibration knob (default off now the geometry is exact).
+    # Residual calibration: multi-issue cross-correlation fit vs the
+    # ground-truthed composite (2026-09-02, 6 wet issues, median corr 0.728)
+    # leaves (dlat, dlon) = (-0.02, +0.07); dlat is within fit noise, the
+    # +0.07 lon (~0.6 grid column) looks like a corner centre-vs-edge
+    # convention. Applied as default; PLUVIO_GRID_LATLON_BIAS overrides.
     try:
-        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0,0")
+        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0,0.07")
         _dlat, _dlon = (float(x) for x in _b.split(","))
     except ValueError:
-        _dlat, _dlon = 0.0, 0.0
+        _dlat, _dlon = 0.0, 0.07
     return (lat + _dlat).astype("float32"), (lon + _dlon).astype("float32")
 
 

@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from .colormap import rgba_for_array
+from .colormap import draw_fiducials, rgba_for_array
 from .tiler import render_sprite
 
 LOG = logging.getLogger("pluvio.history")
@@ -231,6 +231,10 @@ def overlay_png(epoch: int) -> bytes | None:
     if epoch not in idx:
         return None
     rgba = rgba_for_array(data["rates"][idx[epoch]])
+    import os as _os
+    if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
+        b = data["bounds"]
+        draw_fiducials(rgba, (float(b[0]), float(b[1]), float(b[2]), float(b[3])))
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

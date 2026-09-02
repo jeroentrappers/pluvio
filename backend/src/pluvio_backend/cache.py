@@ -168,12 +168,23 @@ class ForecastCache:
 
         band = schedules.band(band_name)
         shape = self._render_shape()
+        fid = self._fiducial_bounds()
         n_written = 0
         for i, lead in enumerate(band.leads_min):
             target = snapshot_dir / "overlays" / band_name / f"{lead}.png"
-            render_overlay_to_path(rates_mm_per_h[i], target, target_hw=shape)
+            render_overlay_to_path(rates_mm_per_h[i], target, target_hw=shape,
+                                   fiducials=fid)
             n_written += 1
         return n_written
+
+    def _fiducial_bounds(self):
+        """Bounds tuple when crop-mark QC is enabled, else None."""
+        import os
+
+        if os.environ.get("PLUVIO_DEBUG_FIDUCIALS") != "1":
+            return None
+        b = self.grid.bounds
+        return (b["west"], b["south"], b["east"], b["north"])
 
     def write_point_shards(
         self,
@@ -247,7 +258,8 @@ class ForecastCache:
         ordered.sort(key=lambda t: t[0])
 
         shape = self._render_shape()
-        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols, target_hw=shape)
+        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols, target_hw=shape,
+                                        fiducials=self._fiducial_bounds())
         (snapshot_dir / "sprite.png").write_bytes(png)
 
         h, w = shape

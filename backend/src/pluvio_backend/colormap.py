@@ -113,3 +113,38 @@ def upsample_field(mm_per_h: np.ndarray, target_hw: tuple[int, int]) -> np.ndarr
     img = Image.fromarray(np.nan_to_num(mm_per_h).astype("float32"), mode="F")
     up = np.asarray(img.resize((tw, th), Image.BICUBIC), dtype="float32")
     return np.clip(up, 0.0, None)
+
+
+# Registration crop-marks (QC): known city coordinates drawn as magenta
+# crosses onto overlays when PLUVIO_DEBUG_FIDUCIALS=1, so projection errors
+# are visible at a glance against the basemap — born from a ~50 km
+# misregistration that only a human eyeball caught.
+FIDUCIALS: list[tuple[str, float, float]] = [
+    ("BRU", 50.847, 4.352),
+    ("AMS", 52.373, 4.891),
+    ("LIL", 50.633, 3.066),
+    ("LUX", 49.611, 6.132),
+    ("ANT", 51.220, 4.402),
+]
+
+
+def draw_fiducials(rgba: np.ndarray, bounds: tuple[float, float, float, float]) -> np.ndarray:
+    """Stamp magenta crosses at FIDUCIALS onto an RGBA overlay in place.
+
+    bounds = (west, south, east, north); row 0 = north.
+    """
+    h, w = rgba.shape[:2]
+    wst, sth, est, nth = bounds
+    arm = max(2, h // 60)
+    for _name, lat, lon in FIDUCIALS:
+        if not (wst <= lon <= est and sth <= lat <= nth):
+            continue
+        r = int((nth - lat) / (nth - sth) * h)
+        c = int((lon - wst) / (est - wst) * w)
+        r0, r1 = max(0, r - arm), min(h, r + arm + 1)
+        c0, c1 = max(0, c - arm), min(w, c + arm + 1)
+        if 0 <= r < h:
+            rgba[r, c0:c1] = (255, 0, 255, 255)
+        if 0 <= c < w:
+            rgba[r0:r1, c] = (255, 0, 255, 255)
+    return rgba
