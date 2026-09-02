@@ -164,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Subsample validation for the per-epoch metric (CPU speed).")
     parser.add_argument("--bias-penalty", type=float, default=0.5,
                         help="Weight on the mean-bias penalty term (fixes wet over-prediction).")
+    parser.add_argument("--patience", type=int, default=30,
+                        help="early-stopping patience in epochs (val RMSE plateau)")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="Stop training after this many wall-clock minutes (CPU budget guard).")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -235,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
 
     best_val = float("inf")
-    patience = 5
+    patience = args.patience
     no_improve = 0
     checkpoint_path = pathlib.Path(args.checkpoint)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
