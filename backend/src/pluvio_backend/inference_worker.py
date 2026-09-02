@@ -123,8 +123,21 @@ def _reuse_or_new_snapshot(
     )
     bucket_dt = datetime.fromtimestamp(bucket * schedules.band("nowcast").refresh_seconds, tz=UTC)
     existing = cache.latest_snapshot()
-    if existing is not None and existing.name.startswith(bucket_dt.strftime("%Y-%m-%dT%H-%M-")):
-        return existing
+    if existing is not None:
+        if existing.name.startswith(bucket_dt.strftime("%Y-%m-%dT%H-%M-")):
+            return existing
+        # Bands can carry different artifact issue times (the v2 nowcast npz
+        # lags the full-horizon cube by its store-append latency). Never step
+        # BACK to an older-named snapshot — that made `latest` ping-pong
+        # between two dirs as bands alternated, churning sprite URLs. Join
+        # the newer existing snapshot instead; only create a new dir when our
+        # bucket genuinely moves time forward.
+        try:
+            existing_dt = datetime.strptime(existing.name, "%Y-%m-%dT%H-%M-%SZ").replace(tzinfo=UTC)
+            if existing_dt >= bucket_dt:
+                return existing
+        except ValueError:
+            pass
     return cache.new_snapshot_dir(bucket_dt)
 
 
