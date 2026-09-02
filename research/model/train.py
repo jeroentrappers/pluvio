@@ -235,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
+    # Val RMSE at a fixed LR oscillates around an early best without ever
+    # beating it (measured on the first full v2 runs: best at epoch 1-2, then
+    # 30 epochs of 0.69-0.80 bounce while train loss keeps falling). Halve the
+    # LR whenever val plateaus so the optimizer can settle into the minimum.
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=4)
 
     best_val = float("inf")
     patience = args.patience
@@ -248,10 +254,12 @@ def main(argv: list[str] | None = None) -> int:
             model, train_loader, optimizer, scaler, device, args.bias_penalty
         )
         metrics = validate(model, val_loader, device)
+        scheduler.step(metrics["val_rmse"])
         elapsed_min = (time.monotonic() - started) / 60
         LOG.info(
-            "Epoch %d: train_loss=%.4f val_rmse=%.4f (%.1f min elapsed)",
-            epoch, train_loss, metrics["val_rmse"], elapsed_min,
+            "Epoch %d: train_loss=%.4f val_rmse=%.4f lr=%.1e (%.1f min elapsed)",
+            epoch, train_loss, metrics["val_rmse"],
+            optimizer.param_groups[0]["lr"], elapsed_min,
         )
         if metrics["val_rmse"] < best_val:
             best_val = metrics["val_rmse"]
