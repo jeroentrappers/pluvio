@@ -45,7 +45,6 @@ import datetime as dt
 import http.client
 import json
 import logging
-import math
 import os
 import pathlib
 import time
@@ -66,9 +65,8 @@ BUIENRADAR_URL = "https://gpsgadget.buienradar.nl/data/raintext?lat={lat}&lon={l
 
 # Identify ourselves in the request so Buienradar's operators can throttle or
 # block us by name instead of by IP if this sampler is ever a problem for
-# them. Swap the contact URL for a real one before running this anywhere
-# outside a single researcher's machine.
-USER_AGENT = "pluvio-external-baselines/1.0 (+https://example.invalid/pluvio-contact)"
+# them.
+USER_AGENT = "pluvio-external-baselines/1.0 (+https://github.com/jeroentrappers/pluvio)"
 
 DRY_FLOOR_MM_H = 0.01
 
@@ -183,20 +181,24 @@ def parse_raintext(text: str, issue_time_utc: dt.datetime) -> list[tuple[int, fl
         issue_time_utc = issue_time_utc.replace(tzinfo=dt.timezone.utc)
     issue_epoch = int(issue_time_utc.timestamp())
 
-    parsed_lines: list[tuple[dt.time, float]] = []
+    parsed_lines: list[tuple[dt.time, int]] = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or "|" not in line:
             continue
         value_str, _, time_str = line.partition("|")
         try:
-            value = float(value_str)
+            # VVV is documented as an integer byte 0-255. Require an actual
+            # integer token (after stripping incidental whitespace) rather
+            # than float() -- float() would happily accept "50.5" or "1e2"
+            # as a byte value, which are not legal encodings of one.
+            value = int(value_str.strip())
             hh, mm = time_str.split(":")
             tod = dt.time(int(hh), int(mm))
         except (ValueError, IndexError):
             LOG.debug("skipping malformed raintext line: %r", raw_line)
             continue
-        if not (0.0 <= value <= 255.0):
+        if not (0 <= value <= 255):
             LOG.debug("skipping out-of-range raintext value: %r", raw_line)
             continue
         parsed_lines.append((tod, value))
@@ -333,16 +335,103 @@ def _index_path(jsonl_path: pathlib.Path) -> pathlib.Path:
     return jsonl_path.with_suffix(jsonl_path.suffix + ".idx")
 
 
+def _index_header(jsonl_size: int, batch_count: int) -> str:
+    return f"# size={jsonl_size} batches={batch_count}\n"
+
+
+def _read_index(idx_path: pathlib.Path, jsonl_path: pathlib.Path) -> set[tuple[str, int]] | None:
+    """Read the sidecar index, but only trust it if it is self-consistent
+    with the JSONL it claims to describe.
+
+    Returns ``None`` -- never a partial or wrong set -- when the index is
+    missing, its header's recorded JSONL byte size doesn't match the
+    JSONL's actual current size (the index is stale, e.g. from a run that
+    appended to the JSONL but crashed or hit ENOSPC before updating the
+    index), or the number of batch lines it actually contains doesn't match
+    its own declared count (the index file itself was truncated or
+    corrupted independent of the JSONL). Any of those must fall back to
+    rebuilding from the JSONL rather than risk under-counting what's
+    already written and re-appending duplicates.
+    """
+    if not idx_path.exists():
+        return None
+    try:
+        jsonl_size = jsonl_path.stat().st_size if jsonl_path.exists() else 0
+    except OSError:
+        return None
+    try:
+        with idx_path.open("r", encoding="utf-8") as fh:
+            header = fh.readline().strip()
+            if not header.startswith("# size="):
+                return None
+            fields = dict(part.split("=", 1) for part in header[2:].split() if "=" in part)
+            if int(fields.get("size", -1)) != jsonl_size:
+                return None
+            declared_batches = int(fields["batches"]) if "batches" in fields else None
+
+            keys: set[tuple[str, int]] = set()
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                station, sep, issue_epoch_str = line.partition("|")
+                if not sep:
+                    return None
+                keys.add((station, int(issue_epoch_str)))
+
+            if declared_batches is not None and len(keys) != declared_batches:
+                return None
+            return keys
+    except (OSError, ValueError):
+        return None
+
+
+def _distinct_batches_from_jsonl(path: pathlib.Path) -> set[tuple[str, int]]:
+    """Ground truth: every distinct (station, issue_epoch) actually present
+    in the day's JSONL, read directly from it. Used whenever the sidecar
+    index can't be trusted -- never trust the index over the data it's
+    supposed to summarize."""
+    keys: set[tuple[str, int]] = set()
+    if not path.exists():
+        return keys
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            keys.add((rec.get("station"), rec.get("issue_epoch")))
+    return keys
+
+
+def _write_index_atomic(idx_path: pathlib.Path, jsonl_path: pathlib.Path, keys: set[tuple[str, int]]) -> None:
+    jsonl_size = jsonl_path.stat().st_size if jsonl_path.exists() else 0
+    tmp = idx_path.with_suffix(idx_path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(_index_header(jsonl_size, len(keys)))
+        for station, issue_epoch in sorted(keys, key=lambda k: (str(k[0]), k[1])):
+            fh.write(f"{station}|{issue_epoch}\n")
+    os.replace(tmp, idx_path)  # atomic on POSIX and Windows alike
+
+
 def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
     """Append rows to per-day JSONL files, skipping ones already recorded.
 
     Idempotency is tracked per (station, issue_epoch) *batch* -- all the
     lead-time rows one station produces in one fetch share the same
-    (snapped) issue_epoch and are written or skipped together -- via a small
-    sidecar ``.idx`` file next to the day's ``.jsonl``. That index is read
-    (not the full day's JSON rows) to decide what's new, so repeated calls
-    across a day of 10-minute cadence stay cheap instead of re-parsing an
-    ever-growing JSONL file on every call.
+    (snapped) issue_epoch and are written or skipped together -- via a
+    small sidecar ``.idx`` file next to the day's ``.jsonl``, so that
+    repeated calls across a day of 10-minute cadence usually don't need to
+    re-parse an ever-growing JSONL file. That index is only ever a cache,
+    though: it is verified self-consistent (see ``_read_index``) before
+    being trusted, and rebuilt from the JSONL -- the actual ground truth --
+    whenever it's missing, stale, or corrupted. The JSONL is appended to
+    before the index is updated, so the worst a crash between the two can
+    do is leave the index looking stale, which forces a rebuild on the next
+    call rather than a silent duplicate.
 
     Returns the number of rows actually written.
     """
@@ -359,18 +448,9 @@ def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         idx_path = _index_path(path)
 
-        written_batches: set[tuple[str, int]] = set()
-        if idx_path.exists():
-            with idx_path.open("r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    station, _, issue_epoch_str = line.partition("|")
-                    try:
-                        written_batches.add((station, int(issue_epoch_str)))
-                    except ValueError:
-                        continue
+        idx_result = _read_index(idx_path, path)
+        rebuilt = idx_result is None
+        written_batches = idx_result if idx_result is not None else _distinct_batches_from_jsonl(path)
 
         by_batch: dict[tuple[str, int], list[dict]] = {}
         for row in day_rows:
@@ -378,12 +458,11 @@ def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
             by_batch.setdefault(key, []).append(row)
 
         new_lines = []
-        new_batches = []
+        final_batches = set(written_batches)
         for key, batch_rows in by_batch.items():
-            if key in written_batches:
+            if key in final_batches:
                 continue
-            written_batches.add(key)
-            new_batches.append(key)
+            final_batches.add(key)
             for row in batch_rows:
                 new_lines.append(json.dumps(row, sort_keys=True))
 
@@ -391,10 +470,13 @@ def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
             with path.open("a", encoding="utf-8") as fh:
                 for line in new_lines:
                     fh.write(line + "\n")
-            with idx_path.open("a", encoding="utf-8") as fh:
-                for station, issue_epoch in new_batches:
-                    fh.write(f"{station}|{issue_epoch}\n")
             written += len(new_lines)
+
+        # Persist the index whenever the JSONL changed (so its recorded
+        # size stays current) or whenever we had to rebuild it above (so
+        # that rebuild sticks instead of re-triggering on every call).
+        if new_lines or rebuilt:
+            _write_index_atomic(idx_path, path, final_batches)
 
     return written
 
@@ -425,7 +507,21 @@ DEFAULT_THRESHOLDS = (0.1, 0.5, 1.0)
 
 
 def _is_missing(truth) -> bool:
-    return truth is None or (isinstance(truth, float) and math.isnan(truth))
+    """True for None or NaN, regardless of scalar type.
+
+    Truth values coming from this repo's composites are commonly numpy
+    float32, not the builtin float, so an ``isinstance(truth, float)`` gate
+    lets a numpy NaN straight through -- it then poisons bias/RMSE for the
+    whole lead bucket and silently counts as an unearned false alarm. NaN is
+    the only value that is never equal to itself, in any numeric dtype, so
+    that comparison is the dtype-agnostic test.
+    """
+    if truth is None:
+        return True
+    try:
+        return truth != truth
+    except TypeError:
+        return False
 
 
 def score_against_truth(

@@ -192,6 +192,19 @@ def test_parse_raintext_rejects_out_of_range_byte():
     assert rows[0][1] == pytest.approx(eb.value_to_mm_per_h(109))
 
 
+def test_parse_raintext_requires_integer_byte_token():
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    # "50.5" and "1e2" are not legal encodings of a 0-255 byte and must be
+    # rejected like any other malformed line, not silently coerced by
+    # float(). " 50 " (incidental whitespace around an otherwise-plain
+    # integer) is fine and should still parse.
+    text = "50.5|10:30\n1e2|10:35\n 50 |10:40\n109|10:45\n"
+    rows = eb.parse_raintext(text, issue)
+    assert len(rows) == 2
+    rates = sorted(rate for _, rate in rows)
+    assert rates == sorted([eb.value_to_mm_per_h(50), eb.value_to_mm_per_h(109)])
+
+
 def test_parse_raintext_empty_string():
     issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
     assert eb.parse_raintext("", issue) == []
@@ -441,6 +454,80 @@ def test_append_archive_batch_covers_all_rows_from_one_fetch(tmp_path):
     assert len(eb.load_archive(tmp_path, dt.date(2026, 9, 3))) == 3
 
 
+def test_append_archive_survives_deleted_index(tmp_path):
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    rows = [
+        _mk_row("Brussels", issue_epoch, issue_epoch),
+        _mk_row("Brussels", issue_epoch, issue_epoch + 300),
+        _mk_row("Antwerp", issue_epoch, issue_epoch),
+    ]
+    written1 = eb.append_archive(rows, tmp_path)
+    assert written1 == 3
+
+    path = tmp_path / "buienradar" / "2026" / "09" / "03.jsonl"
+    idx_path = eb._index_path(path)
+    assert idx_path.exists()
+    idx_path.unlink()
+
+    # re-appending the exact same rows with the index gone must not
+    # duplicate: the code has to fall back to scanning the JSONL (the
+    # ground truth) instead of assuming "no index -> nothing written yet".
+    written2 = eb.append_archive(rows, tmp_path)
+    assert written2 == 0
+    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    assert len(lines) == 3  # not 6
+
+    # and the index has been rebuilt, so a third call stays cheap/correct too.
+    assert idx_path.exists()
+    written3 = eb.append_archive(rows, tmp_path)
+    assert written3 == 0
+    assert len([l for l in path.read_text().splitlines() if l.strip()]) == 3
+
+
+def test_append_archive_survives_truncated_index(tmp_path):
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    rows = [
+        _mk_row("Brussels", issue_epoch, issue_epoch),
+        _mk_row("Antwerp", issue_epoch, issue_epoch),
+        _mk_row("Ghent", issue_epoch, issue_epoch),
+    ]
+    written1 = eb.append_archive(rows, tmp_path)
+    assert written1 == 3
+
+    path = tmp_path / "buienradar" / "2026" / "09" / "03.jsonl"
+    idx_path = eb._index_path(path)
+    original = idx_path.read_text()
+    assert len(original.splitlines()) > 1
+
+    # simulate a partial write / corruption: drop the last data line but
+    # keep the (now-wrong) header claiming the old batch count.
+    truncated = "\n".join(original.splitlines()[:-1]) + "\n"
+    idx_path.write_text(truncated)
+
+    written2 = eb.append_archive(rows, tmp_path)
+    assert written2 == 0  # must not re-append rows the JSONL already has
+    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    assert len(lines) == 3
+
+
+def test_append_archive_index_header_mismatch_forces_rebuild(tmp_path):
+    # a header whose recorded size no longer matches the JSONL (as if the
+    # JSONL was appended to without updating the index) must not be trusted.
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    rows = [_mk_row("Brussels", issue_epoch, issue_epoch)]
+    eb.append_archive(rows, tmp_path)
+
+    path = tmp_path / "buienradar" / "2026" / "09" / "03.jsonl"
+    idx_path = eb._index_path(path)
+    idx_path.write_text("# size=999999 batches=1\nBrussels|%d\n" % issue_epoch)
+
+    # re-appending the same row: the bogus header must trigger a JSONL
+    # rebuild rather than being trusted at face value.
+    written = eb.append_archive(rows, tmp_path)
+    assert written == 0
+    assert len([l for l in path.read_text().splitlines() if l.strip()]) == 1
+
+
 def test_load_archive_missing_day_returns_empty(tmp_path):
     assert eb.load_archive(tmp_path, dt.date(2020, 1, 1)) == []
 
@@ -528,6 +615,27 @@ def test_score_against_truth_skips_nan_truth():
     assert result[5]["bias"] == pytest.approx(0.0)
     assert result[5]["rmse"] == pytest.approx(0.0)
     assert result[5]["csi_1.0"] == pytest.approx(1.0)  # not a false alarm
+
+
+def test_score_against_truth_skips_numpy_float32_nan_truth():
+    # truth arrays elsewhere in this repo (regional_eval.py) are float32,
+    # not the builtin float -- an isinstance(truth, float) gate would let
+    # this straight through and poison the bucket (n counted wrong,
+    # rmse/bias -> nan).
+    np = pytest.importorskip("numpy")
+    rows = [
+        _mk_row("A", 0, 300, mm_per_h=1.0),
+        _mk_row("B", 0, 300, mm_per_h=2.0),
+    ]
+    truth_sequence = iter([np.float32("nan"), np.float32(2.0)])
+
+    def truth_lookup(lat, lon, valid_epoch):
+        return next(truth_sequence)
+
+    result = eb.score_against_truth(rows, truth_lookup, thresholds=(1.0,))
+    assert result[5]["n"] == 1
+    assert not math.isnan(result[5]["rmse"])
+    assert result[5]["rmse"] == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
