@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+from .cache import edge_bounds
 from .colormap import diff_rgba, rgba_for_array, upsample_field
 
 LOG = logging.getLogger("pluvio.verify")
@@ -166,6 +167,13 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw,
 def observed_on(valid_epoch: int, bounds, shape):
     """Observed composite at valid time, area-averaged onto the forecast grid.
 
+    `bounds` is the forecast npz's own `bounds`: a CELL-CENTRE envelope (see
+    cache.GridSpec's convention table). The regrid bins by outer edges, so it
+    is inflated by half a cell here with `cache.edge_bounds()` — passing the
+    centres straight through would make the target footprint half a cell too
+    small on every side (nothing at the grid centre, ~3.5 km at the edges of
+    the 100x100 serving box), shifting every boundary cell's truth.
+
     QPE day zarrs are slot-indexed: rate is (288, N, N) f16 on the archiver's
     analysis grid (N = PLUVIO_GRID_N, 768 in production), slot k = the 5-min
     slot nearest the valid time, no time array. Their georeference comes from
@@ -195,7 +203,9 @@ def observed_on(valid_epoch: int, bounds, shape):
     rate = np.asarray(rate_arr[slot], dtype="float32")
     if not np.isfinite(rate).any():
         return None
-    out = _regrid_block_mean(rate, _store_bounds(root, zp), bounds, shape)
+    w, s, e, n = (float(x) for x in bounds)
+    out = _regrid_block_mean(rate, _store_bounds(root, zp),
+                             edge_bounds((w, s, e, n), shape), shape)
     return out if np.isfinite(out).any() else None
 
 
