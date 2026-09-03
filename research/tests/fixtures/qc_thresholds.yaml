@@ -1,0 +1,20 @@
+# Example PLUVIO_QC_THRESHOLDS override file — only the keys you want to
+# change need to be present; anything omitted falls back to the built-in
+# defaults in research/tools/qc/thresholds.py.
+ranges:
+  alaro_precip: [0, 255]
+  msg_ir108: [0, 260]
+  aws: [-3, 3]
+  radar: [0, 400]
+  truth: [0, 400]
+nan_limit: 0.9
+reg_offset_warn_deg: 0.07
+reg_corr_warn: 0.25
+aux_corr_warn: 0.05
+stale_warn_min: 75
+churn_scan_warn: 55.0
+interp_ratio_warn: 1.3
+parity_warn: -0.45
+freeze_warn: 0.34
+stale_warn_s: 2100
+gauge_bias_warn: 5.0
