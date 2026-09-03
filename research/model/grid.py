@@ -83,7 +83,14 @@ def _legacy_bias() -> tuple[float, float]:
 # from a stale value (1.11: the mechanism of the 192² incident was exactly a
 # cache that *did* freeze an env read like this).
 _LATLON_BIAS_AT_IMPORT = _legacy_bias()
-LOG.info("model.grid: PLUVIO_GRID_LATLON_BIAS resolved to %s at import", _LATLON_BIAS_AT_IMPORT)
+
+
+def log_resolved_geometry() -> None:
+    """Log the resolved PLUVIO_GRID_LATLON_BIAS at INFO. A module-import-time
+    log call would run before a CLI's own logging.basicConfig() and be
+    swallowed (no handlers configured yet) — call this explicitly from a
+    CLI's main(), after logging is configured, instead."""
+    LOG.info("model.grid: PLUVIO_GRID_LATLON_BIAS resolved to %s at import", _LATLON_BIAS_AT_IMPORT)
 
 
 class GridContractError(ValueError):

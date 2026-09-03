@@ -33,10 +33,13 @@ def test_assert_epoch_seconds_rejects_milliseconds():
         bsv3._assert_epoch_seconds(t, "test")
 
 
-def test_assert_epoch_seconds_rejects_zero():
-    t = np.array([0, 0], dtype="int64")
-    with pytest.raises(ValueError, match="epoch seconds"):
-        bsv3._assert_epoch_seconds(t, "test")
+def test_assert_epoch_seconds_warns_but_does_not_raise_on_zero(caplog):
+    # A zero-filled slot (e.g. a resize-before-write crash window) is not a
+    # units mixup — raising here would take down every run over one bad slot.
+    t = np.array([0, 1_700_000_000], dtype="int64")
+    with caplog.at_level("WARNING"):
+        bsv3._assert_epoch_seconds(t, "test")  # must not raise
+    assert any("1 issue_time slot" in r.message for r in caplog.records)
 
 
 def test_assert_epoch_seconds_empty_is_noop():

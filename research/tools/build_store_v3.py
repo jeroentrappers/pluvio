@@ -35,14 +35,13 @@ import logging
 import pathlib
 import sys
 
-import cv2
 import numpy as np
 import pyproj
 import zarr
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from model.grid import Grid  # noqa: E402
+from model.grid import Grid, log_resolved_geometry  # noqa: E402
 
 LOG = logging.getLogger("pluvio.build_store_v3")
 
@@ -87,14 +86,24 @@ def _extent_for(name: str) -> str:
 
 
 def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
+    """Raise on a units mixup (milliseconds etc. read as seconds lands far in
+    the future). A low outlier (e.g. a zero-filled slot from a
+    resize-before-write crash window) is not a units bug, so it only gets a
+    WARNING naming the offending count rather than raising."""
     if t.size == 0:
         return
     lo, hi = int(t.min()), int(t.max())
-    if not (lo >= _EPOCH_SECONDS_MIN and hi <= _EPOCH_SECONDS_MAX):
+    if hi > _EPOCH_SECONDS_MAX:
         raise ValueError(
             f"{context}: issue_time does not look like Unix epoch seconds "
-            f"(min={lo}, max={hi}); expected roughly [{_EPOCH_SECONDS_MIN}, "
-            f"{_EPOCH_SECONDS_MAX}]"
+            f"(min={lo}, max={hi}); expected max <= {_EPOCH_SECONDS_MAX}"
+        )
+    if lo < _EPOCH_SECONDS_MIN:
+        n_bad = int(np.count_nonzero(t < _EPOCH_SECONDS_MIN))
+        LOG.warning(
+            "%s: %d issue_time slot(s) below %d (min=%d) — likely "
+            "zero-filled/unwritten rather than a units mixup",
+            context, n_bad, _EPOCH_SECONDS_MIN, lo,
         )
 
 
@@ -127,6 +136,8 @@ def _legacy_index_maps(h: int, w: int):
 
 
 def _remap(field: np.ndarray, rr: np.ndarray, cc: np.ndarray) -> np.ndarray:
+    import cv2
+
     return cv2.remap(np.ascontiguousarray(field, dtype="float32"), cc, rr,
                      interpolation=cv2.INTER_LINEAR,
                      borderMode=cv2.BORDER_CONSTANT,
@@ -155,6 +166,8 @@ def _truth_rac(epoch: int) -> np.ndarray | None:
 
 def _truth_qpe(qpe_root: pathlib.Path, epoch: int) -> np.ndarray | None:
     """Sharp truth over the southern (QPE) part of the box, on the new grid."""
+    import cv2
+
     ts = dt.datetime.fromtimestamp(int(epoch), dt.UTC)
     zp = qpe_root / f"{ts:%Y/%m}" / f"{ts:%d}.zarr"
     if not zp.exists():
@@ -226,6 +239,7 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log_resolved_geometry()
 
     src = zarr.open_group(args.src, mode="r")
     names = list(src.array_keys())
@@ -245,6 +259,26 @@ def main(argv=None) -> int:
     if args.create:
         _assert_epoch_seconds(np.asarray(src["issue_time"][:n]).astype("int64"),
                               "build_store_v3 --create (source store)")
+        # Validate every per-issue array's extent up front — the --range
+        # phase runs the same check per shard, which means an unlisted aux
+        # array would otherwise only fail after minutes/hours of remapping.
+        for k in per_issue:
+            a = src[k]
+            if a.ndim == 1:
+                continue
+            if a.ndim == 4:
+                if k != "radar":
+                    raise ValueError(
+                        f"build_store_v3: unexpected 4-D per-issue array {k!r} "
+                        "(only 'radar' is known); refusing to guess its extent"
+                    )
+            elif a.ndim == 3:
+                _extent_for(k)   # raises on an unlisted name
+            else:
+                raise ValueError(
+                    f"build_store_v3: array {k!r} has unsupported ndim {a.ndim} "
+                    "for a per-issue source"
+                )
         dst = zarr.open_group(args.out, mode="w", zarr_format=2)
         dst.attrs.update(dict(src.attrs))
         # legacy keys — remove once zarr_dataset/backend read Grid (1.9)

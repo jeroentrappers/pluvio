@@ -34,6 +34,7 @@ from .grid import (
     _LEGACY_PROJ4,
     _legacy_bias,
     _legacy_trimmed_extent,
+    log_resolved_geometry as _grid_log_resolved_geometry,
 )
 
 LOG = logging.getLogger("pluvio.geo")
@@ -62,13 +63,22 @@ def _default_grid() -> tuple[int, int]:
 
 
 GRID = _default_grid()
-LOG.info("model.geo: resolved analysis GRID=%s (PLUVIO_GRID_N=%s)",
-         GRID, os.environ.get("PLUVIO_GRID_N"))
 
 # Kept for any external code that still imports geo._PROJ4 / geo._CORNERS_LONLAT
 # directly; model.grid is the source of truth for both.
 _PROJ4 = _LEGACY_PROJ4
 _CORNERS_LONLAT = _LEGACY_CORNERS_LONLAT
+
+
+def log_resolved_geometry() -> None:
+    """Log the resolved analysis GRID and (via model.grid) the registration
+    bias at INFO. A module-import-time log call would run before a CLI's own
+    logging.basicConfig() and be swallowed (no handlers configured yet) —
+    call this explicitly from a CLI's main(), after logging is configured,
+    instead."""
+    LOG.info("model.geo: resolved analysis GRID=%s (PLUVIO_GRID_N=%s)",
+             GRID, os.environ.get("PLUVIO_GRID_N"))
+    _grid_log_resolved_geometry()
 
 
 @functools.lru_cache(maxsize=8)
@@ -95,6 +105,12 @@ def grid_latlon(bias: tuple[float, float] | None = None) -> tuple[np.ndarray, np
     """
     resolved_bias = bias if bias is not None else _legacy_bias()
     return _grid_latlon_cached(GRID, resolved_bias)
+
+
+# Keep the old grid_latlon.cache_clear() surface (notebooks call it) — it now
+# clears the underlying memoised-by-resolved-inputs cache rather than a cache
+# on grid_latlon() itself, which no longer carries one.
+grid_latlon.cache_clear = _grid_latlon_cached.cache_clear
 
 
 def bbox() -> tuple[float, float, float, float]:

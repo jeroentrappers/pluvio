@@ -62,15 +62,28 @@ _EPOCH_SECONDS_MAX = 4102444800  # 2100-01-01T00:00:00Z
 
 
 def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
+    """Raise on a units mixup (milliseconds etc. read as seconds lands far in
+    the future — every history/lead lookup would silently corrupt). A low
+    outlier (e.g. a zero-filled slot from a resize-before-write crash window)
+    is not a units bug, so it only gets a WARNING naming the offending count
+    — raising here would take down every inference run over one bad slot."""
     if t.size == 0:
         return
     lo, hi = int(t.min()), int(t.max())
-    if not (lo >= _EPOCH_SECONDS_MIN and hi <= _EPOCH_SECONDS_MAX):
+    if hi > _EPOCH_SECONDS_MAX:
         raise ValueError(
             f"{context}: issue_time does not look like Unix epoch seconds "
-            f"(min={lo}, max={hi}); expected roughly [{_EPOCH_SECONDS_MIN}, "
-            f"{_EPOCH_SECONDS_MAX}] — a milliseconds/other-unit store would "
-            "silently corrupt every history/lead lookup"
+            f"(min={lo}, max={hi}); expected max <= {_EPOCH_SECONDS_MAX} — a "
+            "milliseconds/other-unit store would silently corrupt every "
+            "history/lead lookup"
+        )
+    if lo < _EPOCH_SECONDS_MIN:
+        n_bad = int(np.count_nonzero(t < _EPOCH_SECONDS_MIN))
+        LOG.warning(
+            "%s: %d issue_time slot(s) below %d (min=%d) — likely "
+            "zero-filled/unwritten rather than a units mixup; those slots "
+            "will fail lookups downstream", context, n_bad,
+            _EPOCH_SECONDS_MIN, lo,
         )
 
 

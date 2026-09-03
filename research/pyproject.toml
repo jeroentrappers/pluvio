@@ -38,6 +38,8 @@ dependencies = [
     "pyresample>=1.28",
     "netcdf4>=1.6",
     "h5netcdf>=1.3",
+    # CPU vs CUDA wheel is an index choice, not a pyproject one — see the
+    # --index-url in requirements-dev.txt for the CPU wheel used by tests.
     "torch>=2.2",
 ]
 

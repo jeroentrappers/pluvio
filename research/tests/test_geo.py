@@ -79,6 +79,15 @@ def test_analysis_grid_dst_aux_trim_matches_radar_trim():
     assert abs((y_south_radar_centre - y_south_aux_edge) - py / 2) < 0.05 * py
 
 
+def test_grid_latlon_cache_clear_surface_kept_for_notebooks():
+    """geo.grid_latlon used to be an lru_cache-decorated function itself;
+    notebooks call geo.grid_latlon.cache_clear() directly, so that surface
+    must survive the 1.11 refactor even though the memoisation moved to an
+    internal helper."""
+    geo.grid_latlon(bias=(1.0, 1.0))
+    geo.grid_latlon.cache_clear()  # must not raise
+
+
 def test_grid_latlon_delegates_bit_identical_to_grid_module():
     """geo.grid_latlon() is a thin wrapper around
     Grid.legacy_knmi_analysis(GRID).latlon() — the two must never drift."""

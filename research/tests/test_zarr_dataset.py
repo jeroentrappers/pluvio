@@ -141,3 +141,19 @@ def test_issue_time_split_raises_on_millisecond_issue_time(tmp_path):
     path = _broken_store(tmp_path, mutate=mutate)
     with pytest.raises(ValueError, match="epoch seconds"):
         issue_time_split(path, val_frac=0.2)
+
+
+def test_open_warns_but_does_not_raise_on_zero_filled_issue_time_slot(tmp_path, caplog):
+    # A zero-filled slot (e.g. build_zarr's resize-before-write crash window)
+    # is not a units mixup — raising here would take down every 5-min
+    # inference run over one bad slot.
+    def mutate(root):
+        t = root["issue_time"][:]
+        t[0] = 0
+        root["issue_time"][:] = t
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with caplog.at_level("WARNING"):
+        ds = ZarrCorrectionDataset(path, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+    assert len(ds.index) > 0
+    assert any("1 issue_time slot" in r.message for r in caplog.records)

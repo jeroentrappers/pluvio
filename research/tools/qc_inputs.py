@@ -167,6 +167,9 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s %(name)s %(message)s")
     import zarr
+    from model.geo import log_resolved_geometry
+
+    log_resolved_geometry()
 
     thresholds = load_thresholds(args.thresholds)
     src = zarr.open_group(args.store, mode="r")

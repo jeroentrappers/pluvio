@@ -57,8 +57,10 @@ def main(argv: list[str] | None = None) -> int:
 
     import torch
     from model.zarr_dataset import ZarrCorrectionDataset
-    from model.geo import grid_latlon
+    from model.geo import grid_latlon, log_resolved_geometry
     from model.grid import Grid, GridContractError
+
+    log_resolved_geometry()
 
     ds = ZarrCorrectionDataset(args.zarr, leads_min=LEADS, build_index=False)
     issue_idx = ds.latest_issue_idx()
