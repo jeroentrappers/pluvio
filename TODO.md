@@ -65,8 +65,12 @@ below every metric. Make eyes unnecessary.
       Lane: ops.
 - [ ] **1.9 Serving box → full Benelux** — once v3 converges: `infer_latest`
       bounds/shape from the store `Grid`, backend `DEFAULT_GRID`/bounds, web
-      forecast domain, Lagrangian blend crop. Acceptance: forecast overlay
-      covers NL; fiducial round-trip passes on the new box. Lane: ops.
+      forecast domain, Lagrangian blend crop. NOTE (review of 1.1): the
+      backend nowcast path never reads the npz `bounds` and hard-crashes on
+      any rates shape ≠ DEFAULT_GRID_SHAPE — backend must land before or with
+      the `infer_latest` switch; painters use EDGE bounds, Grid.bounds are
+      cell-centre bounds → use Grid.edge_bounds(). Acceptance: forecast
+      overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
       Depends: v3 convergence, 1.1
 
 ## Epic 2 — Model objective & inputs (days 31–60)

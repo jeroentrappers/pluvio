@@ -233,8 +233,9 @@ def overlay_png(epoch: int) -> bytes | None:
     rgba = rgba_for_array(data["rates"][idx[epoch]])
     import os as _os
     if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
-        b = data["bounds"]
-        draw_fiducials(rgba, (float(b[0]), float(b[1]), float(b[2]), float(b[3])))
+        b = data["bounds"]  # dict(west, south, east, north) — see _load_hi
+        draw_fiducials(rgba, (float(b["west"]), float(b["south"]),
+                              float(b["east"]), float(b["north"])))
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
