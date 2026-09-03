@@ -608,13 +608,16 @@ on different rulers. Transparency is the only credible route to "reference".
 ---
 
 ## Currently running
-- v3 training STOPPED by hand 2026-09-03 16:50 after epoch 12: best val RMSE
-  0.6956 at epoch 4 (`~/pluvio_v2/checkpoints/v3_192.pt`, 33 ch), then
-  0.71/0.72/…/0.78 while train loss kept falling; LR already halved by the
-  plateau scheduler. Diagnose before the next run (val split, dead `sst`
-  channel in the v3 store, weak alaro/msg alignment per QC). GPU is free for
-  the 2.1 loss A/B and the benchmark of v3@4 vs v2 vs operational.
-- Hourly `qc_inputs` + `pluvio-qc` timers on hetz1.
+- hetz1 timers: `pluvio-buienradar-eu` (every 5 min, EU composite + forecast
+  runs), `pluvio-external-baselines` (every 5 min, station raintext),
+  `pluvio-scoreboard` (02:30 UTC nightly), hourly `qc_inputs` + `pluvio-qc`,
+  `pluvio-qpe-archive` (10 min, now self-describing), */5 append+infer cron.
+- Backend: GHCR image from 0888519 (1.13 conventions, Verify on store attrs)
+  live since 2026-09-03 21:08 UTC.
+- asusprime: idle. v3 training stopped after epoch 12 (best epoch 4 kept).
+  Next GPU jobs, in order: render dedup shards with `--lagrangian-channels 2`
+  (~132 GiB, see training_run_v2.md), then the 2.1 loss A/B and the 2.3
+  ablation on the frozen benchmark.
 
 ## Agent workflow
 Workers (Sonnet) implement one WBS item each in an isolated worktree branch,
