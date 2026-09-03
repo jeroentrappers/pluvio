@@ -33,7 +33,10 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
-from model.losses import CombinedLoss  # noqa: E402
+# weighted_huber/total_loss live in model.losses (single source of truth for
+# CombinedLoss too); re-exported here for anything still importing them from
+# model.train.
+from model.losses import CombinedLoss, total_loss, weighted_huber  # noqa: E402,F401
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
 
@@ -58,36 +61,6 @@ def _time_split(data_root: pathlib.Path, val_frac: float) -> datetime:
     cut = int(len(stamps) * (1.0 - val_frac))
     cut = min(max(cut, 1), len(stamps) - 1)
     return stamps[cut]
-
-
-def weighted_huber(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Huber loss weighted by ``(1 + obs)`` so heavy rain matters.
-
-    Softened from the original ``(1 + obs)²``: the squared weight made the
-    optimizer hedge precipitation upward everywhere, producing a persistent
-    wet bias. Linear weighting keeps the heavy-rain emphasis without the
-    systematic over-prediction.
-    """
-    delta = 1.0
-    diff = pred - target
-    abs_diff = diff.abs()
-    quad = torch.minimum(abs_diff, torch.tensor(delta, device=pred.device))
-    lin = abs_diff - quad
-    per_pixel = 0.5 * quad**2 + delta * lin
-    weight = 1.0 + target
-    return (per_pixel * weight).mean()
-
-
-def total_loss(pred: torch.Tensor, target: torch.Tensor, bias_penalty: float) -> torch.Tensor:
-    """Weighted Huber + a penalty on the systematic (batch-mean) bias.
-
-    The bias term directly punishes ``mean(pred) - mean(target)``, which is
-    the exact quantity we saw drift to +0.14 mm/h. Keeps the model honest
-    about *how much* rain, not just *where*.
-    """
-    base = weighted_huber(pred, target)
-    bias = (pred.mean() - target.mean()).pow(2)
-    return base + bias_penalty * bias
 
 
 def rmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -181,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Comma-separated rain-rate thresholds (mm/h) for --fss-weight.")
     parser.add_argument("--fss-scales", default="1,3,5",
                         help="Comma-separated neighbourhood pooling scales (px) for --fss-weight.")
+    parser.add_argument("--fss-tau", type=float, default=0.05,
+                        help="Softness (mm/h) of the sigmoid exceedance indicator for --fss-weight.")
     parser.add_argument("--sharpness-weight", type=float, default=0.0,
                         help="Weight on the gradient-energy sharpness loss "
                              "(0 = disabled, matching the pre-existing Huber-only objective).")
@@ -191,6 +166,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    if args.fss_weight < 0:
+        raise SystemExit(f"--fss-weight must be >= 0, got {args.fss_weight}")
+    if args.sharpness_weight < 0:
+        raise SystemExit(f"--sharpness-weight must be >= 0, got {args.sharpness_weight}")
+    if args.fss_tau <= 0:
+        raise SystemExit(f"--fss-tau must be > 0, got {args.fss_tau}")
+    fss_thresholds = tuple(float(v) for v in args.fss_thresholds.split(",") if v.strip())
+    fss_scales = tuple(int(v) for v in args.fss_scales.split(",") if v.strip())
+    if not fss_thresholds:
+        raise SystemExit(f"--fss-thresholds must list at least one threshold, got {args.fss_thresholds!r}")
+    if not fss_scales or any(s < 1 for s in fss_scales):
+        raise SystemExit(f"--fss-scales must list integers >= 1, got {args.fss_scales!r}")
 
     device = torch.device(args.device)
     LOG.info("Training on %s", device)
@@ -253,13 +241,12 @@ def main(argv: list[str] | None = None) -> int:
         num_params(model),
     )
 
-    fss_thresholds = tuple(float(v) for v in args.fss_thresholds.split(",") if v.strip())
-    fss_scales = tuple(int(v) for v in args.fss_scales.split(",") if v.strip())
     loss_fn = CombinedLoss(
         bias_penalty=args.bias_penalty,
         fss_weight=args.fss_weight,
         fss_thresholds=fss_thresholds,
         fss_scales=fss_scales,
+        fss_tau=args.fss_tau,
         sharpness_weight=args.sharpness_weight,
     )
     loss_config = {
@@ -267,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         "fss_weight": args.fss_weight,
         "fss_thresholds": fss_thresholds,
         "fss_scales": fss_scales,
+        "fss_tau": args.fss_tau,
         "sharpness_weight": args.sharpness_weight,
     }
 

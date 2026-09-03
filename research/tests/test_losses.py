@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 import torch
+import torch.nn.functional as F
 
-from model.losses import CombinedLoss, fss_exceedance_loss, sharpness_loss
-from model.train import total_loss
+from model.losses import CombinedLoss, fss_exceedance_loss, sharpness_loss, total_loss
 
 
 def _rand_field(seed: int, shape=(2, 1, 32, 32)) -> torch.Tensor:
@@ -54,12 +54,21 @@ def test_fss_loss_thresholds_and_scales_are_configurable():
     assert torch.isfinite(loss_b)
 
 
+def test_fss_loss_all_dry_batch_is_finite_not_nan():
+    # 0/0 in the FSS ratio if eps is added rather than clamped and everything
+    # underflows (the fp16 failure mode) — must stay finite even in float32.
+    pred = torch.zeros(4, 1, 16, 16)
+    target = torch.zeros(4, 1, 16, 16)
+    loss = fss_exceedance_loss(pred, target)
+    assert torch.isfinite(loss)
+    assert loss.item() == pytest.approx(0.0, abs=1e-5)
+
+
 # --------------------------------------------------------------------------
 # sharpness_loss
 # --------------------------------------------------------------------------
 
 def _blur(x: torch.Tensor) -> torch.Tensor:
-    import torch.nn.functional as F
     return F.avg_pool2d(x, kernel_size=5, stride=1, padding=2, count_include_pad=False)
 
 
@@ -74,13 +83,44 @@ def test_sharper_prediction_scores_lower_sharpness_loss():
     target = torch.zeros(1, 1, 32, 32)
     target[:, :, 8:24, 8:24] = 4.0  # a sharp-edged block -> real gradient energy
 
-    sharp_pred = target.clone()  # essentially matches target's sharp edges
+    sharp_pred = target.clone()  # matches target's sharp edges exactly
     blurred_pred = _blur(target.clone())
 
     loss_sharp = sharpness_loss(sharp_pred, target)
     loss_blurred = sharpness_loss(blurred_pred, target)
 
+    assert loss_sharp.item() == pytest.approx(0.0, abs=1e-6)
     assert loss_sharp.item() < loss_blurred.item()
+
+
+def test_sharpness_loss_is_one_sided_sharper_than_truth_not_penalised():
+    torch.manual_seed(9)
+    target = torch.zeros(1, 1, 16, 16)
+    target[:, :, 4:12, 4:12] = 2.0
+
+    # a prediction with MORE gradient energy than the target (e.g. add noise
+    # on top of an exact copy) must score 0, not a positive "too sharp"
+    # penalty — sharper-than-truth is not an error for this term.
+    noisy_sharper = target.clone() + torch.randn(target.shape) * 0.5
+    assert sharpness_loss(noisy_sharper, target).item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_sharpness_loss_zeroed_and_bounded_on_dry_target():
+    # A flat/dry target has no structure to match — must be exactly 0, not a
+    # blown-up ratio from dividing by a near-zero (but nonzero) denominator.
+    target = torch.zeros(2, 1, 16, 16)
+    pred = torch.rand(2, 1, 16, 16) * 5.0  # arbitrary, even very "sharp" noise
+    loss = sharpness_loss(pred, target)
+    assert loss.item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_sharpness_loss_is_bounded():
+    torch.manual_seed(10)
+    target = torch.rand(1, 1, 16, 16) * 5.0
+    pred = torch.zeros_like(target)  # maximally blurred: zero gradient energy
+    loss = sharpness_loss(pred, target)
+    assert torch.isfinite(loss)
+    assert 0.0 <= loss.item() <= 1.0
 
 
 # --------------------------------------------------------------------------
@@ -138,17 +178,39 @@ def test_gradients_flow_float32():
     assert not torch.isnan(loss)
 
 
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
-def test_gradients_flow_under_cpu_autocast(dtype):
-    try:
-        with torch.autocast(device_type="cpu", dtype=dtype):
-            pred = (torch.rand(2, 1, 16, 16) * 2.0).requires_grad_(True)
-            target = torch.rand(2, 1, 16, 16) * 2.0
-            combined = CombinedLoss(bias_penalty=0.5, fss_weight=0.3, sharpness_weight=0.2)
-            loss = combined(pred, target)
-    except RuntimeError as exc:  # pragma: no cover
-        pytest.skip(f"autocast dtype {dtype} unsupported on this CPU build: {exc}")
+def _assert_finite_loss_and_grad(pred: torch.Tensor, target: torch.Tensor) -> None:
+    combined = CombinedLoss(bias_penalty=0.5, fss_weight=0.3, sharpness_weight=0.2)
+    loss = combined(pred, target)
+    assert torch.isfinite(loss), f"non-finite loss: {loss}"
     loss.backward()
     assert pred.grad is not None
-    assert torch.isfinite(pred.grad).all()
-    assert not torch.isnan(loss)
+    assert torch.isfinite(pred.grad).all(), f"non-finite grad: {pred.grad}"
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_gradients_finite_under_low_precision_inputs(dtype):
+    """Explicit low-precision (not CPU-autocast, which doesn't cover these
+    ops and would silently run everything in fp32) inputs, matching the GPU
+    training dtype. No skip: this must pass outright."""
+    torch.manual_seed(11)
+    pred = (torch.rand(3, 1, 16, 16, dtype=dtype) * 2.0).requires_grad_(True)
+    target = torch.rand(3, 1, 16, 16, dtype=dtype) * 2.0
+    _assert_finite_loss_and_grad(pred, target)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_gradients_finite_all_dry_low_precision(dtype):
+    """All-dry batch under fp16/bf16 — the measured 0/0-NaN failure mode."""
+    pred = torch.zeros(4, 1, 16, 16, dtype=dtype, requires_grad=True)
+    target = torch.zeros(4, 1, 16, 16, dtype=dtype)
+    _assert_finite_loss_and_grad(pred, target)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_gradients_finite_flat_prediction_low_precision(dtype):
+    """Constant (zero-gradient) prediction against a structured target under
+    fp16/bf16 — the measured singular-derivative-at-0 failure mode."""
+    target = torch.zeros(1, 1, 16, 16, dtype=dtype)
+    target[:, :, 4:12, 4:12] = 3.0
+    pred = torch.full((1, 1, 16, 16), 1.5, dtype=dtype, requires_grad=True)
+    _assert_finite_loss_and_grad(pred, target)
