@@ -4,7 +4,7 @@ all payloads come from tests/fixtures/."""
 from __future__ import annotations
 
 import datetime as dt
-import json
+import math
 import pathlib
 import urllib.error
 
@@ -26,15 +26,22 @@ def read_fixture(name: str) -> str:
 def test_value_to_mm_per_h_reference_points():
     # 109 is the feed's defined "1.0 mm/h" anchor.
     assert eb.value_to_mm_per_h(109) == pytest.approx(1.0)
-    # 0 is not exactly zero rain on this log scale -- just very small.
-    assert eb.value_to_mm_per_h(0) == pytest.approx(0.0003924, rel=1e-3)
+    # 0 is below the dry floor -> snapped to exactly 0.0.
+    assert eb.value_to_mm_per_h(0) == 0.0
     # 255 is the byte's formal ceiling; the log scale sends it to an
     # enormous, never-observed rate -- that's the encoding, not a bug.
     assert eb.value_to_mm_per_h(255) == pytest.approx(36517.4, rel=1e-3)
 
 
+def test_value_to_mm_per_h_dry_floor_boundary():
+    # value 45 -> raw exactly 0.01 == DRY_FLOOR_MM_H -> kept, not floored.
+    assert eb.value_to_mm_per_h(45) == pytest.approx(0.01)
+    # value 44 -> raw just under the floor -> snapped to 0.0.
+    assert eb.value_to_mm_per_h(44) == 0.0
+
+
 def test_value_to_mm_per_h_monotonic():
-    values = [0, 50, 109, 150, 200, 255]
+    values = [0, 30, 44, 45, 50, 109, 150, 200, 255]
     rates = [eb.value_to_mm_per_h(v) for v in values]
     assert rates == sorted(rates)
 
@@ -55,7 +62,7 @@ def test_parse_raintext_live_fixture_no_rain():
     first_epoch, first_rate = rows[0]
     first_dt = dt.datetime.fromtimestamp(first_epoch, dt.timezone.utc)
     assert first_dt == dt.datetime(2026, 9, 3, 8, 30, tzinfo=dt.timezone.utc)
-    assert first_rate == pytest.approx(eb.value_to_mm_per_h(0))
+    assert first_rate == 0.0  # value 0 is below the dry floor
 
     # steps are 5 minutes apart, strictly increasing.
     epochs = [e for e, _ in rows]
@@ -64,7 +71,7 @@ def test_parse_raintext_live_fixture_no_rain():
 
 
 # ---------------------------------------------------------------------------
-# parse_raintext: local-midnight rollover
+# parse_raintext: local-midnight rollover (no DST involved)
 # ---------------------------------------------------------------------------
 
 def test_parse_raintext_day_rollover():
@@ -90,25 +97,99 @@ def test_parse_raintext_day_rollover():
     assert by_local["2026-06-30 23:55"] == pytest.approx(eb.value_to_mm_per_h(109))
     assert by_local["2026-07-01 00:00"] == pytest.approx(eb.value_to_mm_per_h(141))
 
-    # epochs strictly increase across the rollover.
+    # epochs strictly increase across the rollover, every step 5 minutes.
     epochs = [e for e, _ in rows]
     assert epochs == sorted(epochs)
     assert len(set(epochs)) == len(epochs)
+    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
 
 
 # ---------------------------------------------------------------------------
-# parse_raintext: malformed-input tolerance
+# parse_raintext: DST fall-back (October) -- the repeated local hour
+# ---------------------------------------------------------------------------
+
+def test_parse_raintext_dst_fallback_repeated_hour():
+    text = read_fixture("buienradar_fallback_20261025.txt")
+    # issued just before the repeated hour, while still CEST.
+    issue = dt.datetime(2026, 10, 24, 23, 50, 0, tzinfo=dt.timezone.utc)
+    rows = eb.parse_raintext(text, issue)
+    # 01:50, 01:55, then 02:00..02:55 (CEST, 12 lines), then 02:00..02:55
+    # again (CET, 12 lines), then 03:00, 03:05 -- 28 lines total.
+    assert len(rows) == 28
+
+    epochs = [e for e, _ in rows]
+    # monotonic and evenly spaced by 5 minutes throughout, including
+    # across the fold -- this is the whole point of the closest-epoch
+    # anchoring: a naive "clock went backwards -> new day" heuristic would
+    # instead jump the date forward here and blow the lead out to ~1512 min.
+    assert epochs == sorted(epochs)
+    assert len(set(epochs)) == len(epochs)
+    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+
+    # first "02:00" (fold=0, still CEST/UTC+2) and second "02:00" (fold=1,
+    # now CET/UTC+1) are exactly one hour apart in absolute time.
+    first_0200_epoch = epochs[2]
+    second_0200_epoch = epochs[14]
+    assert second_0200_epoch - first_0200_epoch == 3600
+
+    # sanity: 28 lines is 27 gaps of 5 real minutes each -- the repeated
+    # hour is already accounted for by the fixture listing it twice, no
+    # separate adjustment needed.
+    assert epochs[-1] - epochs[0] == 27 * 300
+
+    # and every epoch really does land in UTC where we expect.
+    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.timezone.utc)
+    assert first_dt == dt.datetime(2026, 10, 24, 23, 50, tzinfo=dt.timezone.utc)
+    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.timezone.utc)
+    assert last_dt == dt.datetime(2026, 10, 25, 2, 5, tzinfo=dt.timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# parse_raintext: DST spring-forward (March) -- the skipped local hour
+# ---------------------------------------------------------------------------
+
+def test_parse_raintext_dst_springforward_skipped_hour():
+    text = read_fixture("buienradar_springforward_20260329.txt")
+    # issued just before the gap, while still CET.
+    issue = dt.datetime(2026, 3, 29, 0, 50, 0, tzinfo=dt.timezone.utc)
+    rows = eb.parse_raintext(text, issue)
+    assert len(rows) == 5
+
+    epochs = [e for e, _ in rows]
+    # the labels jump from 01:55 straight to 03:00 (02:xx never happened
+    # locally) but the real cadence stays a perfectly even 5 minutes.
+    assert epochs == sorted(epochs)
+    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+
+    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.timezone.utc)
+    assert first_dt == dt.datetime(2026, 3, 29, 0, 50, tzinfo=dt.timezone.utc)
+    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.timezone.utc)
+    assert last_dt == dt.datetime(2026, 3, 29, 1, 10, tzinfo=dt.timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# parse_raintext: malformed / out-of-range input tolerance
 # ---------------------------------------------------------------------------
 
 def test_parse_raintext_malformed_lines_are_skipped():
     text = read_fixture("buienradar_malformed.txt")
     issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
     rows = eb.parse_raintext(text, issue)
-    # only "000|10:30", "109|10:40", "999|10:45", "109|10:50" are valid;
-    # blank line, no-pipe line, non-numeric value, and bad time are skipped.
-    assert len(rows) == 4
+    # valid: "000|10:30", "109|10:40", "109|10:50".
+    # skipped: blank line, no-pipe line, non-numeric value ("abc|10:35"),
+    # bad time ("000|xx:yy"), and "999|10:45" -- 999 is outside the feed's
+    # defined 0-255 byte range and is rejected like any other malformed line
+    # (not parsed as a legal, if absurd, rain rate).
+    assert len(rows) == 3
     minutes = sorted(dt.datetime.fromtimestamp(e, eb.AMSTERDAM).minute for e, _ in rows)
-    assert minutes == [30, 40, 45, 50]
+    assert minutes == [30, 40, 50]
+
+
+def test_parse_raintext_rejects_out_of_range_byte():
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    rows = eb.parse_raintext("999|10:30\n256|10:35\n-1|10:40\n109|10:45\n", issue)
+    assert len(rows) == 1
+    assert rows[0][1] == pytest.approx(eb.value_to_mm_per_h(109))
 
 
 def test_parse_raintext_empty_string():
@@ -136,9 +217,11 @@ class _FakeResponse:
 
 def test_buienradar_source_fetch_point_success(monkeypatch):
     text = read_fixture("buienradar_brussels_live_20260903.txt")
+    seen = {}
 
-    def fake_urlopen(url, timeout=None):
-        assert "lat=50.85" in url and "lon=4.35" in url
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        seen["user_agent"] = request.get_header("User-agent")
         return _FakeResponse(text)
 
     monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
@@ -147,11 +230,25 @@ def test_buienradar_source_fetch_point_success(monkeypatch):
     rows = source.fetch_point(50.85, 4.35, issue)
     assert rows is not None
     assert len(rows) == 24
+    assert "lat=50.85" in seen["url"] and "lon=4.35" in seen["url"]
+    assert seen["user_agent"] == eb.USER_AGENT
 
 
 def test_buienradar_source_fetch_point_http_error_returns_none(monkeypatch):
-    def fake_urlopen(url, timeout=None):
+    def fake_urlopen(request, timeout=None):
         raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
+    source = eb.BuienradarSource()
+    issue = dt.datetime.now(dt.timezone.utc)
+    assert source.fetch_point(50.85, 4.35, issue) is None
+
+
+def test_buienradar_source_fetch_point_incomplete_read_returns_none(monkeypatch):
+    import http.client
+
+    def fake_urlopen(request, timeout=None):
+        raise http.client.IncompleteRead(b"")
 
     monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
     source = eb.BuienradarSource()
@@ -175,37 +272,123 @@ class _FakeSource:
         return self._points_by_station.get((lat, lon))
 
 
-def test_sample_all_builds_rows_and_lead_min():
-    issue = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+def test_sample_all_lead_min_is_relative_to_feed_t0_not_fetch_time():
+    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+    # feed's first line ("t0") is 3 minutes after the fetch instant, as
+    # happens when the feed floors to its own 5-minute grid.
+    t0 = int(fetch_time.timestamp()) + 180
     stations = [("A", 1.0, 2.0), ("B", 3.0, 4.0)]
     points = {
-        (1.0, 2.0): [(int(issue.timestamp()) + 300, 0.5), (int(issue.timestamp()) + 600, 1.5)],
+        (1.0, 2.0): [(t0, 0.5), (t0 + 300, 1.5), (t0 + 600, 2.5)],
         (3.0, 4.0): None,  # simulates a failed station
     }
     source = _FakeSource(points)
-    rows = eb.sample_all(issue_time=issue, stations=stations, source=source, delay_s=0)
+    rows = eb.sample_all(issue_time=fetch_time, stations=stations, source=source, delay_s=0)
 
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert {r["station"] for r in rows} == {"A"}
+    leads = sorted(r["lead_min"] for r in rows)
+    assert leads == [0, 5, 10]  # exactly on-grid, not [3, 8, 13]
+
     row0 = rows[0]
     assert row0["source"] == "buienradar"
     assert row0["lat"] == 1.0 and row0["lon"] == 2.0
-    assert row0["issue_epoch"] == int(issue.timestamp())
-    assert row0["lead_min"] == 5
-    assert rows[1]["lead_min"] == 10
+    assert row0["issue_epoch"] == t0            # snapped to the feed's own t0
+    assert row0["fetch_epoch"] == int(fetch_time.timestamp())  # wall clock kept separately
+    assert row0["lead_min"] == 0
+
+
+def test_sample_all_drops_rows_with_lead_outside_sane_range():
+    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+    t0 = int(fetch_time.timestamp())
+    stations = [("A", 1.0, 2.0)]
+    points = {
+        (1.0, 2.0): [
+            (t0, 1.0),                 # lead 0: fine
+            (t0 + 300, 1.0),           # lead 5: fine
+            (t0 + 200 * 60, 1.0),      # lead 200: way outside [-5, 130] -> dropped
+        ],
+    }
+    source = _FakeSource(points)
+    rows = eb.sample_all(issue_time=fetch_time, stations=stations, source=source, delay_s=0)
+    leads = sorted(r["lead_min"] for r in rows)
+    assert leads == [0, 5]
+
+
+# ---------------------------------------------------------------------------
+# CLI station selection
+# ---------------------------------------------------------------------------
+
+def test_parse_stations_arg_preserves_requested_order():
+    names_in_order = [name for name, _, _ in eb.STATIONS]
+    last, first = names_in_order[-1], names_in_order[0]
+    result = eb._parse_stations_arg(f"{last},{first}")
+    assert [r[0] for r in result] == [last, first]
+
+
+def test_parse_stations_arg_all():
+    assert eb._parse_stations_arg("all") == eb.STATIONS
+
+
+def test_parse_stations_arg_unknown_raises():
+    with pytest.raises(SystemExit):
+        eb._parse_stations_arg("NotAStation")
+
+
+# ---------------------------------------------------------------------------
+# CLI dry-run: no archive write happens
+# ---------------------------------------------------------------------------
+
+def test_cli_sample_dry_run_does_not_write(monkeypatch, tmp_path, capsys):
+    called = {"append": False}
+
+    def fake_sample_all(**kwargs):
+        return [{"station": "Brussels"}]
+
+    def fake_append_archive(rows, root):
+        called["append"] = True
+        return len(rows)
+
+    monkeypatch.setattr(eb, "sample_all", fake_sample_all)
+    monkeypatch.setattr(eb, "append_archive", fake_append_archive)
+
+    eb.main(["sample", "--archive", str(tmp_path), "--dry-run", "--stations", "Brussels"])
+    out = capsys.readouterr().out
+    assert "not written" in out
+    assert called["append"] is False
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_sample_requires_archive_or_env(monkeypatch):
+    monkeypatch.delenv("PLUVIO_EXTERNAL_ROOT", raising=False)
+    with pytest.raises(SystemExit):
+        eb.main(["sample", "--stations", "Brussels"])
+
+
+def test_cli_sample_uses_env_default_archive(monkeypatch, tmp_path):
+    monkeypatch.setenv("PLUVIO_EXTERNAL_ROOT", str(tmp_path))
+
+    def fake_sample_all(**kwargs):
+        return []
+
+    monkeypatch.setattr(eb, "sample_all", fake_sample_all)
+    # no --archive flag passed: should pick up PLUVIO_EXTERNAL_ROOT.
+    eb.main(["sample", "--stations", "Brussels"])
+    # no exception means the env default was accepted as the archive root.
 
 
 # ---------------------------------------------------------------------------
 # Archive: append + idempotency + load
 # ---------------------------------------------------------------------------
 
-def _mk_row(station, issue_epoch, valid_epoch, mm_per_h=1.0):
+def _mk_row(station, issue_epoch, valid_epoch, mm_per_h=1.0, fetch_epoch=None):
     return {
         "source": "buienradar",
         "station": station,
         "lat": 50.0,
         "lon": 4.0,
         "issue_epoch": issue_epoch,
+        "fetch_epoch": fetch_epoch if fetch_epoch is not None else issue_epoch,
         "valid_epoch": valid_epoch,
         "lead_min": round((valid_epoch - issue_epoch) / 60),
         "mm_per_h": mm_per_h,
@@ -221,7 +404,7 @@ def test_append_archive_writes_and_is_idempotent(tmp_path):
     written1 = eb.append_archive(rows, tmp_path)
     assert written1 == 1
 
-    # exact same row again: no-op.
+    # exact same batch again (same station + issue_epoch): no-op.
     written2 = eb.append_archive(rows, tmp_path)
     assert written2 == 0
 
@@ -234,11 +417,28 @@ def test_append_archive_writes_and_is_idempotent(tmp_path):
     lines = [l for l in path.read_text().splitlines() if l.strip()]
     assert len(lines) == 1
 
-    # a genuinely new row (different valid_epoch) does get appended.
-    rows2 = [_mk_row("Brussels", issue_epoch, valid_epoch + 300)]
+    # a new fetch (different issue_epoch/t0) for the same station is a new
+    # batch and does get appended.
+    rows2 = [_mk_row("Brussels", issue_epoch + 600, valid_epoch + 600)]
     written3 = eb.append_archive(rows2, tmp_path)
     assert written3 == 1
     assert len(eb.load_archive(tmp_path, day)) == 2
+
+
+def test_append_archive_batch_covers_all_rows_from_one_fetch(tmp_path):
+    # multiple lead-time rows from a single station/fetch share (station,
+    # issue_epoch) and are idempotent together, not row-by-row.
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    rows = [
+        _mk_row("Brussels", issue_epoch, issue_epoch),
+        _mk_row("Brussels", issue_epoch, issue_epoch + 300),
+        _mk_row("Brussels", issue_epoch, issue_epoch + 600),
+    ]
+    written1 = eb.append_archive(rows, tmp_path)
+    assert written1 == 3
+    written2 = eb.append_archive(rows, tmp_path)
+    assert written2 == 0
+    assert len(eb.load_archive(tmp_path, dt.date(2026, 9, 3))) == 3
 
 
 def test_load_archive_missing_day_returns_empty(tmp_path):
@@ -267,6 +467,7 @@ def test_score_against_truth_arithmetic():
         _mk_row("B", 0, 300, mm_per_h=0.0),   # lead 5
         _mk_row("C", 0, 600, mm_per_h=2.0),   # lead 10
     ]
+
     # truth: station A observed 0.5 (over-forecast at 1.0 vs 0.5), B
     # observed 0.2 (predicted 0.0), C observed 2.0 (perfect hit). A/B/C
     # share the same lat/lon in _mk_row, so the lookup is keyed by call
@@ -310,6 +511,23 @@ def test_score_against_truth_skips_missing_truth():
 
     result = eb.score_against_truth(rows, truth_lookup)
     assert result == {}
+
+
+def test_score_against_truth_skips_nan_truth():
+    rows = [
+        _mk_row("A", 0, 300, mm_per_h=1.0),  # lead 5, truth is NaN -> skipped
+        _mk_row("B", 0, 300, mm_per_h=2.0),  # lead 5, truth is real -> counted
+    ]
+    truth_sequence = iter([math.nan, 2.0])
+
+    def truth_lookup(lat, lon, valid_epoch):
+        return next(truth_sequence)
+
+    result = eb.score_against_truth(rows, truth_lookup, thresholds=(1.0,))
+    assert result[5]["n"] == 1  # the NaN row did not poison the count
+    assert result[5]["bias"] == pytest.approx(0.0)
+    assert result[5]["rmse"] == pytest.approx(0.0)
+    assert result[5]["csi_1.0"] == pytest.approx(1.0)  # not a false alarm
 
 
 # ---------------------------------------------------------------------------

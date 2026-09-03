@@ -14,11 +14,20 @@ clock time with no date. The conversion to a rain rate is
 
     mm/h = 10 ** ((VVV - 109) / 32)
 
-so 109 -> 1.0 mm/h and 0 -> ~0.0004 mm/h (never exactly zero -- the feed has
-no explicit "no rain" sentinel, it is just very small numbers). The byte
-range formally extends to 255, which the formula maps to an enormous,
-never-actually-observed rate; that is a property of the encoding, not a bug
-in this reader.
+so 109 -> 1.0 mm/h. Below ``DRY_FLOOR_MM_H`` (0.01 mm/h, value ~45 and
+below) the result is snapped to exactly 0.0: the log scale never truly
+reaches zero, and treating everything under that floor as "dry" keeps this
+source comparable to whatever floor the other baselines and our own model
+output use, rather than scoring sub-drizzle noise as a wet forecast. Bytes
+outside 0-255 are not valid encodings and are rejected as malformed.
+
+Because the feed carries no date, lines are anchored to real calendar
+instants by walking forward from the first line and, at each step, picking
+whichever (date, DST-fold) candidate lands closest to "previous line's
+instant + 5 minutes". This is what makes local-midnight rollover and both
+DST transitions (the repeated hour in October, the skipped hour in March)
+resolve correctly and monotonically, instead of a "clock went backwards ->
+new day" heuristic that misfires on fall-back nights.
 
 Everything here is read-only and best-effort: a fetch failure returns
 ``None`` rather than raising, because a missing station should degrade
@@ -33,16 +42,16 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import http.client
 import json
 import logging
+import math
+import os
 import pathlib
-import sys
 import time
 import urllib.error
 import urllib.request
 from typing import Protocol
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 try:
     from zoneinfo import ZoneInfo
@@ -54,6 +63,22 @@ LOG = logging.getLogger("pluvio.external_baselines")
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 
 BUIENRADAR_URL = "https://gpsgadget.buienradar.nl/data/raintext?lat={lat}&lon={lon}"
+
+# Identify ourselves in the request so Buienradar's operators can throttle or
+# block us by name instead of by IP if this sampler is ever a problem for
+# them. Swap the contact URL for a real one before running this anywhere
+# outside a single researcher's machine.
+USER_AGENT = "pluvio-external-baselines/1.0 (+https://example.invalid/pluvio-contact)"
+
+DRY_FLOOR_MM_H = 0.01
+
+# Sanity bounds on lead time, in minutes, used to catch anchoring bugs
+# rather than to model anything physical about the feed.
+LEAD_MIN_MIN = -5
+LEAD_MIN_MAX = 130
+# How far (minutes) the feed's first line is allowed to sit from the fetch
+# instant before we treat the date anchoring as suspect and warn.
+FIRST_LINE_SLACK_MIN = 10
 
 # ---------------------------------------------------------------------------
 # Stations: ~20 well-spread points across Belgium and the Netherlands.
@@ -94,37 +119,71 @@ STATIONS: list[tuple[str, float, float]] = [
 
 
 def value_to_mm_per_h(value: float) -> float:
-    """Buienradar's 0-255 log-scale byte -> mm/h."""
-    return 10.0 ** ((value - 109.0) / 32.0)
+    """Buienradar's 0-255 log-scale byte -> mm/h, floored below DRY_FLOOR_MM_H."""
+    raw = 10.0 ** ((value - 109.0) / 32.0)
+    return 0.0 if raw < DRY_FLOOR_MM_H else raw
 
 
 def _fetch_text(url: str, timeout: float = 15.0) -> str | None:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
         LOG.warning("fetch failed for %s (%s)", url, exc)
         return None
+
+
+def _local_epoch(tod: dt.time, date: dt.date, fold: int) -> int:
+    t = dt.time(tod.hour, tod.minute, fold=fold)
+    local_dt = dt.datetime.combine(date, t, tzinfo=AMSTERDAM)
+    return int(local_dt.timestamp())
+
+
+def _closest_local_epoch(tod: dt.time, base_date: dt.date, target_epoch: int) -> tuple[int, dt.date]:
+    """Among (base_date-1..+1, fold 0/1) candidates for ``tod``, return the
+    (epoch, date) whose epoch is closest to ``target_epoch``.
+
+    Trying both neighbouring dates handles local-midnight rollover; trying
+    both folds handles the DST fall-back night, where a local clock time
+    like 02:30 names two different real instants an hour apart. Picking by
+    absolute distance to a target (rather than a "did the clock go
+    backwards" heuristic) is what keeps epochs monotonic straight through
+    both a rollover and a DST transition.
+    """
+    best_epoch = None
+    best_date = None
+    best_diff = None
+    for delta in (-1, 0, 1):
+        date = base_date + dt.timedelta(days=delta)
+        for fold in (0, 1):
+            epoch = _local_epoch(tod, date, fold)
+            diff = abs(epoch - target_epoch)
+            if best_diff is None or diff < best_diff:
+                best_diff = diff
+                best_epoch = epoch
+                best_date = date
+    return best_epoch, best_date
 
 
 def parse_raintext(text: str, issue_time_utc: dt.datetime) -> list[tuple[int, float]]:
     """Parse a raintext payload into (valid_epoch_utc, mm_per_h) pairs.
 
     ``issue_time_utc`` anchors the (dateless) local clock times onto real
-    calendar dates: the first parsed line takes the issue time's local date,
-    and every time a line's clock time is *earlier* than the previous line's
-    the local date rolls forward by one day (handles the feed crossing local
-    midnight, e.g. an issue near 23:50 local with lines running into 00:xx).
+    calendar instants: the first line is placed at whichever (date, fold)
+    candidate lands closest to the issue instant, and every following line
+    is placed closest to "previous line's instant + 5 minutes". That keeps
+    the result monotonic across local midnight and across both directions
+    of a DST transition -- see the module docstring.
 
-    Malformed or blank lines are skipped rather than raising.
+    Lines are skipped (not raised on) if the ``VVV|HH:MM`` shape doesn't
+    parse, or if ``VVV`` falls outside the feed's defined 0-255 byte range.
     """
     if issue_time_utc.tzinfo is None:
         issue_time_utc = issue_time_utc.replace(tzinfo=dt.timezone.utc)
+    issue_epoch = int(issue_time_utc.timestamp())
 
-    local_date = issue_time_utc.astimezone(AMSTERDAM).date()
-    prev_tod: dt.time | None = None
-    out: list[tuple[int, float]] = []
-
+    parsed_lines: list[tuple[dt.time, float]] = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or "|" not in line:
@@ -137,14 +196,31 @@ def parse_raintext(text: str, issue_time_utc: dt.datetime) -> list[tuple[int, fl
         except (ValueError, IndexError):
             LOG.debug("skipping malformed raintext line: %r", raw_line)
             continue
+        if not (0.0 <= value <= 255.0):
+            LOG.debug("skipping out-of-range raintext value: %r", raw_line)
+            continue
+        parsed_lines.append((tod, value))
 
-        if prev_tod is not None and tod < prev_tod:
-            local_date += dt.timedelta(days=1)
-        prev_tod = tod
+    if not parsed_lines:
+        return []
 
-        local_dt = dt.datetime.combine(local_date, tod, tzinfo=AMSTERDAM)
-        valid_epoch = int(local_dt.astimezone(dt.timezone.utc).timestamp())
-        out.append((valid_epoch, value_to_mm_per_h(value)))
+    base_date = issue_time_utc.astimezone(AMSTERDAM).date()
+    target = issue_epoch
+    out: list[tuple[int, float]] = []
+    for tod, value in parsed_lines:
+        epoch, base_date = _closest_local_epoch(tod, base_date, target)
+        out.append((epoch, value_to_mm_per_h(value)))
+        target = epoch + 300
+
+    first_lead_min = (out[0][0] - issue_epoch) / 60.0
+    if not (-FIRST_LINE_SLACK_MIN <= first_lead_min <= FIRST_LINE_SLACK_MIN):
+        LOG.warning(
+            "raintext first line lead %.1f min looks wrong (issue=%s, first=%s) -- "
+            "date anchoring may be off",
+            first_lead_min,
+            issue_time_utc.isoformat(),
+            dt.datetime.fromtimestamp(out[0][0], dt.timezone.utc).isoformat(),
+        )
 
     return out
 
@@ -181,29 +257,53 @@ def sample_all(
     source: "Source | None" = None,
     delay_s: float = 0.5,
 ) -> list[dict]:
-    """Fetch every station and flatten to scoreboard-ready rows."""
+    """Fetch every station and flatten to scoreboard-ready rows.
+
+    ``lead_min`` is measured from the feed's own first valid time (its t0),
+    not from the fetch wall-clock: the feed floors its first line to the
+    previous 5-minute step, so a wall-clock-referenced lead comes out
+    fractional and off-grid ([-3, 2, 7, ...] rather than [0, 5, 10, ...]),
+    which fragments per-lead scoreboard buckets across runs. ``issue_epoch``
+    on each row is snapped to that same t0 for the same reason. The raw
+    fetch instant is kept separately as ``fetch_epoch`` for latency/staleness
+    diagnostics.
+
+    With this feed's usual ~24 five-minute lines, the lead grid is
+    0, 5, 10, ..., 115: benchmark leads 30/60/90 always land exactly on a
+    grid point, and so does 120 whenever the feed happens to return a 25th
+    line (it sometimes does; when it doesn't, 115 is the last lead sampled).
+    """
     if issue_time is None:
         issue_time = dt.datetime.now(dt.timezone.utc)
     elif issue_time.tzinfo is None:
         issue_time = issue_time.replace(tzinfo=dt.timezone.utc)
     stations = STATIONS if stations is None else stations
     source = source or BuienradarSource()
-    issue_epoch = int(issue_time.timestamp())
+    fetch_epoch = int(issue_time.timestamp())
 
     rows: list[dict] = []
     for i, (name, lat, lon) in enumerate(stations):
         points = source.fetch_point(lat, lon, issue_time)
         if points:
+            t0 = points[0][0]
             for valid_epoch, mm_per_h in points:
+                lead_min = round((valid_epoch - t0) / 60.0)
+                if not (LEAD_MIN_MIN <= lead_min <= LEAD_MIN_MAX):
+                    LOG.warning(
+                        "station %s: lead %d min outside [%d, %d], dropping row",
+                        name, lead_min, LEAD_MIN_MIN, LEAD_MIN_MAX,
+                    )
+                    continue
                 rows.append(
                     {
                         "source": source.name,
                         "station": name,
                         "lat": lat,
                         "lon": lon,
-                        "issue_epoch": issue_epoch,
+                        "issue_epoch": t0,
+                        "fetch_epoch": fetch_epoch,
                         "valid_epoch": valid_epoch,
-                        "lead_min": round((valid_epoch - issue_epoch) / 60.0),
+                        "lead_min": lead_min,
                         "mm_per_h": mm_per_h,
                     }
                 )
@@ -216,18 +316,33 @@ def sample_all(
 
 # ---------------------------------------------------------------------------
 # Archive: one JSON-lines file per UTC day, keyed idempotently.
+#
+# Files are keyed by the UTC day of each row's valid_epoch (not issue time --
+# forecast_archive elsewhere in this repo keys by issue time instead). A
+# scoreboard join against truth must therefore key on (valid_epoch, lat, lon)
+# and, for any station near a UTC-day boundary, open both that day's file and
+# its neighbours (day - 1 / day + 1), since a single fetch's rows can span
+# the boundary.
 # ---------------------------------------------------------------------------
 
 def _archive_path(root: pathlib.Path, source_name: str, day: dt.date) -> pathlib.Path:
     return pathlib.Path(root) / source_name / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}.jsonl"
 
 
+def _index_path(jsonl_path: pathlib.Path) -> pathlib.Path:
+    return jsonl_path.with_suffix(jsonl_path.suffix + ".idx")
+
+
 def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
     """Append rows to per-day JSONL files, skipping ones already recorded.
 
-    Idempotency key is (station, issue_epoch, valid_epoch) within a day's
-    file. Rows are grouped by the day (UTC) of their valid_epoch, since that
-    is what a later "what actually fell" verification will join against.
+    Idempotency is tracked per (station, issue_epoch) *batch* -- all the
+    lead-time rows one station produces in one fetch share the same
+    (snapped) issue_epoch and are written or skipped together -- via a small
+    sidecar ``.idx`` file next to the day's ``.jsonl``. That index is read
+    (not the full day's JSON rows) to decide what's new, so repeated calls
+    across a day of 10-minute cadence stay cheap instead of re-parsing an
+    ever-growing JSONL file on every call.
 
     Returns the number of rows actually written.
     """
@@ -242,34 +357,43 @@ def append_archive(rows: list[dict], root: str | pathlib.Path) -> int:
     for (source_name, day), day_rows in by_day.items():
         path = _archive_path(root, source_name, day)
         path.parent.mkdir(parents=True, exist_ok=True)
+        idx_path = _index_path(path)
 
-        existing_keys: set[tuple[str, int, int]] = set()
-        if path.exists():
-            with path.open("r", encoding="utf-8") as fh:
+        written_batches: set[tuple[str, int]] = set()
+        if idx_path.exists():
+            with idx_path.open("r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line:
                         continue
+                    station, _, issue_epoch_str = line.partition("|")
                     try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
+                        written_batches.add((station, int(issue_epoch_str)))
+                    except ValueError:
                         continue
-                    existing_keys.add(
-                        (rec.get("station"), rec.get("issue_epoch"), rec.get("valid_epoch"))
-                    )
+
+        by_batch: dict[tuple[str, int], list[dict]] = {}
+        for row in day_rows:
+            key = (row.get("station"), row.get("issue_epoch"))
+            by_batch.setdefault(key, []).append(row)
 
         new_lines = []
-        for row in day_rows:
-            key = (row.get("station"), row.get("issue_epoch"), row.get("valid_epoch"))
-            if key in existing_keys:
+        new_batches = []
+        for key, batch_rows in by_batch.items():
+            if key in written_batches:
                 continue
-            existing_keys.add(key)
-            new_lines.append(json.dumps(row, sort_keys=True))
+            written_batches.add(key)
+            new_batches.append(key)
+            for row in batch_rows:
+                new_lines.append(json.dumps(row, sort_keys=True))
 
         if new_lines:
             with path.open("a", encoding="utf-8") as fh:
                 for line in new_lines:
                     fh.write(line + "\n")
+            with idx_path.open("a", encoding="utf-8") as fh:
+                for station, issue_epoch in new_batches:
+                    fh.write(f"{station}|{issue_epoch}\n")
             written += len(new_lines)
 
     return written
@@ -300,6 +424,10 @@ def load_archive(root: str | pathlib.Path, day: dt.date, source_name: str = "bui
 DEFAULT_THRESHOLDS = (0.1, 0.5, 1.0)
 
 
+def _is_missing(truth) -> bool:
+    return truth is None or (isinstance(truth, float) and math.isnan(truth))
+
+
 def score_against_truth(
     rows: list[dict],
     truth_lookup,
@@ -309,12 +437,14 @@ def score_against_truth(
 
     ``truth_lookup(lat, lon, valid_epoch) -> mm_per_h | None`` supplies the
     observed rate (typically from the composite) for each row; rows with no
-    truth are skipped. Returns {lead_min: {n, bias, rmse, csi_<thr>: ...}}.
+    truth (``None`` or NaN -- a composite gap is reported as NaN, not None,
+    and left unhandled it would poison bias/RMSE and read as an unearned
+    false alarm) are skipped. Returns {lead_min: {n, bias, rmse, csi_<thr>: ...}}.
     """
     by_lead: dict[int, list[tuple[float, float]]] = {}
     for row in rows:
         truth = truth_lookup(row["lat"], row["lon"], row["valid_epoch"])
-        if truth is None:
+        if _is_missing(truth):
             continue
         by_lead.setdefault(row["lead_min"], []).append((row["mm_per_h"], truth))
 
@@ -352,15 +482,23 @@ def score_against_truth(
 def _parse_stations_arg(arg: str) -> list[tuple[str, float, float]]:
     if arg == "all":
         return STATIONS
-    wanted = {s.strip() for s in arg.split(",") if s.strip()}
+    order = [s.strip() for s in arg.split(",") if s.strip()]
     by_name = {name: (name, lat, lon) for name, lat, lon in STATIONS}
-    missing = wanted - set(by_name)
+    missing = [n for n in order if n not in by_name]
     if missing:
-        raise SystemExit(f"unknown station(s): {sorted(missing)}")
-    return [by_name[name] for name in wanted]
+        raise SystemExit(f"unknown station(s): {missing}")
+    seen: set[str] = set()
+    result = []
+    for n in order:
+        if n not in seen:
+            seen.add(n)
+            result.append(by_name[n])
+    return result
 
 
 def _cmd_sample(args: argparse.Namespace) -> None:
+    if not args.archive:
+        raise SystemExit("--archive is required (or set PLUVIO_EXTERNAL_ROOT)")
     stations = _parse_stations_arg(args.stations)
     rows = sample_all(stations=stations, delay_s=args.delay)
     if args.dry_run:
@@ -371,6 +509,8 @@ def _cmd_sample(args: argparse.Namespace) -> None:
 
 
 def _cmd_show(args: argparse.Namespace) -> None:
+    if not args.archive:
+        raise SystemExit("--archive is required (or set PLUVIO_EXTERNAL_ROOT)")
     day = dt.date.fromisoformat(args.day)
     rows = load_archive(args.archive, day, source_name=args.source)
     print(f"{len(rows)} rows for {args.source} on {day}")
@@ -380,18 +520,19 @@ def _cmd_show(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    default_archive = os.environ.get("PLUVIO_EXTERNAL_ROOT")
     parser = argparse.ArgumentParser(prog="external_baselines")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_sample = sub.add_parser("sample", help="fetch every station and archive")
-    p_sample.add_argument("--archive", required=True)
+    p_sample.add_argument("--archive", default=default_archive)
     p_sample.add_argument("--stations", default="all")
     p_sample.add_argument("--delay", type=float, default=0.5)
     p_sample.add_argument("--dry-run", action="store_true")
     p_sample.set_defaults(func=_cmd_sample)
 
     p_show = sub.add_parser("show", help="print an archived day")
-    p_show.add_argument("--archive", required=True)
+    p_show.add_argument("--archive", default=default_archive)
     p_show.add_argument("--day", required=True, help="YYYY-MM-DD")
     p_show.add_argument("--source", default="buienradar")
     p_show.add_argument("--limit", type=int, default=20)
