@@ -103,12 +103,33 @@ def _one(args):
     return stamp, rate.astype("float16"), q8, len(per)
 
 
+def _write_georef(root, shape) -> None:
+    """Record the day-store's own georeference as attrs (once). The composite
+    is binned onto a regular lat/lon box (edge-referenced, row 0 = north) whose
+    extent is whatever ``model.geo.bbox()`` returns in THIS checkout — consumers
+    (scoreboard, backend verify) must read these attrs instead of re-deriving
+    the box from their own geo module, which may differ."""
+    if "bounds" in root.attrs:
+        return
+    from model.geo import bbox
+    w, s, e, n = (float(x) for x in bbox())
+    root.attrs.update({
+        "bounds": [w, s, e, n],
+        "grid_shape": [int(shape[0]), int(shape[1])],
+        "grid_crs": "EPSG:4326",
+        "grid_row_order": "north_to_south",
+        "bounds_convention": "outer_edges",
+        "bounds_source": "model.geo.bbox() of the archiving checkout",
+    })
+
+
 def _open_day(day: dt.date, shape):
     import zarr
 
     path = ARCHIVE_ROOT / f"{day:%Y/%m}" / f"{day:%d}.zarr"
     path.parent.mkdir(parents=True, exist_ok=True)
     root = zarr.open_group(str(path), mode="a")
+    _write_georef(root, shape)
     have = set(getattr(root, "array_keys", lambda: [])())
     def create(name, shp, dtype, chunks, fill):
         if name in have:
