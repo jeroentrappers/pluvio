@@ -4,8 +4,11 @@ tools/_advection.py (imports it) and backend/src/pluvio_backend/morph.py
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
+from model import motion
 from model.motion import block_flow, flow_field, warp
 
 SHAPE = (128, 128)
@@ -114,6 +117,53 @@ def test_old_unnormalised_estimator_overshoots_ncc_does_not():
     ncc_dx = float(vx[1, 1])
     ncc_error = abs(ncc_dx - true_shift) / true_shift
     assert ncc_error < 0.10
+
+
+def _raw_dot(ref: np.ndarray, cand: np.ndarray) -> float:
+    """No mean subtraction, no normalisation — the pre-fix scorer."""
+    return float((ref.astype("float64") * cand.astype("float64")).sum())
+
+
+def _normalised_no_mean(ref: np.ndarray, cand: np.ndarray) -> float:
+    """Std-normalised but NOT mean-subtracted — isolates whether it's
+    normalisation in general, or mean subtraction specifically, that fixes
+    the ramp case."""
+    r = ref.astype("float64")
+    c = cand.astype("float64")
+    denom = math.sqrt(float((r * r).sum())) * math.sqrt(float((c * c).sum()))
+    if denom < 1e-6:
+        return -np.inf
+    return float((r * c).sum()) / denom
+
+
+def test_mean_subtraction_is_load_bearing(monkeypatch):
+    """block_flow's accuracy on the intensity-gradient case above depends on
+    _ncc_score's mean subtraction — swap it for a scorer that skips mean
+    subtraction (raw dot product) and the same ramp case must go back to
+    overshooting, the way the pre-fix estimator did. Std normalisation
+    alone (without centering) is not sufficient here — it still recovers
+    the true shift on this construction — so the two are checked
+    separately rather than folded into one assertion."""
+    h, w = SHAPE
+    a = np.zeros((h, w), dtype="float32")
+    b = np.zeros((h, w), dtype="float32")
+    x0, x1, true_shift = 20, 100, 5
+    ramp = np.linspace(1.0, 10.0, x1 - x0)
+    a[40:88, x0:x1] = ramp
+    b[40:88, x0 + true_shift:x1 + true_shift] = ramp
+
+    _vy, vx, _valid = block_flow(a, b, max_shift=7, blocks=4)
+    ncc_error = abs(float(vx[1, 1]) - true_shift) / true_shift
+    assert ncc_error < 0.10  # the real (mean-subtracted) scorer recovers it
+
+    monkeypatch.setattr(motion, "_ncc_score", _normalised_no_mean)
+    _vy_norm, vx_norm, _valid_norm = block_flow(a, b, max_shift=7, blocks=4)
+    assert abs(float(vx_norm[1, 1]) - true_shift) / true_shift < 0.10  # normalisation alone: still fine
+
+    monkeypatch.setattr(motion, "_ncc_score", _raw_dot)
+    _vy2, vx2, _valid2 = block_flow(a, b, max_shift=7, blocks=4)
+    broken_error = abs(float(vx2[1, 1]) - true_shift) / true_shift
+    assert broken_error > 0.15  # without mean subtraction AND normalisation, the overshoot is back
 
 
 # ──────────────────────────────────────────────────────────── edge cases

@@ -90,7 +90,10 @@ def _band_from_cube(d, issued_at, band_name: schedules.BandName):
     bands keep linear interpolation (their steps match the source spacing).
     """
     src_leads = [int(x) for x in d["leads"]]
-    src = d["rates"].astype("float32")
+    # produce_forecast.py already nan_to_num's before writing the cube, but
+    # morph.flow_for_pair/morph_pair raise on non-finite input (2.7) — belt
+    # and suspenders so a stale/malformed artifact can't take serving down.
+    src = np.nan_to_num(d["rates"].astype("float32"))
     band = schedules.band(band_name)
     if band_name != "nowcast":
         out = np.stack([_interp_lead(src, src_leads, L) for L in band.leads_min]).astype("float32")

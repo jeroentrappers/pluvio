@@ -72,12 +72,14 @@ def _ncc_score(ref: np.ndarray, cand: np.ndarray) -> float:
 
 
 def _parabolic_offset(s_minus: float, s_zero: float, s_plus: float) -> float:
-    """Sub-pixel offset (in [-1, 1]) of a parabola's peak fit through three
-    equally-spaced samples, the middle one the discrete-search maximum."""
+    """Sub-pixel offset of a parabola's peak fit through three equally-spaced
+    samples, the middle one the discrete-search maximum (s_zero >= s_minus,
+    s_plus). Analytically bounded to [-0.5, 0.5] under that precondition —
+    the clip is defensive, not load-bearing."""
     denom = s_minus - 2.0 * s_zero + s_plus
     if not np.isfinite(denom) or abs(denom) < 1e-9:
         return 0.0
-    return float(np.clip(0.5 * (s_minus - s_plus) / denom, -1.0, 1.0))
+    return float(np.clip(0.5 * (s_minus - s_plus) / denom, -0.5, 0.5))
 
 
 def block_flow(a: np.ndarray, b: np.ndarray, *, max_shift: int = DEFAULT_MAX_SHIFT,

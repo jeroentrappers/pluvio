@@ -11,8 +11,8 @@ makes cells fade in place; morphing makes them move.
 Pure numpy on purpose: the runtime image is python 3.14-slim and shipping
 OpenCV for a cp314 target is a wheel lottery. Displacements between 10-min
 forecast frames on the ~6 km model grid are tiny (60 km/h ≈ 1.7 px), so a
-block-matching search over ±4 px with a smoothed flow field captures the
-motion that matters.
+block-matching search over ±MAX_SHIFT (7) px with a smoothed flow field
+captures the motion that matters.
 
 ``_block_flow`` is a self-contained copy of ``research/model/motion.py``'s
 block-matching algorithm — not an import, because the runtime image ships
@@ -55,7 +55,14 @@ def _block_flow(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     For each of BLOCKS² overlapping windows, find the integer (dy, dx) within
     ±MAX_SHIFT that best aligns a→b (max NCC of log1p fields, wet cells
     only), then bilinearly interpolate the block vectors to full res.
+
+    Raises ``ValueError`` on non-finite input; NaN reaching the block matcher
+    would silently zero every block it touches, so the caller must fill it
+    (e.g. outside the radar domain) before calling this.
     """
+    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+        raise ValueError("_block_flow: non-finite input — fill NaN (e.g. outside the "
+                         "radar domain) before calling")
     h, w = a.shape
     la, lb = np.log1p(np.maximum(a, 0.0)), np.log1p(np.maximum(b, 0.0))
     ys = np.linspace(0, h, BLOCKS + 1).astype(int)
@@ -69,6 +76,8 @@ def _block_flow(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         for bj in range(BLOCKS):
             y0, y1 = ys[bi], ys[bi + 1]
             x0, x1 = xs[bj], xs[bj + 1]
+            if y1 <= y0 or x1 <= x0:
+                continue  # degenerate block (field smaller than BLOCKS on an axis)
             ref = la[y0:y1, x0:x1]
             if float((ref > np.log1p(WET_THR)).mean()) < 0.005:
                 continue  # (near-)dry block: no measurable motion, leave 0
