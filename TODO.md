@@ -200,10 +200,71 @@ CSI decays. The objective is the biggest lever we own.
       with CRPS; serving carries P(rain>thr) per lead. Acceptance: reliability
       diagram in benchmark; sharper median than deterministic baseline.
       Lane: research. Depends: 2.1, 3.2
-- [ ] **2.3 Lagrangian input channels** — advected latest observation at each
-      lead as model input (port `add_nowcast_channels` to the v3 store, using
-      `morph` flow or pysteps). Acceptance: ablation on benchmark. Lane: agent
-      → research.
+- [~] **2.3 Lagrangian input channels** — advected latest observation at each
+      lead as model input. Landed (agent half): computed ON THE FLY in
+      `ZarrCorrectionDataset`, no store rewrite — the legacy
+      `add_nowcast_channels` store layout is NOT reused.
+      * `lagrangian_channels=0|1|2` on the dataset, default 0 → `n_channels`
+        and every existing channel index are bit-identical to before
+        (regression-tested), and the new planes are APPENDED after the
+        statics so turning them on never renumbers anything.
+      * plane 1 `lagrangian_rate`: the newest analysis advected to the
+        sample's lead by `model.motion.block_flow` on the two newest history
+        frames, scaled linearly (`lead/history_step`) and clamped to the grid
+        by `warp`'s coordinate clip; mm/h, same units as the history planes.
+        Search radius from the store's own `bounds`/`grid_n`
+        (`motion.km_per_px_from_bounds`, now the single implementation — the
+        benchmark's `_km_per_px` delegates to it) so the channel and the
+        advection baseline it must beat see the same motion. `subpixel=False`
+        for the same reason, and because the parabolic fit adds up to 0.5 px
+        of spurious offset on an exact match, which the lead scaling
+        multiplies into visible drift.
+      * plane 2 `lagrangian_flow_mag` (only at 2): per-step displacement
+        magnitude / search radius, ~[0,1], deliberately lead-independent — a
+        per-issue "how far was this prior transported / did the estimator
+        find motion at all" signal.
+      * NaN: filled before the flow estimate; after the warp the NaN mask is
+        warped by the same displacement and restored, so a NaN wake is "no
+        observation advected here" rather than a fabricated dry cell.
+        `build_input`'s own final `nan_to_num` is what turns it into the 0.0
+        the net sees — same convention as every other channel.
+      * checkpoints carry a `channel_recipe` (history steps/step_min, aux
+        list, static list, lagrangian count, total) and `infer_latest`
+        rebuilds the input FROM IT (`dataset_for_checkpoint`), cross-checked
+        against `in_channels`; a pre-recipe checkpoint resolves to exactly
+        today's behaviour. Flags: `train.py --lagrangian-channels {0,1,2}`
+        (rejected on the legacy HDF5 dataset, which never goes through
+        `build_input`) and `infer_latest.py --lagrangian-channels` as an
+        override.
+      * cost, measured at 192² (`build_input`, 4 leads/issue, 15 channels,
+        CPU): off 6.9 ms/sample; on 51.9 ms/sample walking the index in order
+        (one 165 ms flow estimate amortised over an issue's 4 leads);
+        7.9 ms/sample with the flow already cached; 172 ms/sample if the
+        flow is re-estimated per sample. The flow is cached per issue as the
+        4x4 BLOCK field (128 B/issue, so a whole split fits and nothing is
+        evicted) — but the cache is per DataLoader worker, so under
+        `shuffle=True` with W workers an issue's leads usually land in
+        different workers and the epoch cost tends toward the 172 ms figure.
+        If that shows up in the profile: group an issue's leads in one batch
+        (sampler) or fold the flow into 2.6's pre-rendered shards, where it
+        is computed once per issue for good.
+      * merged: dataset/train/infer + 21 tests
+        (`research/tests/test_lagrangian_channels.py`: channel count,
+        bit-identical off-path, known synthetic motion at each lead, zero
+        flow == persistence, one-frame history == zero flow, flow estimated
+        once per issue, NaN wake, recipe round-trip through
+        `dataset_for_checkpoint`).
+      Acceptance still OPEN — needs the GPU ablation, not the agent lane:
+      train three runs on the frozen benchmark store, identical seed/loss/
+      schedule, `--lagrangian-channels 0` vs `1` vs `2`, and score all three
+      with `tools/benchmark.py` (same config hash + manifest hash). Report
+      per-lead CSI/FSS at 0.5/1/2/5 mm/h and RMSE against the run's own
+      `advection` baseline: the channel earns its place only if it beats the
+      0-channel run at the longer leads (60-120 min), where the net currently
+      has to learn advection implicitly, AND the 0-channel run does not
+      already match the advection baseline there. If 2 ≈ 1, ship 1 (one fewer
+      channel, and the magnitude plane is the speculative half).
+      Lane: research (GPU). Depends: 3.2
 - [ ] **2.4 5-minute issue densification** — `build_store_v3` at 5-min issues
       (×12 samples) from RAC 5-min frames. Acceptance: store contract passes;
       learning curve vs 30-min store. Lane: research.

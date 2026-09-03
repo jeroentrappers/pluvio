@@ -3,9 +3,14 @@ nowcast field for the backend to serve.
 
 This is the production inference step: the forward collectors + `build_zarr
 --append` keep `timeseries.zarr` current; this reads the newest issue-time,
-assembles the 33-channel input (reusing ZarrCorrectionDataset.build_input), runs
+assembles the model input (reusing ZarrCorrectionDataset.build_input), runs
 the model at leads 30/60/90/120, and writes an npz. Lead 0 is the current
 radar analysis (the interpolation anchor).
+
+Channel contract (2.3): the input layout comes from the CHECKPOINT's
+`channel_recipe` (see `dataset_for_checkpoint`), not from whatever the store
+happens to hold now — including whether the Lagrangian persistence channels
+are part of the stack.
 
 Grid contract (1.1): the store's georeference is READ from its zarr attrs
 via `model.grid.Grid.from_zarr`, never assumed.
@@ -43,6 +48,52 @@ LOG = logging.getLogger("pluvio.infer_latest")
 LEADS = (30, 60, 90, 120)
 
 
+def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
+                           lagrangian_channels: int | None = None):
+    """Build the ZarrCorrectionDataset that reproduces the input a checkpoint
+    was TRAINED on, from the ``channel_recipe`` train.py stored alongside it.
+
+    Without this, serving re-derives the channel layout from whatever the
+    store holds today: adding one aux channel to the store would silently
+    renumber every channel under a trained model, and turning the Lagrangian
+    channels (2.3) on in training would leave inference feeding a model that
+    expects them a stack that has none. Both are shape- or worse
+    silence-level bugs, so the recipe is authoritative and the resulting
+    channel count is cross-checked against ``in_channels``.
+
+    A checkpoint from before the recipe existed carries none — every key
+    falls back to the dataset's own default, i.e. exactly today's behaviour.
+    ``lagrangian_channels`` overrides the recipe (the CLI flag), for
+    ablating a channel set against a store by hand.
+    """
+    from model.zarr_dataset import ZarrCorrectionDataset
+
+    recipe = dict(ckpt.get("channel_recipe") or {})
+    kwargs: dict = {}
+    if "history_steps" in recipe:
+        kwargs["history_steps"] = int(recipe["history_steps"])
+    if "history_step_min" in recipe:
+        kwargs["history_step_min"] = int(recipe["history_step_min"])
+    if recipe.get("aux_channels") is not None:
+        kwargs["aux_channels"] = list(recipe["aux_channels"])
+    lag = (int(lagrangian_channels) if lagrangian_channels is not None
+           else int(recipe.get("lagrangian_channels", 0)))
+
+    ds = ZarrCorrectionDataset(zarr_path, leads_min=tuple(leads_min), build_index=False,
+                               lagrangian_channels=lag, **kwargs)
+
+    expected = ckpt.get("in_channels", recipe.get("n_channels"))
+    if expected is not None and int(expected) != ds.n_channels:
+        raise ValueError(
+            f"checkpoint expects {int(expected)} input channels but this store "
+            f"resolves to {ds.n_channels} (recipe={recipe or None}, "
+            f"aux={ds.aux_channels}, static={ds.static_channels}, "
+            f"lagrangian={ds.lagrangian_channels}) — the store's channel set "
+            "has drifted from the one the model was trained on"
+        )
+    return ds
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--zarr", default="/opt/pluvio/zarr/timeseries.zarr")
@@ -50,19 +101,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="/opt/pluvio/serve/model_nowcast.npz")
     parser.add_argument("--max-age-min", type=int, default=90,
                         help="Skip (don't overwrite) if the latest issue is staler than this.")
+    parser.add_argument("--lagrangian-channels", type=int, default=None, choices=(0, 1, 2),
+                        help="Override the checkpoint's Lagrangian channel count (2.3). "
+                             "Default: whatever the checkpoint's channel recipe recorded "
+                             "(0 for any checkpoint trained before the recipe existed).")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     import torch
-    from model.zarr_dataset import ZarrCorrectionDataset
     from model.geo import grid_latlon, log_resolved_geometry
     from model.grid import Grid, GridContractError
 
     log_resolved_geometry()
 
-    ds = ZarrCorrectionDataset(args.zarr, leads_min=LEADS, build_index=False)
+    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    ds = dataset_for_checkpoint(args.zarr, ckpt, LEADS,
+                                lagrangian_channels=args.lagrangian_channels)
     issue_idx = ds.latest_issue_idx()
     issue_epoch = int(ds._issue_epoch[issue_idx])
     issue_dt = datetime.fromtimestamp(issue_epoch, tz=timezone.utc)
@@ -77,14 +133,14 @@ def main(argv: list[str] | None = None) -> int:
     if hist is None:
         LOG.error("no radar history for the latest issue — cannot infer"); return 1
 
-    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     from model.unet import PluvioUNet
     model = PluvioUNet(in_channels=ckpt.get("in_channels", ds.n_channels),
                        base_channels=ckpt.get("base_channels", 32))
     model.load_state_dict(ckpt["model"])
     model.eval()
-    LOG.info("loaded %s (val_rmse=%.4f, %d ch)", args.checkpoint,
-             ckpt.get("val_rmse", float("nan")), ckpt.get("in_channels", ds.n_channels))
+    LOG.info("loaded %s (val_rmse=%.4f, %d ch, lagrangian=%d)", args.checkpoint,
+             ckpt.get("val_rmse", float("nan")), ckpt.get("in_channels", ds.n_channels),
+             ds.lagrangian_channels)
 
     # Store Grid (1.1): read it, never assume it. A v3 (regular lat/lon) store
     # carries its own georeference — the model runs and serves on that grid

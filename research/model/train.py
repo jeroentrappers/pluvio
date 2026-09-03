@@ -156,6 +156,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sharpness-weight", type=float, default=0.0,
                         help="Weight on the gradient-energy sharpness loss "
                              "(0 = disabled, matching the pre-existing Huber-only objective).")
+    parser.add_argument("--lagrangian-channels", type=int, default=0,
+                        choices=(0, 1, 2),
+                        help="Append Lagrangian-persistence input channels (2.3): 1 = the "
+                             "latest radar analysis advected to the sample's lead by the "
+                             "flow between the two newest history frames, 2 = that plus the "
+                             "per-step flow magnitude. 0 (default) keeps the input identical "
+                             "to every existing checkpoint. Recorded in the checkpoint's "
+                             "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (val RMSE plateau)")
     parser.add_argument("--max-minutes", type=float, default=None,
@@ -197,9 +205,16 @@ def main(argv: list[str] | None = None) -> int:
         train_set = ZarrCorrectionDataset(
             args.zarr, time_range=(_DT_MIN, split),
             require_rain_fraction=args.require_rain_fraction,
+            lagrangian_channels=args.lagrangian_channels,
         )
-        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX))
+        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX),
+                                        lagrangian_channels=args.lagrangian_channels)
     else:
+        if args.lagrangian_channels:
+            raise SystemExit(
+                "--lagrangian-channels needs the zarr store (--zarr); the legacy "
+                "radar-HDF5 dataset does not assemble channels through "
+                "ZarrCorrectionDataset.build_input")
         split = _time_split(args.data, args.val_frac)
         LOG.info("Time split: train < %s ≤ val", split.isoformat())
         train_set = PluvioCorrectionDataset(
@@ -263,6 +278,13 @@ def main(argv: list[str] | None = None) -> int:
         "sharpness_weight": args.sharpness_weight,
     }
 
+    # The exact channel layout this run trained on, so infer_latest/benchmark
+    # rebuild it rather than re-deriving it from a store that may have gained
+    # channels since (2.3). None for the legacy HDF5 dataset, which has no
+    # build_input recipe.
+    channel_recipe = (train_set.channel_recipe()
+                      if isinstance(train_set, ZarrCorrectionDataset) else None)
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
     # Val RMSE at a fixed LR oscillates around an early best without ever
@@ -308,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
                     "arch": "PluvioUNet",
                     "epoch": epoch,
                     "loss_config": loss_config,
+                    "channel_recipe": channel_recipe,
                 },
                 checkpoint_path,
             )

@@ -27,3 +27,18 @@ def test_sharpness_weight_at_cap_is_accepted_by_validation():
 def test_negative_sharpness_weight_is_still_rejected():
     with pytest.raises(SystemExit, match=r"--sharpness-weight must be >= 0"):
         main(["--sharpness-weight", "-0.1"])
+
+
+def test_lagrangian_channels_rejected_on_the_legacy_hdf5_dataset(tmp_path):
+    # The Lagrangian channels (2.3) are assembled in
+    # ZarrCorrectionDataset.build_input; the legacy radar-HDF5 dataset never
+    # goes through it, so asking for them there must fail before training
+    # rather than silently training a plain-channel model.
+    with pytest.raises(SystemExit, match=r"--lagrangian-channels needs the zarr store"):
+        main(["--data", str(tmp_path), "--lagrangian-channels", "1"])
+
+
+def test_lagrangian_channels_rejects_out_of_range_value(capsys):
+    with pytest.raises(SystemExit):
+        main(["--lagrangian-channels", "3"])
+    assert "--lagrangian-channels" in capsys.readouterr().err
