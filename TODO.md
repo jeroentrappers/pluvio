@@ -83,26 +83,28 @@ below every metric. Make eyes unnecessary.
       `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
       overlay bounds, Flutter `Env.radarBounds*`) — same blast radius as the
       trim bug. Lane: agent. Found by review of 1.2.
-- [ ] **1.11 Env-latched geometry** — `geo.GRID` resolves `PLUVIO_GRID_N` at
-      import and `grid_latlon` caches the bias env inside `lru_cache`; later
-      changes are silently ignored (mechanism of the 192² incident). Read env
-      into named constants at module scope, log resolved values once, or pass
-      the bias explicitly. Lane: agent.
-- [ ] **1.12 Store builders fail loudly** — `build_store_v3` dispatches the
-      trimmed/untrimmed mapping by ndim + one name (any new 3-D array silently
-      gets the aux extent) → explicit name→extent table with a hard raise;
-      `zarr_dataset._discover` silently drops mis-shaped statics and admits any
-      n-length 3-D array as input → raise on shape-contract mismatch, log the
-      resolved channel list, allow an expected-channel-count assert; assert
-      `issue_time` units (seconds) at store creation. Lane: agent.
+- [x] **1.11 Env-latched geometry** — `grid_latlon(bias=...)` explicit with a
+      per-call env fallback; memoisation keyed on the resolved (shape, bias);
+      `log_resolved_geometry()` called by the CLIs after logging is configured.
+      Bit-identical to the previous output (sha256-checked, default and
+      non-zero bias). Merged 2026-09-03 (branch 1cc2999). Lane: agent.
+- [x] **1.12 Store builders fail loudly** — `build_store_v3` uses an explicit
+      name→extent table (validated at `--create` too); `zarr_dataset._discover`
+      raises on any shape-contract mismatch naming array and shapes, logs the
+      channel list once, optional `expected_channels`; `issue_time` must be
+      epoch seconds (ms → raise, a low outlier slot → warning, so an
+      interrupted append cannot take down inference). Proven safe against the
+      live legacy store layout and the v3 layout (byte-identical channel lists
+      through train and infer paths). Merged 2026-09-03. Lane: agent.
 - [ ] **1.13 Backend pixel conventions** — `cache.GridSpec.latlon_to_cell`
       (centre, `*(h-1)`, `round`) vs `history.py` and `colormap.draw_fiducials`
       (edge, `*h`, `int`) disagree by up to a cell; unify on Grid semantics
       (centre bounds from the store, `edge_bounds()` for painters). Depends 1.1.
       Lane: agent + ops.
-- [ ] **1.14 Dead code / small debts** — `morph.py` unused `gy`; `zarr_dataset`
-      unused `src`; `torch` missing from `research/pyproject.toml` deps;
-      `research/tests` needs a pytest path config. Lane: agent.
+- [x] **1.14 Dead code / small debts** — `morph.py` unused `gy` (with 2.7),
+      `zarr_dataset` unused `src`, `torch` in `research/pyproject.toml`,
+      `[tool.pytest.ini_options]` replaces the conftest sys.path hack; `cv2`
+      import made lazy in `build_store_v3`. Merged 2026-09-03. Lane: agent.
 
 ## Epic 2 — Model objective & inputs (days 31–60)
 
@@ -138,12 +140,15 @@ CSI decays. The objective is the biggest lever we own.
       sharded tensors; streaming loader. Acceptance: ≥3× epoch speedup, same
       loss curve. Lane: agent.
 
-- [ ] **2.7 Better motion estimator** — the block-matching flow (backend
-      `morph.py`, benchmark `_advection.py`) scores blocks by unnormalised
-      cross-correlation → mass-biased, ~30% overshoot, spurious cross-axis
-      drift; MAX_SHIFT is grid-specific. Switch to SSD / mean-subtracted NCC
-      over wet cells, derive the search radius from grid spacing × cadence,
-      share one implementation. Found by review of 3.2. Lane: agent.
+- [x] **2.7 Better motion estimator** — `research/model/motion.py` is the one
+      NCC block-flow estimator (mean-subtracted, std-normalised over wet
+      cells, grid-derived search radius, parabolic sub-pixel refinement);
+      `tools/_advection.py` wraps it and the backend `morph.py` carries a
+      lockstep copy (asserted equal by test; backend image ships only
+      backend/src). Measured on realistic synthetic scenes: true-motion error
+      7.17 → 1.28 px, morph RMSE 0.54 → 0.06 mm/h; the old scorer saturated at
+      the ±7 px radius on low-contrast tails. Merged b03b2a6. Open: backend
+      image rebuild + deploy to put it on the serving path (ops). Lane: agent.
 
 ## Epic 3 — Evaluation institution (days 1–60)
 
