@@ -29,15 +29,15 @@ BANDS: list[tuple[float, tuple[int, int, int]]] = [
     # Drizzle band: reference maps (Buienradar, Met Office) show trace rain
     # below 0.1 mm/h; cutting it made our forecast look like it "missed"
     # light rain. Dim navy, distinct from the 0.1 band.
-    (0.05, (12, 16, 120)),    # dim navy    #0c1078  → [0.05, 0.1)
-    (0.1,  (18, 25, 200)),    # deep blue   #1219c8  → [0.1, 0.5)
-    (0.5,  (60, 110, 230)),   # royal blue  #3c6ee6  → [0.5, 1)
-    (1.0,  (105, 200, 240)),  # sky blue    #69c8f0  → [1, 2)
-    (2.0,  (60, 180, 60)),    # green       #3cb43c  → [2, 4)
-    (4.0,  (240, 215, 70)),   # yellow      #f0d746  → [4, 8)
-    (8.0,  (240, 160, 60)),   # orange      #f0a03c  → [8, 16)
-    (16.0, (230, 60, 55)),    # red         #e63c37  → [16, 32)
-    (32.0, (200, 35, 35)),    # dark red    #c82323  → [32, ∞)
+    (0.05, (12, 16, 120)),  # dim navy    #0c1078  → [0.05, 0.1)
+    (0.1, (18, 25, 200)),  # deep blue   #1219c8  → [0.1, 0.5)
+    (0.5, (60, 110, 230)),  # royal blue  #3c6ee6  → [0.5, 1)
+    (1.0, (105, 200, 240)),  # sky blue    #69c8f0  → [1, 2)
+    (2.0, (60, 180, 60)),  # green       #3cb43c  → [2, 4)
+    (4.0, (240, 215, 70)),  # yellow      #f0d746  → [4, 8)
+    (8.0, (240, 160, 60)),  # orange      #f0a03c  → [8, 16)
+    (16.0, (230, 60, 55)),  # red         #e63c37  → [16, 32)
+    (32.0, (200, 35, 35)),  # dark red    #c82323  → [32, ∞)
 ]
 
 

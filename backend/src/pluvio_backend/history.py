@@ -26,9 +26,7 @@ from .tiler import render_sprite
 
 LOG = logging.getLogger("pluvio.history")
 
-OBSERVED_NPZ = pathlib.Path(
-    os.environ.get("PLUVIO_OBSERVED_NPZ", "/opt/pluvio/serve/observed.npz")
-)
+OBSERVED_NPZ = pathlib.Path(os.environ.get("PLUVIO_OBSERVED_NPZ", "/opt/pluvio/serve/observed.npz"))
 # Full-resolution cube as a raw .npy + .json sidecar (see produce_observed): at 1 km
 # the continental cube is ~1 GB, so it is memory-MAPPED and sliced per tile/point —
 # never loaded whole. The npz above becomes the low-zoom OVERVIEW.
@@ -64,9 +62,17 @@ def _load():
         if age > MAX_AGE_S:
             LOG.warning("observed cube stale (%.0f s)", age)
             return None
-        data = {"mtime": mtime, "times": times, "rates": rates,
-                "bounds": {"west": bounds[0], "south": bounds[1],
-                           "east": bounds[2], "north": bounds[3]}}
+        data = {
+            "mtime": mtime,
+            "times": times,
+            "rates": rates,
+            "bounds": {
+                "west": bounds[0],
+                "south": bounds[1],
+                "east": bounds[2],
+                "north": bounds[3],
+            },
+        }
         _CACHE.update(mtime=mtime, data=data)
         return data
 
@@ -74,6 +80,7 @@ def _load():
 def _load_hi():
     """Memmap view of the hi-res cube, cached per sidecar mtime. None if absent/stale."""
     import json
+
     meta_path = OBSERVED_HI.with_suffix(".json")
     try:
         mtime = meta_path.stat().st_mtime
@@ -95,8 +102,12 @@ def _load_hi():
             LOG.warning("hi cube stale")
             return None
         w, s_, e, n = meta["bounds"]
-        data = {"mtime": mtime, "times": times, "rates": rates,
-                "bounds": {"west": w, "south": s_, "east": e, "north": n}}
+        data = {
+            "mtime": mtime,
+            "times": times,
+            "rates": rates,
+            "bounds": {"west": w, "south": s_, "east": e, "north": n},
+        }
         _HI_CACHE.update(mtime=mtime, data=data)
         return data
 
@@ -114,12 +125,18 @@ def tiles_info():
     if data is None:
         return None
     n, h, w = data["rates"].shape
-    return {"tile_px": TILE_PX,
-            "nx": -(-w // TILE_PX), "ny": -(-h // TILE_PX),
-            "grid_h": h, "grid_w": w, "count": n,
-            "bounds": data["bounds"],
-            "index": {int(t): i for i, t in enumerate(data["times"])},
-            "mtime": int(data["mtime"]), "cols": 6}
+    return {
+        "tile_px": TILE_PX,
+        "nx": -(-w // TILE_PX),
+        "ny": -(-h // TILE_PX),
+        "grid_h": h,
+        "grid_w": w,
+        "count": n,
+        "bounds": data["bounds"],
+        "index": {int(t): i for i, t in enumerate(data["times"])},
+        "mtime": int(data["mtime"]),
+        "cols": 6,
+    }
 
 
 def tile_sprite_png_path(tx: int, ty: int) -> pathlib.Path | None:
@@ -136,15 +153,14 @@ def tile_sprite_png_path(tx: int, ty: int) -> pathlib.Path | None:
         return path
     r0, r1 = ty * TILE_PX, min((ty + 1) * TILE_PX, h)
     c0, c1 = tx * TILE_PX, min((tx + 1) * TILE_PX, w)
-    fields = [np.asarray(data["rates"][i, r0:r1, c0:c1], dtype="float32")
-              for i in range(n)]
+    fields = [np.asarray(data["rates"][i, r0:r1, c0:c1], dtype="float32") for i in range(n)]
     png, _rows, _cols = render_sprite(fields, cols=6)
     with tempfile.NamedTemporaryFile(dir=_SPRITE_DIR, suffix=".png", delete=False) as tf:
         tmp = pathlib.Path(tf.name)
     tmp.write_bytes(png)
     tmp.replace(path)
     stamp = f"tile_{int(data['mtime'])}_"
-    for old in _SPRITE_DIR.glob("tile_*.png"):        # drop tiles of older cubes
+    for old in _SPRITE_DIR.glob("tile_*.png"):  # drop tiles of older cubes
         if not old.name.startswith(stamp):
             old.unlink(missing_ok=True)
     return path
@@ -202,9 +218,15 @@ def sprite_info():
     n, h, w = data["rates"].shape
     cols = 6
     rows = -(-n // cols)
-    return {"tile_w": w, "tile_h": h, "cols": cols, "rows": rows,
-            "count": n, "index": {int(t): i for i, t in enumerate(data["times"])},
-            "mtime": int(data["mtime"])}
+    return {
+        "tile_w": w,
+        "tile_h": h,
+        "cols": cols,
+        "rows": rows,
+        "count": n,
+        "index": {int(t): i for i, t in enumerate(data["times"])},
+        "mtime": int(data["mtime"]),
+    }
 
 
 def sprite_png_path() -> pathlib.Path | None:
@@ -222,7 +244,7 @@ def sprite_png_path() -> pathlib.Path | None:
         tmp = pathlib.Path(tf.name)
     tmp.write_bytes(png)
     tmp.replace(path)
-    for old in _SPRITE_DIR.glob("sprite_*.png"):      # keep only the current one
+    for old in _SPRITE_DIR.glob("sprite_*.png"):  # keep only the current one
         if old != path:
             old.unlink(missing_ok=True)
     return path
@@ -242,6 +264,7 @@ def overlay_png(epoch: int) -> bytes | None:
         return None
     rgba = rgba_for_array(data["rates"][idx[epoch]])
     import os as _os
+
     if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
         # draw_fiducials wants pixel EDGES, and the observed cube's bounds
         # already ARE pixel edges (see point_frames, and the convention table
@@ -249,8 +272,9 @@ def overlay_png(epoch: int) -> bytes | None:
         # half a cell, the way a forecast grid's centre bounds must be, would
         # move every cross off its cell.
         b = data["bounds"]  # dict(west, south, east, north), EDGES — see _load_hi
-        draw_fiducials(rgba, (float(b["west"]), float(b["south"]),
-                              float(b["east"]), float(b["north"])))
+        draw_fiducials(
+            rgba, (float(b["west"]), float(b["south"]), float(b["east"]), float(b["north"]))
+        )
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

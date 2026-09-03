@@ -11,6 +11,12 @@ from pluvio_backend.config import Settings
 from pluvio_backend.inference_worker import run_tick
 
 
+def _png_size(path) -> tuple[int, int]:
+    """(width, height) straight out of a PNG's IHDR — no image library needed."""
+    header = path.read_bytes()[16:24]
+    return int.from_bytes(header[:4], "big"), int.from_bytes(header[4:], "big")
+
+
 def _const_infer(value: float):
     """A BandInference stub returning a uniform field for the given band."""
 
@@ -61,8 +67,20 @@ def test_tick_writes_sprite_sheet_and_index(_settings) -> None:
 
     meta = json.loads((snap / "grid.json").read_text())
     sprite = meta["sprite"]
-    assert sprite["tile_w"] == cache.grid.shape[1]
-    assert sprite["tile_h"] == cache.grid.shape[0]
+    # Tiles carry the overlay render resolution, not the model grid: frames are
+    # bicubic-upsampled to the radar composite's angular pixel density so both
+    # sides of the t=0 seam share pixel scale (display-only). The client reads
+    # tile_w/tile_h out of this index, so what it declares must be what the
+    # sheet actually holds — and a single-frame overlay is one such tile.
+    overlay_w, overlay_h = _png_size(snap / "overlays" / "nowcast" / "0.png")
+    assert (sprite["tile_w"], sprite["tile_h"]) == (overlay_w, overlay_h)
+    # the sheet is exactly cols x rows of those tiles
+    sheet_w, sheet_h = _png_size(snap / "sprite.png")
+    assert sheet_w == sprite["cols"] * sprite["tile_w"]
+    assert sheet_h == sprite["rows"] * sprite["tile_h"]
+    # upsampling only ever adds pixels — never renders below the model grid
+    assert sprite["tile_w"] >= cache.grid.shape[1]
+    assert sprite["tile_h"] >= cache.grid.shape[0]
     # every nowcast + short lead has a unique tile index, ordered by lead
     idx = sprite["index"]
     assert "nowcast:0" in idx and f"short:{schedules.band('short').lead_min_start}" in idx

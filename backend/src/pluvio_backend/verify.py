@@ -37,17 +37,21 @@ from .colormap import diff_rgba, rgba_for_array, upsample_field
 
 LOG = logging.getLogger("pluvio.verify")
 
-ARCHIVE_ROOT = pathlib.Path(os.environ.get("PLUVIO_FORECAST_ARCHIVE",
-                                           "/storagebox/forecast_archive"))
+ARCHIVE_ROOT = pathlib.Path(
+    os.environ.get("PLUVIO_FORECAST_ARCHIVE", "/storagebox/forecast_archive")
+)
 QPE_ROOT = pathlib.Path(os.environ.get("PLUVIO_QPE_ROOT", "/storagebox/qpe"))
+
 
 class QpeGeometryError(RuntimeError):
     """A QPE day zarr that does not state its own georeference."""
 
 
-BACKFILL_HINT = ("re-run tools/qpe_archive.py (>= 1b6f023) for that day, or backfill the "
-                 "attr from the archiver's own model.geo — never from the research "
-                 "checkout's, which resolves a different extent and bias")
+BACKFILL_HINT = (
+    "re-run tools/qpe_archive.py (>= 1b6f023) for that day, or backfill the "
+    "attr from the archiver's own model.geo — never from the research "
+    "checkout's, which resolves a different extent and bias"
+)
 
 
 def _store_bounds(root, path: pathlib.Path) -> tuple[float, float, float, float]:
@@ -87,8 +91,7 @@ def list_issues(limit: int = 96) -> list[dict]:
                 ).replace(tzinfo=UTC)
             except ValueError:
                 continue
-            out.append({"issue": int(ts.timestamp()),
-                        "issued_at": ts.isoformat()})
+            out.append({"issue": int(ts.timestamp()), "issued_at": ts.isoformat()})
             if len(out) >= limit:
                 return out
     return out
@@ -105,15 +108,19 @@ def load_forecast(issue: int):
     if p is None:
         return None
     z = np.load(p, allow_pickle=False)
-    return {"leads": z["leads"].astype(int), "rates": z["rates"].astype("float32"),
-            "bounds": [float(x) for x in z["bounds"]]}
+    return {
+        "leads": z["leads"].astype(int),
+        "rates": z["rates"].astype("float32"),
+        "bounds": [float(x) for x in z["bounds"]],
+    }
 
 
 MIN_BLOCK_COVERAGE = 0.5
 
 
-def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw,
-                       min_coverage: float = MIN_BLOCK_COVERAGE) -> np.ndarray:
+def _regrid_block_mean(
+    src: np.ndarray, src_bounds, out_bounds, out_hw, min_coverage: float = MIN_BLOCK_COVERAGE
+) -> np.ndarray:
     """Area-average `src` (regular lat/lon, row 0 = north, both boxes EDGE
     referenced) onto out_bounds/out_hw, without cv2.
 
@@ -153,10 +160,7 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw,
     counts[1:, 1:] = finite.astype("float64").cumsum(0).cumsum(1)
 
     def _box(a: np.ndarray) -> np.ndarray:
-        return (
-            a[np.ix_(r1, c1)] - a[np.ix_(r0, c1)]
-            - a[np.ix_(r1, c0)] + a[np.ix_(r0, c0)]
-        )
+        return a[np.ix_(r1, c1)] - a[np.ix_(r0, c1)] - a[np.ix_(r1, c0)] + a[np.ix_(r0, c0)]
 
     total, count = _box(sums), _box(counts)
     size = ((r1 - r0)[:, None] * (c1 - c0)[None, :]).astype("float64")
@@ -204,8 +208,7 @@ def observed_on(valid_epoch: int, bounds, shape):
     if not np.isfinite(rate).any():
         return None
     w, s, e, n = (float(x) for x in bounds)
-    out = _regrid_block_mean(rate, _store_bounds(root, zp),
-                             edge_bounds((w, s, e, n), shape), shape)
+    out = _regrid_block_mean(rate, _store_bounds(root, zp), edge_bounds((w, s, e, n), shape), shape)
     return out if np.isfinite(out).any() else None
 
 
@@ -214,8 +217,7 @@ def issue_meta(issue: int) -> dict | None:
     fc = load_forecast(issue)
     if fc is None:
         return None
-    return {"issue": issue, "leads": [int(x) for x in fc["leads"]],
-            "bounds": fc["bounds"]}
+    return {"issue": issue, "leads": [int(x) for x in fc["leads"]], "bounds": fc["bounds"]}
 
 
 def frame_png(issue: int, lead: int, kind: str) -> bytes | None:
@@ -230,16 +232,21 @@ def frame_png(issue: int, lead: int, kind: str) -> bytes | None:
     li = leads.index(lead)
     f_rate = fc["rates"][li]
     w, s_, e, n = fc["bounds"]
-    up = (max(round((n - s_) * 74.0), f_rate.shape[0]),
-          max(round((e - w) * 46.51), f_rate.shape[1]))
+    up = (
+        max(round((n - s_) * 74.0), f_rate.shape[0]),
+        max(round((e - w) * 46.51), f_rate.shape[1]),
+    )
     if kind == "forecast":
         rgba = rgba_for_array(upsample_field(f_rate, up))
     else:
         obs = observed_on(issue + lead * 60, fc["bounds"], f_rate.shape)
         if obs is None:
             return None
-        rgba = (rgba_for_array(upsample_field(obs, up)) if kind == "observed"
-                else diff_rgba(upsample_field(f_rate, up) - upsample_field(obs, up)))
+        rgba = (
+            rgba_for_array(upsample_field(obs, up))
+            if kind == "observed"
+            else diff_rgba(upsample_field(f_rate, up) - upsample_field(obs, up))
+        )
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -264,10 +271,13 @@ def scores(issue: int, lead: int) -> dict | None:
     if not valid.any():
         return None
     fv, ov = f_rate[valid], obs[valid]
-    out = {"bounds": fc["bounds"], "lead_min": lead,
-           "n_valid": int(valid.sum()),
-           "bias_mm_h": round(float(np.mean(fv - ov)), 3),
-           "mae_mm_h": round(float(np.mean(np.abs(fv - ov))), 3)}
+    out = {
+        "bounds": fc["bounds"],
+        "lead_min": lead,
+        "n_valid": int(valid.sum()),
+        "bias_mm_h": round(float(np.mean(fv - ov)), 3),
+        "mae_mm_h": round(float(np.mean(np.abs(fv - ov))), 3),
+    }
     for thr in (0.1, 0.5, 1.0):
         p, o = fv > thr, ov > thr
         hit = int((p & o).sum())

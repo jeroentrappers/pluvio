@@ -27,9 +27,9 @@ import math
 
 import numpy as np
 
-MAX_SHIFT = 7          # px search radius per block — v2 leads are 30 min apart, so 60-80 km/h motion spans ~5-7 px on the 6 km grid
-BLOCKS = 4             # BLOCKS x BLOCKS overlapping estimation windows
-WET_THR = 0.05         # mm/h — cells that participate in matching
+MAX_SHIFT = 7  # px search radius per block — v2 leads are 30 min apart, so 60-80 km/h motion spans ~5-7 px on the 6 km grid
+BLOCKS = 4  # BLOCKS x BLOCKS overlapping estimation windows
+WET_THR = 0.05  # mm/h — cells that participate in matching
 _EPS = 1e-6
 
 
@@ -61,8 +61,10 @@ def _block_flow(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     (e.g. outside the radar domain) before calling this.
     """
     if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
-        raise ValueError("_block_flow: non-finite input — fill NaN (e.g. outside the "
-                         "radar domain) before calling")
+        raise ValueError(
+            "_block_flow: non-finite input — fill NaN (e.g. outside the "
+            "radar domain) before calling"
+        )
     h, w = a.shape
     la, lb = np.log1p(np.maximum(a, 0.0)), np.log1p(np.maximum(b, 0.0))
     ys = np.linspace(0, h, BLOCKS + 1).astype(int)
@@ -110,8 +112,9 @@ def _block_flow(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 def _warp(field: np.ndarray, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
     """Sample `field` at (y - dy, x - dx) with bilinear interpolation."""
     h, w = field.shape
-    yy, xx = np.meshgrid(np.arange(h, dtype="float32"),
-                         np.arange(w, dtype="float32"), indexing="ij")
+    yy, xx = np.meshgrid(
+        np.arange(h, dtype="float32"), np.arange(w, dtype="float32"), indexing="ij"
+    )
     sy = np.clip(yy - dy, 0, h - 1)
     sx = np.clip(xx - dx, 0, w - 1)
     y0 = np.floor(sy).astype(int)
@@ -120,20 +123,23 @@ def _warp(field: np.ndarray, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
     x1 = np.minimum(x0 + 1, w - 1)
     wy = sy - y0
     wx = sx - x0
-    return ((field[y0, x0] * (1 - wy) * (1 - wx)) +
-            (field[y1, x0] * wy * (1 - wx)) +
-            (field[y0, x1] * (1 - wy) * wx) +
-            (field[y1, x1] * wy * wx)).astype("float32")
+    return (
+        (field[y0, x0] * (1 - wy) * (1 - wx))
+        + (field[y1, x0] * wy * (1 - wx))
+        + (field[y0, x1] * (1 - wy) * wx)
+        + (field[y1, x1] * wy * wx)
+    ).astype("float32")
 
 
-def morph_pair(a: np.ndarray, b: np.ndarray, w: float,
-               flow: np.ndarray | None = None) -> np.ndarray:
+def morph_pair(
+    a: np.ndarray, b: np.ndarray, w: float, flow: np.ndarray | None = None
+) -> np.ndarray:
     """Motion-interpolated frame at fraction w ∈ (0, 1) between a and b."""
     if flow is None:
         flow = _block_flow(a, b)
     fy, fx = flow
-    a_adv = _warp(a, w * fy, w * fx)                    # a advected forward
-    b_adv = _warp(b, -(1 - w) * fy, -(1 - w) * fx)      # b advected backward
+    a_adv = _warp(a, w * fy, w * fx)  # a advected forward
+    b_adv = _warp(b, -(1 - w) * fy, -(1 - w) * fx)  # b advected backward
     out = (1 - w) * a_adv + w * b_adv
     return np.clip(out, 0.0, None).astype("float32")
 
