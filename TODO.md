@@ -104,11 +104,17 @@ below every metric. Make eyes unnecessary.
 Why: a deterministic Huber loss rewards hedging; fields blur with lead and
 CSI decays. The objective is the biggest lever we own.
 
-- [~] **2.1 Loss upgrade** — `model/losses.py`: exceedance-FSS (port from
+- [~] **2.1 Loss upgrade** (code merged 2026-09-03, A/B epoch pending) — `model/losses.py`: exceedance-FSS (port from
       `train_seamless`), gradient/spectral sharpness; `train.py` flags
       `--fss-weight --fss-thresholds --sharpness-weight` (defaults 0 = today's
       behaviour). Acceptance: unit tests on synthetic fields; an A/B epoch on
       the v3 store shows higher CSI@1 at equal RMSE. Lane: agent → research.
+- [ ] **2.1b Loss follow-ups (review notes)** — cap `--sharpness-weight`
+      (noise injection is locally rewarded up to parity; crossover moves right
+      above ~0.3 — re-measure before any higher weight); replace the Python
+      branch on `target_e <= dry_floor` with a tensor mask (host sync, blocks
+      graph capture on the non-default path); fix docstring literals (canvas
+      size unstated); drop the dead re-export shim in train.py. Lane: agent.
 - [ ] **2.2 Probabilistic head** — quantile (0.1/0.5/0.9) or small ensemble
       with CRPS; serving carries P(rain>thr) per lead. Acceptance: reliability
       diagram in benchmark; sharper median than deterministic baseline.
