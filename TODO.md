@@ -231,10 +231,13 @@ CSI decays. The objective is the biggest lever we own.
         median of the blocks that could. With BLOCKS=4 and a search radius
         near the block size that is the 2x2 interior, so the field is close
         to uniform: the edge bands trade spatial detail they never had for
-        the right displacement. `motion.py` is untouched (hand-synced with
-        the backend copy) — if it ever learns to search outward, delete
-        `repair_edge_flow`; `test_raw_block_flow_still_needs_the_repair`
-        fails when that day comes. NOTE: the benchmark's own `advection`
+        the right displacement. `motion.py` keeps its estimator untouched —
+        the only change there is the extraction of `km_per_px_from_bounds`
+        (the benchmark's `_km_per_px` now delegates to it), and the file is
+        still hand-synced with the backend copy. If the estimator ever
+        learns to search outward, delete `repair_edge_flow`;
+        `test_raw_block_flow_still_needs_the_repair` fails when that day
+        comes. NOTE: the benchmark's own `advection`
         baseline still has the unrepaired behaviour, so the ablation compares
         the channel against a slightly weaker advection than it carries.
       * plane 2 `lagrangian_flow_mag` (only at 2): per-step displacement
@@ -261,7 +264,11 @@ CSI decays. The objective is the biggest lever we own.
         --lagrangian-channels 2` against shards rendered without them is a
         named mismatch instead of a run that silently trains on 33 channels.
         A shard-trained checkpoint carries the same `channel_recipe` as a
-        zarr-trained one. `render_shards`' `_channel_recipe` is gone —
+        zarr-trained one — true since the 2.6 follow-ups, where train.py
+        stopped hand-building a `channel_names`-less subset on the shard
+        path and reads the manifest's own copy instead (asserted by
+        `test_shard_and_zarr_trained_checkpoints_carry_the_same_channel_recipe`).
+        `render_shards`' `_channel_recipe` is gone —
         `ZarrCorrectionDataset.channel_recipe()` (now including
         `channel_names`) is the single source, in the manifest and the
         checkpoint alike. Adding the recipe key invalidates any shard store
@@ -296,7 +303,7 @@ CSI decays. The objective is the biggest lever we own.
         units, zero flow == persistence, one-frame history == zero flow, flow
         estimated once per frame pair, cache keyed on the pair, NaN wake,
         recipe round-trip and renamed-static rejection through
-        `dataset_for_checkpoint`) + 6 in `test_shard_dataset.py` and 2 in
+        `dataset_for_checkpoint`) + 5 in `test_shard_dataset.py` and 2 in
         `test_train_cli.py`.
       Acceptance still OPEN — needs the GPU ablation, not the agent lane:
       train three runs on the frozen benchmark store, identical seed/loss/
@@ -323,25 +330,65 @@ CSI decays. The objective is the biggest lever we own.
 - [x] **2.6 Pre-rendered training shards** — `research/tools/render_shards.py`
       renders the `ZarrCorrectionDataset` sample set once into `.npy` memmaps
       (issue-aligned shards, float16 by default, resumable, manifest carries
-      the channel recipe + grid + sample count + structural source-store hash
-      + per-shard sha256); `research/model/shard_dataset.py` (`ShardDataset`)
-      streams them with one memmap slice per sample; `model/train.py --shards
-      <dir>` swaps the dataset. Same index, same chronological split boundary,
-      same order, same targets → same loss curve; the float16 cast happens
-      once at render time (`cast_for_shard`) and the tests assert bit-for-bit
-      equality with that same cast applied to the zarr side (`--dtype
-      float32` is bit-equal un-quantised). Loader refuses an incomplete
-      store, a recipe mismatch, a bumped `NORMALISE_VERSION`, a filtered val
-      split, or a `--require-rain-fraction` the shards lack. Measured on a
-      real-shape synthetic store (192², 33 ch, CPU, 1 worker): 41.5 → 14,737
-      samples/s. Storage: 2.39 MiB/sample → 332 GiB for 142k samples — check
-      `df` on asusprime before rendering; CLI + estimate in
-      `research/docs/training_run_v2.md`. Since 2.3, `--lagrangian-channels
-      {0,1,2}` bakes the advected-observation planes in too (the recipe
-      records the count, so a mismatched train run is refused) — that is
-      where the per-issue flow estimate stops being a per-epoch cost. Open:
-      run it on the real store to confirm the ≥3× epoch gate (needs the GPU
-      box). Lane: agent.
+      the layout + channel recipe + grid + sample count + source-store hash +
+      per-shard sha256); `research/model/shard_dataset.py` (`ShardDataset`)
+      streams them; `model/train.py --shards <dir>` swaps the dataset. Same
+      index, same chronological split boundary, same order, same targets →
+      same loss curve; the float16 cast happens once at render time
+      (`cast_for_shard`) and the tests assert bit-for-bit equality with that
+      same cast applied to the zarr side (`--dtype float32` is bit-equal
+      un-quantised). Measured on a real-shape synthetic store (192², 33 ch,
+      CPU, 1 worker): 41.5 → 14,737 samples/s. Since 2.3,
+      `--lagrangian-channels {0,1,2}` bakes the advected-observation planes in
+      too (the recipe records the count, so a mismatched train run is refused)
+      — that is where the per-issue flow estimate stops being a per-epoch cost.
+      Review follow-ups now merged:
+      * **per-issue dedup is the primary layout** (`--layout dedup`, default).
+        Flat did not fit the box: asusprime's `/home` was 194 G at the c15
+        relay against 332 GiB for both splits. 29 of the 33 channels are a
+        function of the ISSUE — the history stack, the aux planes, the statics
+        (and `lagrangian_flow_mag`, which is deliberately lead-independent);
+        only `nowcast_at_lead` / `lead_over_120` / `tod_sin` / `tod_cos` (and
+        `lagrangian_rate`) vary per lead. Storing the invariant block once per
+        issue: **2.391 → 0.861 MiB/sample, 331.6 → 119.4 GiB** for
+        113,680+28,344 samples at 192²×33 ch (35 ch with
+        `--lagrangian-channels 2`: 2.531 → 0.949 MiB/sample, 351.1 → 131.7
+        GiB). `ShardDataset` reassembles in `build_input` channel order and the
+        sample is bit-for-bit the flat one — the equality tests now run against
+        dedup by default, plus a flat-vs-dedup identity test. The split comes
+        from `channel_names()` via
+        `zarr_dataset.lead_varying_channel_indices`, never hard-coded, and the
+        renderer VERIFIES it per issue (builds every lead, refuses to write if
+        a store-once channel is not identical across them). `--layout flat`
+        stays available; a manifest with no `layout` key reads as flat.
+      * **resume validates the source store, not just the recipe.** The recipe
+        cannot see a store rebuilt IN PLACE (same arrays, shapes, attrs,
+        `issue_time`, different values): the resume re-rendered only the
+        missing shards from the new numbers, `index.npy` was rewritten from the
+        new index on top, and `ShardDataset` accepted the mixture silently.
+        `source_store_hash` is now structural **+ sampled content** (hash of
+        `radar[i,0]`, `truth[i]` and one aux at 64 evenly spaced issue indices,
+        `hash_mode: "structural+sampled"` — seconds on the real store); a
+        resume refuses on a difference and points at `--force`, and
+        `train.py --shards --zarr` compares it too.
+      * `index.npy` is REQUIRED by the loader (it used to fall back to zeros —
+        a silently wrong stratification, and a wrong issue→row mapping under
+        dedup) and is written tmp+rename; `--force` unlinks every
+        `*.npy`/`*.npy.tmp` the new plan does not name; a bumped
+        `NORMALISE_VERSION` is refused with or without `--zarr` (it is a
+        constant of the build, so the guarantee no longer depends on the flag);
+        the checkpoint records
+        `{"shards": {"root", "recipe_hash", "source_store"}}`; the
+        stale-manifest error lists the recipe keys missing/added vs
+        `RECIPE_KEYS`, so a pre-2.3 store is recognisable as one.
+      * docs corrected: the float16 rationale was wrong — `_normalise` runs
+        float16 arithmetic, so the aux/SST/static channels and `lead/120` are
+        float16-EXACT; only `tod_sin`/`tod_cos` (≤2.4e-4) and the Lagrangian
+        planes quantise.
+      53 tests in `research/tests/test_shard_dataset.py`. CLI, storage table
+      and the asusprime `--lagrangian-channels 2` invocation in
+      `research/docs/training_run_v2.md`. Open: run it on the real store to
+      confirm the ≥3× epoch gate (needs the GPU box). Lane: agent.
 
 - [x] **2.7 Better motion estimator** — `research/model/motion.py` is the one
       NCC block-flow estimator (mean-subtracted, std-normalised over wet

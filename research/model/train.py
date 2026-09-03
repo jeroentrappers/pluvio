@@ -39,6 +39,7 @@ from model.shard_dataset import (  # noqa: E402
     ShardRecipeMismatch,
     compare_recipes,
     recipe_from_dataset,
+    source_store_hash,
 )
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
@@ -136,10 +137,17 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
       from one chronological split with no overlap;
     * ``--require-rain-fraction`` must match what the train shards were
       rendered with (the filter is baked into the rendered sample set);
+    * a bumped ``zarr_dataset.NORMALISE_VERSION`` is refused by
+      ``ShardDataset`` itself, with or without ``--zarr`` — the version is a
+      property of this build, not of the store;
     * with ``--zarr`` also given, the recipe is re-derived from the store and
-      compared field by field — that catches a store rebuild, a changed lead
-      set, an added aux channel, a bumped ``NORMALISE_VERSION``, or a
-      ``--lagrangian-channels`` count the shards were not rendered with.
+      compared field by field — that catches a changed lead set, an added aux
+      channel, or a ``--lagrangian-channels`` count the shards were not
+      rendered with — and the store's own
+      fingerprint (``source_store_hash``: structure plus sampled content) is
+      compared against the one the render recorded, which is the only thing
+      that catches a store REBUILT IN PLACE with the same shapes, attrs and
+      ``issue_time`` but different values.
 
     Without ``--zarr`` there is no store to re-derive from, so the shards'
     own recipe is authoritative: ``--lagrangian-channels`` is then checked
@@ -155,7 +163,7 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
             f"`python -m tools.render_shards --zarr <store> --out {root} --split train,val`"
         )
 
-    expected_train = expected_val = None
+    expected_train = expected_val = expected_source = None
     if args.zarr:
         boundary = issue_time_split(args.zarr, args.val_frac)
         probe = ZarrCorrectionDataset(
@@ -173,12 +181,15 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
         expected_train = recipe_from_dataset(probe, split="train", dtype=None, **common)
         expected_val = recipe_from_dataset(probe, split="val", dtype=None, **common)
         expected_val["require_rain_fraction"] = None
+        expected_source = source_store_hash(args.zarr)
 
     # dtype and max_samples are render-time choices, not sample semantics we can
     # derive from the store — exclude them from the store-derived comparison.
     ignore = frozenset({"dtype", "max_samples"})
-    train_set = ShardDataset(train_dir, expected_recipe=expected_train, ignore_recipe_keys=ignore)
-    val_set = ShardDataset(val_dir, expected_recipe=expected_val, ignore_recipe_keys=ignore)
+    train_set = ShardDataset(train_dir, expected_recipe=expected_train,
+                             expected_source_store=expected_source, ignore_recipe_keys=ignore)
+    val_set = ShardDataset(val_dir, expected_recipe=expected_val,
+                           expected_source_store=expected_source, ignore_recipe_keys=ignore)
 
     diffs = compare_recipes(train_set.recipe, val_set.recipe, ignore=frozenset({"split"}))
     diffs = [d for d in diffs if not d.startswith("require_rain_fraction")]
@@ -209,9 +220,9 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
             f"({val_set.recipe['require_rain_fraction']!r}); validation must never be filtered "
             "or the per-epoch metric is not comparable to a zarr run."
         )
-    LOG.info("Shards: %s (%d train / %d val, %d channels, dtype=%s, boundary=%s)",
+    LOG.info("Shards: %s (%d train / %d val, %d channels, dtype=%s, layout=%s, boundary=%s)",
              root, len(train_set), len(val_set), train_set.n_channels, train_set.dtype,
-             train_set.recipe.get("split_boundary_epoch"))
+             train_set.layout, train_set.recipe.get("split_boundary_epoch"))
     return train_set, val_set
 
 
@@ -391,21 +402,34 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(train_set, ZarrCorrectionDataset):
         channel_recipe = train_set.channel_recipe()
     elif isinstance(train_set, ShardDataset):
-        # The shards' recipe already records the layout they were rendered
-        # with; carry the build_input half of it so a shard-trained checkpoint
-        # serves through the same dataset_for_checkpoint path as a zarr one.
-        r = train_set.recipe
-        channel_recipe = {
-            "history_steps": r["history_steps"],
-            "history_step_min": r["history_step_min"],
-            "history_tolerance_s": r["history_tolerance_s"],
-            "aux_channels": r["aux_channels"],
-            "static_channels": r["static_channels"],
-            "lagrangian_channels": r.get("lagrangian_channels", 0),
-            "n_channels": r["n_channels"],
-        }
+        # The manifest already carries ``ds.channel_recipe()`` verbatim, as
+        # written by the renderer from the very dataset these shards came out
+        # of — so use it rather than re-deriving a subset here. Re-deriving is
+        # how a shard-trained checkpoint ended up with no ``channel_names``
+        # while a zarr-trained one had them: same run, two different recipes
+        # depending on the dataset source.
+        channel_recipe = train_set.manifest.get("channel_recipe")
+        if not channel_recipe:
+            raise ShardRecipeMismatch(
+                f"--shards {args.shards}: the train manifest carries no channel_recipe, so "
+                "the checkpoint would not record the channel layout it trained on (and "
+                "infer_latest could not rebuild the input). Re-render the shards."
+            )
+        channel_recipe = dict(channel_recipe)
     else:
         channel_recipe = None   # legacy HDF5 dataset: no build_input recipe
+
+    # Which rendered store this run actually read, so "was this checkpoint
+    # trained on the shards I think it was" is answerable from the checkpoint
+    # alone — the recipe hash identifies the sample semantics and the source
+    # fingerprint identifies the zarr they were rendered from.
+    shard_provenance = None
+    if isinstance(train_set, ShardDataset):
+        shard_provenance = {
+            "root": str(args.shards),
+            "recipe_hash": train_set.manifest.get("recipe_hash"),
+            "source_store": train_set.manifest.get("source_store"),
+        }
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
@@ -453,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
                     "epoch": epoch,
                     "loss_config": loss_config,
                     "channel_recipe": channel_recipe,
+                    "shards": shard_provenance,
                 },
                 checkpoint_path,
             )

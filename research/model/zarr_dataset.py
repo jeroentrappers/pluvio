@@ -110,6 +110,32 @@ def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
 # a loader refuses shards baked with different channel semantics.
 NORMALISE_VERSION = 1
 
+# Channels whose value depends on the LEAD, by the name ``channel_names()``
+# gives them. Everything else build_input writes is a function of the ISSUE
+# alone (the radar history stack, the per-issue aux planes, the statics, and
+# ``lagrangian_flow_mag`` — a per-issue "how far was this transported" signal).
+#
+#   nowcast_at_lead    radar[issue, lead_idx]
+#   lead_over_120      lead_min / 120
+#   tod_sin / tod_cos  encode issue_time + lead
+#   lagrangian_rate    the analysis advected BY the lead-scaled flow
+#
+# The per-issue shard layout (tools/render_shards.py) stores the complement
+# once per issue rather than once per sample, so this set is load-bearing for
+# storage correctness — hence the renderer verifies it per issue rather than
+# trusting it.
+LEAD_VARYING_CHANNEL_NAMES = frozenset({
+    "nowcast_at_lead", "lead_over_120", "tod_sin", "tod_cos", "lagrangian_rate",
+})
+
+
+def lead_varying_channel_indices(channel_names: list[str]) -> tuple[int, ...]:
+    """Positions of ``LEAD_VARYING_CHANNEL_NAMES`` in a ``channel_names()``
+    list, ascending. Shared by the dataset and the shard loader so the two
+    cannot disagree about which planes a per-issue block may hold."""
+    return tuple(i for i, n in enumerate(channel_names)
+                 if n in LEAD_VARYING_CHANNEL_NAMES)
+
 
 def advect_with_nan(field: np.ndarray, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
     """Advect ``field`` by displacement (dy, dx) — content moves by +D — with
@@ -594,6 +620,20 @@ class ZarrCorrectionDataset(Dataset):
         names += list(self.aux_channels) + list(self.static_channels)
         names += ["lagrangian_rate", "lagrangian_flow_mag"][:self.lagrangian_channels]
         return names
+
+    def lead_varying_channels(self) -> tuple[int, ...]:
+        """Indices of the channels ``build_input`` writes that depend on the
+        LEAD; every other channel is a property of the issue alone.
+
+        Derived from ``channel_names()`` (which is derived from ``build_input``)
+        rather than hard-coded, so adding a channel cannot silently put a
+        lead-dependent plane into the lead-invariant half. This is what the
+        per-issue shard layout (``tools/render_shards.py --layout dedup``)
+        stores once per issue instead of once per sample; the renderer also
+        *verifies* the split by comparing an issue's leads plane by plane, so
+        a wrong answer here is a loud render error, not a silent corruption.
+        """
+        return lead_varying_channel_indices(self.channel_names())
 
     def channel_recipe(self) -> dict:
         """How this dataset assembles ``build_input``, for the checkpoint.
