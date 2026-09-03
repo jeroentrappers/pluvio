@@ -34,6 +34,12 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
 from model.losses import CombinedLoss  # noqa: E402
+from model.shard_dataset import (  # noqa: E402
+    ShardDataset,
+    ShardRecipeMismatch,
+    compare_recipes,
+    recipe_from_dataset,
+)
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
 
@@ -118,12 +124,92 @@ def validate(
     return {"val_rmse": sum(rmses) / max(len(rmses), 1)}
 
 
+def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
+    """Open the train/val halves of a pre-rendered shard store (WP 2.6).
+
+    The point of the shard path is that the loss curve is unchanged, so every
+    way the shards could silently *not* be the samples this invocation asked
+    for is checked here rather than discovered as a mystery divergence:
+
+    * train and val must carry the same recipe apart from the ``split`` label —
+      in particular the same ``split_boundary_epoch``, so the two halves come
+      from one chronological split with no overlap;
+    * ``--require-rain-fraction`` must match what the train shards were
+      rendered with (the filter is baked into the rendered sample set);
+    * with ``--zarr`` also given, the recipe is re-derived from the store and
+      compared field by field — that catches a store rebuild, a changed lead
+      set, an added aux channel, or a bumped ``NORMALISE_VERSION``.
+    """
+    root = pathlib.Path(args.shards)
+    train_dir, val_dir = root / "train", root / "val"
+    missing = [str(d) for d in (train_dir, val_dir) if not (d / "manifest.json").exists()]
+    if missing:
+        raise SystemExit(
+            f"--shards {root}: expected rendered train and val splits, missing "
+            f"{', '.join(missing)} — run "
+            f"`python -m tools.render_shards --zarr <store> --out {root} --split train,val`"
+        )
+
+    expected_train = expected_val = None
+    if args.zarr:
+        boundary = issue_time_split(args.zarr, args.val_frac)
+        probe = ZarrCorrectionDataset(
+            args.zarr, build_index=False,
+            require_rain_fraction=args.require_rain_fraction,
+        )
+        common = {
+            "split_boundary_epoch": int(boundary.timestamp()),
+            "val_frac": args.val_frac,
+        }
+        expected_train = recipe_from_dataset(probe, split="train", dtype=None, **common)
+        expected_val = recipe_from_dataset(probe, split="val", dtype=None, **common)
+        expected_val["require_rain_fraction"] = None
+
+    # dtype and max_samples are render-time choices, not sample semantics we can
+    # derive from the store — exclude them from the store-derived comparison.
+    ignore = frozenset({"dtype", "max_samples"})
+    train_set = ShardDataset(train_dir, expected_recipe=expected_train, ignore_recipe_keys=ignore)
+    val_set = ShardDataset(val_dir, expected_recipe=expected_val, ignore_recipe_keys=ignore)
+
+    diffs = compare_recipes(train_set.recipe, val_set.recipe, ignore=frozenset({"split"}))
+    diffs = [d for d in diffs if not d.startswith("require_rain_fraction")]
+    if diffs:
+        raise ShardRecipeMismatch(
+            f"--shards {root}: train and val shards disagree ({len(diffs)} field(s)):\n  "
+            + "\n  ".join(diffs) + "\nRe-render both splits from the same store."
+        )
+    rendered_filter = train_set.recipe.get("require_rain_fraction")
+    if rendered_filter != args.require_rain_fraction:
+        raise SystemExit(
+            f"--shards {root}: train shards were rendered with "
+            f"--require-rain-fraction {rendered_filter!r} but this run asks for "
+            f"{args.require_rain_fraction!r}. The filter is baked into the rendered sample "
+            "set; re-render, or drop the flag to train on the shards as rendered."
+        )
+    if val_set.recipe.get("require_rain_fraction") is not None:
+        raise ShardRecipeMismatch(
+            f"--shards {root}: val shards carry a require_rain_fraction filter "
+            f"({val_set.recipe['require_rain_fraction']!r}); validation must never be filtered "
+            "or the per-epoch metric is not comparable to a zarr run."
+        )
+    LOG.info("Shards: %s (%d train / %d val, %d channels, dtype=%s, boundary=%s)",
+             root, len(train_set), len(val_set), train_set.n_channels, train_set.dtype,
+             train_set.recipe.get("split_boundary_epoch"))
+    return train_set, val_set
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--zarr", type=pathlib.Path, default=None,
                         help="Path to timeseries.zarr. If set, trains on the full "
                              "multi-source store (ZarrCorrectionDataset) instead of "
                              "the legacy radar-HDF5 dataset under --data.")
+    parser.add_argument("--shards", type=pathlib.Path, default=None,
+                        help="Pre-rendered shard root from tools/render_shards.py (expects "
+                             "<dir>/train and <dir>/val). Swaps ZarrCorrectionDataset for "
+                             "ShardDataset: identical samples/targets/order, no per-sample "
+                             "assembly. Pass --zarr as well to re-derive the recipe from the "
+                             "store and refuse mismatched shards.")
     parser.add_argument("--data", type=pathlib.Path, required=False,
                         help="KNMI data root (holds radar_forecast/ and nl_rdr_data_rtcor_5m/).")
     parser.add_argument("--epochs", type=int, default=20)
@@ -196,10 +282,13 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device(args.device)
     LOG.info("Training on %s", device)
 
-    if not args.zarr and not args.data:
-        raise SystemExit("provide --zarr <timeseries.zarr> (multi-source) or --data <radar dir> (legacy)")
+    if not args.zarr and not args.data and not args.shards:
+        raise SystemExit("provide --shards <dir> (pre-rendered), --zarr <timeseries.zarr> "
+                         "(multi-source) or --data <radar dir> (legacy)")
 
-    if args.zarr:
+    if args.shards:
+        train_set, val_set = _load_shard_sets(args)
+    elif args.zarr:
         split = issue_time_split(args.zarr, args.val_frac)
         LOG.info("Time split (zarr): train < %s ≤ val", split.isoformat())
         train_set = ZarrCorrectionDataset(

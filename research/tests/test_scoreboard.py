@@ -800,3 +800,165 @@ def test_no_paired_difference_across_issue_sequence_groups(fixture_root):
         row = out["results"][kind][str(LEAD_MIN)]["0.1"]
         assert row["ci"] is not None
         assert row["ci_vs_reference"] is None
+
+
+# ---------------------------------------------------------------------------
+# bounds convention: a forecast npz's `bounds` is a CELL-CENTRE envelope while
+# a QPE store's is OUTER EDGES. Reading the centres as edges shrinks the
+# target footprint by half a cell on every side — 0 error at the grid centre,
+# up to half a cell (~3.5 km on the 100x100 serving box) at its edges.
+# ---------------------------------------------------------------------------
+
+CONV_FC_BOUNDS = (1.5, 48.9, 7.5, 52.5)     # CELL CENTRES of first/last row/col
+CONV_FC_SHAPE = (10, 10)
+CONV_SUB = 6                                 # QPE cells per forecast cell
+CONV_QPE_SHAPE = (CONV_FC_SHAPE[0] * CONV_SUB, CONV_FC_SHAPE[1] * CONV_SUB)
+# The store is laid out on the forecast grid's TRUE footprint, so every
+# forecast cell maps to an exact CONV_SUB x CONV_SUB block of source cells.
+CONV_QPE_BOUNDS = sb.centre_to_edge_bounds(CONV_FC_BOUNDS, CONV_FC_SHAPE)
+CONV_WET = 8.0
+CONV_THR = 4.0                               # between CONV_WET and the mutant's mean
+
+
+def _conv_truth_frame(row: int, col: int) -> np.ndarray:
+    """Measured-dry composite with forecast cell (row, col)'s TRUE footprint
+    (computed from the edge bounds) filled at CONV_WET."""
+    frame = np.zeros(CONV_QPE_SHAPE, dtype="float32")
+    frame[row * CONV_SUB:(row + 1) * CONV_SUB,
+          col * CONV_SUB:(col + 1) * CONV_SUB] = CONV_WET
+    return frame
+
+
+def test_centre_to_edge_bounds_inflates_by_half_a_cell():
+    dlon, dlat = 6.0 / 9, 3.6 / 9
+    expected = (1.5 - dlon / 2, 48.9 - dlat / 2, 7.5 + dlon / 2, 52.5 + dlat / 2)
+    assert tuple(CONV_QPE_BOUNDS) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("cell", [(0, 0), (0, 9), (9, 0), (9, 9), (4, 5)])
+def test_field_on_needs_edge_bounds_not_centre_bounds(tmp_path, cell):
+    """The whole wet block sits in one forecast cell's true footprint, so an
+    honest area mean is exactly CONV_WET there and 0 everywhere else.
+
+    Feeding `field_on` the npz's centre bounds instead (the defect) bins the
+    target box half a cell in on every side, so a boundary cell averages a
+    footprint straddling its wet block and its dry neighbours.
+    """
+    row, col = cell
+    slot = round((VALID_EPOCH % 86400) / 300)
+    _sparse_qpe_day(tmp_path / "qpe", DAY, CONV_QPE_SHAPE, slot,
+                    _conv_truth_frame(row, col), bounds=CONV_QPE_BOUNDS)
+    truth = sb.QpeTruth(tmp_path / "qpe")
+
+    obs = truth.field_on(VALID_EPOCH, CONV_FC_SHAPE, CONV_QPE_BOUNDS)
+    assert obs is not None
+    assert obs[row, col] == pytest.approx(CONV_WET)
+    assert np.isfinite(obs).all()
+    assert obs.sum() == pytest.approx(CONV_WET)   # nothing bled into a neighbour
+
+    # The mutant: centre bounds treated as edges. At the boundary cells it
+    # does not even see the wet cell as wet at CONV_THR; at the grid centre
+    # the shift vanishes, which is why only the edges expose the bug.
+    mutant = truth.field_on(VALID_EPOCH, CONV_FC_SHAPE, CONV_FC_BOUNDS)
+    assert mutant is not None
+    if row in (0, CONV_FC_SHAPE[0] - 1) or col in (0, CONV_FC_SHAPE[1] - 1):
+        assert mutant[row, col] != pytest.approx(CONV_WET)
+        assert mutant[row, col] < CONV_THR
+
+
+@pytest.mark.parametrize("cell", [(0, 0), (0, 9), (9, 0), (9, 9)])
+def test_score_grid_day_hits_the_edge_cell_it_forecast(tmp_path, cell):
+    """Grid path end to end: a forecast wet in exactly one edge cell, truth
+    wet over exactly that cell's footprint -> one hit, no miss, no false
+    alarm, zero error. Under the centre-as-edge defect the truth at that cell
+    averages down below CONV_THR, turning the hit into a miss + false alarm.
+    """
+    row, col = cell
+    slot = round((VALID_EPOCH % 86400) / 300)
+    _sparse_qpe_day(tmp_path / "qpe", DAY, CONV_QPE_SHAPE, slot,
+                    _conv_truth_frame(row, col), bounds=CONV_QPE_BOUNDS)
+    truth = sb.QpeTruth(tmp_path / "qpe")
+
+    pred = np.zeros((1, *CONV_FC_SHAPE), dtype="float32")
+    pred[0, row, col] = CONV_WET
+    fc_root = tmp_path / "forecast_archive"
+    _write_forecast_npz(fc_root, "forecast", ISSUE_EPOCH, [LEAD_MIN], pred,
+                        bounds=CONV_FC_BOUNDS)
+
+    out = sb.score_grid_day(DAY, fc_root, truth, kinds=("forecast",),
+                            thresholds=(CONV_THR,), fss_scales=(1,), bootstrap_cfg=None)
+    got = out["results"]["forecast"][str(LEAD_MIN)][str(CONV_THR)]
+    assert got["hits"] == 1
+    assert got["misses"] == 0
+    assert got["false_alarms"] == 0
+    assert got["rmse"] == pytest.approx(0.0)
+    assert got["n_valid_cells"] == CONV_FC_SHAPE[0] * CONV_FC_SHAPE[1]
+
+
+def test_nearest_forecast_point_uses_the_centre_convention():
+    """Station lat/lon -> forecast cell must floor the EDGE-based fractional
+    index, which is exactly Grid.cell_of()'s nearest-cell-centre index. A
+    station in the outer half-cell margin sits inside the boundary cell's
+    footprint and must resolve to it, not fall outside the run's box.
+    """
+    from model.grid import Grid
+
+    grid = Grid.regular(CONV_FC_BOUNDS, CONV_FC_SHAPE)
+    rates = np.arange(1, 101, dtype="float32").reshape(CONV_FC_SHAPE)
+    fc = {"leads": [LEAD_MIN], "rates": rates[None, :, :],
+          "bounds": list(CONV_FC_BOUNDS), "issue_epoch": ISSUE_EPOCH}
+    index = [(ISSUE_EPOCH, fc)]
+
+    # Probe every cell at its centre and at +-0.45 of a cell in each
+    # direction — inside its own footprint, past its centre, and for the
+    # boundary cells outside the centre envelope entirely. (Offsets stay off
+    # the exact cell boundary, where flooring an edge index and rounding a
+    # centre index legitimately tie.)
+    w, s, e, n = CONV_FC_BOUNDS
+    ew, es, ee, en = CONV_QPE_BOUNDS
+    dlon = (e - w) / (CONV_FC_SHAPE[1] - 1)
+    dlat = (n - s) / (CONV_FC_SHAPE[0] - 1)
+    offsets = (-0.45, -0.2, 0.0, 0.2, 0.45)
+    for row in range(CONV_FC_SHAPE[0]):
+        for col in range(CONV_FC_SHAPE[1]):
+            for dr in offsets:
+                for dc in offsets:
+                    lat = n - (row + dr) * dlat
+                    lon = w + (col + dc) * dlon
+                    assert es <= lat <= en and ew <= lon <= ee
+                    assert grid.cell_of(lat, lon) == (row, col)
+                    got = sb._nearest_forecast_point(index, lat, lon,
+                                                     LEAD_MIN, VALID_EPOCH)
+                    assert got == pytest.approx(float(rates[row, col]))
+
+    # A station in the outer margin — inside cell (0, 0)'s footprint, past the
+    # row-0/col-0 cell CENTRE — used to fall outside the box entirely.
+    margin_lat, margin_lon = n + (en - n) / 2, w - (w - ew) / 2
+    assert not (s <= margin_lat <= n and w <= margin_lon <= e)
+    assert grid.cell_of(margin_lat, margin_lon) == (0, 0)
+    assert sb._nearest_forecast_point(index, margin_lat, margin_lon,
+                                      LEAD_MIN, VALID_EPOCH) == pytest.approx(1.0)
+
+    # Genuinely outside the footprint still returns nothing.
+    assert sb._nearest_forecast_point(index, en + 1.0, margin_lon,
+                                      LEAD_MIN, VALID_EPOCH) is None
+
+
+def test_degenerate_single_cell_target_grid(tmp_path):
+    """A 1-cell target axis has no derivable cell size, so the conversion is
+    the identity on that axis (documented in centre_to_edge_bounds) — no
+    division by zero, and the regrid still averages the whole source box.
+    """
+    one = (1.5, 48.9, 7.5, 52.5)
+    assert sb.centre_to_edge_bounds(one, (1, 1)) == pytest.approx(one)
+    assert sb.centre_to_edge_bounds(one, (1, 10)) == pytest.approx(
+        (1.5 - (6.0 / 9) / 2, 48.9, 7.5 + (6.0 / 9) / 2, 52.5))
+
+    frame = np.full((12, 12), 3.0, dtype="float32")
+    slot = round((VALID_EPOCH % 86400) / 300)
+    _sparse_qpe_day(tmp_path / "qpe", DAY, (12, 12), slot, frame, bounds=one)
+    truth = sb.QpeTruth(tmp_path / "qpe")
+    obs = truth.field_on(VALID_EPOCH, (1, 1), sb.centre_to_edge_bounds(one, (1, 1)))
+    assert obs is not None
+    assert obs.shape == (1, 1)
+    assert obs[0, 0] == pytest.approx(3.0)

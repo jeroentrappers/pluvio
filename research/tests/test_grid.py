@@ -7,7 +7,7 @@ import pytest
 import zarr
 
 from model import geo
-from model.grid import Grid, GridContractError
+from model.grid import Grid, GridContractError, centre_to_edge_bounds
 
 
 def test_regular_grid_to_from_attrs_roundtrip():
@@ -337,3 +337,42 @@ def test_documented_naive_regular_grid_displacement():
     cell_km = (dy_km + dx_km) / 2
     assert km[50, 50] / cell_km > 3.5
     assert float(np.median(km)) / cell_km > 4.0
+
+
+def test_centre_to_edge_bounds_matches_grid_edge_bounds():
+    """The module-level helper is the conversion `Grid.edge_bounds()` applies,
+    for callers holding a loose (bounds, shape) pair — an npz's `bounds` on
+    its way into a regrid or a lat/lon -> cell lookup."""
+    for bounds, shape in (((1.5, 48.9, 7.5, 54.2), (192, 192)),
+                          ((1.5, 48.9, 7.5, 52.5), (100, 100)),
+                          ((0.0, 45.0, 10.0, 55.0), (16, 32))):
+        g = Grid.regular(bounds=bounds, shape=shape)
+        assert centre_to_edge_bounds(bounds, shape) == pytest.approx(g.edge_bounds())
+        ew, es, ee, en = centre_to_edge_bounds(bounds, shape)
+        w, s, e, n = bounds
+        h, wid = shape
+        assert (ee - ew) == pytest.approx(wid * (e - w) / (wid - 1))
+        assert (en - es) == pytest.approx(h * (n - s) / (h - 1))
+
+
+def test_centre_to_edge_bounds_degenerate_axis_is_the_identity():
+    """A shape of 1 along an axis has no derivable cell size, so that axis's
+    edges equal its centres — no division by zero (documented convention)."""
+    bounds = (1.5, 48.9, 7.5, 52.5)
+    assert centre_to_edge_bounds(bounds, (1, 1)) == pytest.approx(bounds)
+    w, s, e, n = bounds
+    dlat = (n - s) / 9
+    assert centre_to_edge_bounds(bounds, (10, 1)) == pytest.approx(
+        (w, s - dlat / 2, e, n + dlat / 2))
+    dlon = (e - w) / 9
+    assert centre_to_edge_bounds(bounds, (1, 10)) == pytest.approx(
+        (w - dlon / 2, s, e + dlon / 2, n))
+
+
+def test_centre_to_edge_bounds_rejects_malformed_input():
+    with pytest.raises(GridContractError):
+        centre_to_edge_bounds((1.5, 48.9, 7.5), (10, 10))
+    with pytest.raises(GridContractError):
+        centre_to_edge_bounds((1.5, 48.9, 7.5, 52.5), (10,))
+    with pytest.raises(GridContractError):
+        centre_to_edge_bounds((1.5, 48.9, 7.5, 52.5), (0, 10))
