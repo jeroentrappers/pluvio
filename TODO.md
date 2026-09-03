@@ -36,7 +36,7 @@ below every metric. Make eyes unnecessary.
       through store → `build_input` → reprojection → render must land within
       one cell. Acceptance: test in CI; would have caught trim + aux + sign.
       Lane: agent. Depends: 1.5
-- [ ] **1.4 Store contract checks as a library** — factor `qc_inputs` /
+- [~] **1.4 Store contract checks as a library** — factor `qc_inputs` /
       `qc_watchdog` into `research/tools/qc/` with one JSON verdict format;
       calibrate range checks to the store's normalised units (alaro 0–255,
       msg_ir108, aws_*); synthetic fixtures in CI. Acceptance: hourly run
@@ -110,7 +110,7 @@ on different rulers. Transparency is the only credible route to "reference".
       lead/threshold for any list of (name, checkpoint|baseline); baselines
       persistence + advection; JSON + markdown table. Acceptance: unit tests on
       synthetic fields; reproduces this week's tables. Lane: agent.
-- [ ] **3.3 External baselines** — Buienradar point forecasts (raintext API)
+- [~] **3.3 External baselines** — Buienradar point forecasts (raintext API)
       sampled at stations, UKMO nowcast over the UK box, OPERA where
       obtainable; archived alongside our runs. Acceptance: nightly rows in the
       scoreboard. Lane: agent + ops.
