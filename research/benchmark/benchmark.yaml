@@ -66,3 +66,26 @@ leads_min: [30, 60, 90, 120]
 # which is filled dry in both the prediction and the observation before FSS
 # is computed, so it never inflates either field's wet fraction.
 fss_scales_px: [1, 3, 5]
+
+# Block-bootstrap confidence intervals (3.6). Resamples issue-time BLOCKS
+# (not individual samples) so within-block correlation (e.g. the same storm
+# scored at several leads/case days) doesn't understate the interval — a
+# plain iid bootstrap over samples would be too narrow. `n`/`ci` trade
+# runtime for precision; `seed` makes a run byte-identical on rerun.
+# `reference_model` is the baseline every other model gets a paired-
+# difference CI against ("A beats B" as an interval, not a point estimate).
+bootstrap:
+  blocks_h: 6
+  n: 1000
+  ci: 0.9
+  seed: 42
+  reference_model: persistence
+
+# Adequacy (3.6): a run is only as trustworthy as the number of actual rain
+# events it saw. Defined in events, not raw sample count — count distinct
+# issue-times whose own analysis field (t0, before any lead) has a domain
+# max above `threshold_mm_h`; below `min_events` the run is flagged
+# `adequate: false` in metadata rather than silently reported at face value.
+adequacy:
+  threshold_mm_h: 5.0
+  min_events: 30

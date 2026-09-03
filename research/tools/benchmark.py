@@ -40,16 +40,17 @@ import pathlib
 import subprocess
 import sys
 from collections import OrderedDict, defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from model.metrics import categorical_scores, continuous_scores, crps_deterministic, fss_curve  # noqa: E402
+from model.metrics import fss_components  # noqa: E402
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from tools._advection import advect_forecast, flow_for_pair, max_shift_px  # noqa: E402
+from tools._stats import SampleStats, block_bootstrap  # noqa: E402
 
 LOG = logging.getLogger("pluvio.benchmark")
 
@@ -75,6 +76,19 @@ def load_config(path: str | pathlib.Path) -> dict:
     cfg.setdefault("val_frac_split", 0.2)
     cfg.setdefault("allow_train_overlap", False)
 
+    bootstrap = dict(cfg.get("bootstrap") or {})
+    bootstrap.setdefault("blocks_h", 6)
+    bootstrap.setdefault("n", 1000)
+    bootstrap.setdefault("ci", 0.9)
+    bootstrap.setdefault("seed", cfg["seed"])
+    bootstrap.setdefault("reference_model", "persistence")
+    cfg["bootstrap"] = bootstrap
+
+    adequacy = dict(cfg.get("adequacy") or {})
+    adequacy.setdefault("threshold_mm_h", 5.0)
+    adequacy.setdefault("min_events", 30)
+    cfg["adequacy"] = adequacy
+
     fss_scales = [int(sc) for sc in cfg["fss_scales_px"]]
     bad = [sc for sc in fss_scales if sc % 2 == 0]
     if bad:
@@ -95,13 +109,34 @@ def _git_commit() -> str | None:
         return None
 
 
-def _sample_set_hash(dataset: ZarrCorrectionDataset, indices: list[int]) -> str:
-    """Hash of the exact (issue_epoch, lead_min) pairs scored, sorted for
-    determinism — proof two runs scored the same samples."""
-    pairs = sorted((int(dataset.index[i].issue_epoch), int(dataset.index[i].lead_min))
-                  for i in indices)
-    blob = "\n".join(f"{e},{l}" for e, l in pairs).encode()
+def _manifest_line(rec: dict) -> str:
+    return json.dumps(rec, sort_keys=True, separators=(",", ":"))
+
+
+def manifest_hash(records: list[dict]) -> str:
+    """Hash of the sample manifest (sorted by issue_time/lead for
+    determinism) — proof two runs scored exactly the same samples, and the
+    same value the sidecar ``<out>.samples.jsonl`` file hashes to when read
+    back (see ``write_manifest`` / ``load_manifest``)."""
+    ordered = sorted(records, key=lambda r: (r["issue_time"], r["lead_min"]))
+    blob = "\n".join(_manifest_line(r) for r in ordered).encode()
     return hashlib.sha256(blob).hexdigest()[:16]
+
+
+def write_manifest(records: list[dict], out_path: str | pathlib.Path) -> pathlib.Path:
+    """Write the sidecar sample manifest next to ``out_path`` (JSON results
+    file) as ``<out>.samples.jsonl`` — one JSON object per scored sample, so
+    any run can be reproduced exactly."""
+    manifest_path = pathlib.Path(str(out_path) + ".samples.jsonl")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(records, key=lambda r: (r["issue_time"], r["lead_min"]))
+    manifest_path.write_text("\n".join(_manifest_line(r) for r in ordered) + "\n")
+    return manifest_path
+
+
+def load_manifest(path: str | pathlib.Path) -> list[dict]:
+    text = pathlib.Path(path).read_text()
+    return [json.loads(line) for line in text.splitlines() if line]
 
 
 # ─────────────────────────────────────────────────────────── sample selection
@@ -286,22 +321,22 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
     fss_scales = [int(sc) for sc in cfg["fss_scales_px"]]
     fss_fill = min(thresholds) - 1.0  # sentinel guaranteed below every threshold
 
-    # Per (model, lead): concatenated valid pointwise pred/obs (1-D), and
-    # stacked (N, H, W) fields for FSS. Kept separately for "all selected"
-    # and the case-day-only stratum.
-    def _new_accum():
-        return {m: defaultdict(lambda: {"pred_pw": [], "obs_pw": [],
-                                        "pred_fss": [], "obs_fss": []})
+    # Per (model, lead): SampleStats accumulates fixed-size sufficient
+    # statistics per sample (contingency counts, sum/sum-abs/sum-sq error,
+    # FSS numerator/denominator per threshold/scale) tagged with issue_epoch
+    # — never the raw pointwise arrays or FSS field stacks. Kept separately
+    # for "all selected" and the case-day-only stratum; "all" also feeds the
+    # block bootstrap.
+    stats_all = {m: {lead: SampleStats(thresholds, fss_scales) for lead in leads_min}
                 for m in model_names}
-
-    accum_all = _new_accum()
-    accum_case = _new_accum()
-    n_valid_by_lead_all: dict[int, int] = defaultdict(int)
-    n_valid_by_lead_case: dict[int, int] = defaultdict(int)
-    n_scored_by_lead: dict[int, int] = defaultdict(int)
+    stats_case = {m: {lead: SampleStats(thresholds, fss_scales) for lead in leads_min}
+                 for m in model_names}
 
     flow_cache: "OrderedDict[int, np.ndarray]" = OrderedDict()
     pw_seed = int(cfg["seed"]) + 1
+
+    manifest: list[dict] = []
+    issue_event_max: dict[int, float] = {}  # issue_epoch -> max of the t0 analysis field
 
     for si in selected:
         s = dataset.index[si]
@@ -312,6 +347,13 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         operational_raw = np.asarray(radar[s.issue_idx, s.lead_idx], dtype="float32")
         prev_idx = s.history_idx[-2] if len(s.history_idx) >= 2 else s.history_idx[-1]
         prev_raw = np.asarray(radar[prev_idx, 0], dtype="float32")
+
+        if s.issue_epoch not in issue_event_max:
+            # "domain max truth" for adequacy is the issue's own t0 analysis
+            # (what actually fell, not a future lead's target), so an issue
+            # scored at several leads is only counted once.
+            finite_issue = issue_raw[np.isfinite(issue_raw)]
+            issue_event_max[s.issue_epoch] = float(finite_issue.max()) if finite_issue.size else float("-inf")
 
         if s.issue_idx not in flow_cache:
             issue_filled = np.nan_to_num(issue_raw)
@@ -350,69 +392,89 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
 
         obs_fss = np.where(valid, np.nan_to_num(obs_raw), fss_fill)
         n_selected = int(selector.sum())
-        n_valid_by_lead_all[s.lead_min] += n_selected
-        n_scored_by_lead[s.lead_min] += 1
         is_case = si in case_idx_set
-        if is_case:
-            n_valid_by_lead_case[s.lead_min] += n_selected
 
+        issue_dt = datetime.fromtimestamp(s.issue_epoch, tz=timezone.utc)
+        manifest.append({
+            "issue_time": issue_dt.isoformat(),
+            "lead_min": int(s.lead_min),
+            "target_time": (issue_dt + timedelta(minutes=s.lead_min)).isoformat(),
+            "case_day": bool(is_case),
+            "n_valid_cells": n_selected,
+        })
+
+        obs_sel = obs_raw[selector].astype("float64")
         for name, pred in preds.items():
+            pred_sel = pred[selector].astype("float64")
+            e = pred_sel - obs_sel
             pred_fss = np.where(valid, np.nan_to_num(pred), fss_fill)
-            for accum in ((accum_all, True), (accum_case, is_case)):
-                store, keep = accum
-                if not keep:
-                    continue
-                bucket = store[name][s.lead_min]
-                bucket["pred_pw"].append(pred[selector])
-                bucket["obs_pw"].append(obs_raw[selector])
-                bucket["pred_fss"].append(pred_fss)
-                bucket["obs_fss"].append(obs_fss)
 
-    def _score(accum, n_valid_by_lead) -> dict:
+            cat: dict[float, tuple[int, int, int]] = {}
+            fss: dict[float, dict[int, tuple[float, float]]] = {}
+            for thr in thresholds:
+                p_wet, o_wet = pred_sel >= thr, obs_sel >= thr
+                hits = int((p_wet & o_wet).sum())
+                misses = int((~p_wet & o_wet).sum())
+                fa = int((p_wet & ~o_wet).sum())
+                cat[thr] = (hits, misses, fa)
+                fss[thr] = {sc: fss_components(pred_fss, obs_fss, threshold=thr, scale_px=sc)
+                           for sc in fss_scales}
+
+            record = {"issue_epoch": s.issue_epoch, "n": n_selected, "sum_e": float(e.sum()),
+                     "sum_abs_e": float(np.abs(e).sum()), "sum_sq_e": float((e ** 2).sum()),
+                     "cat": cat, "fss": fss}
+            stats_all[name][s.lead_min].add(**record)
+            if is_case:
+                stats_case[name][s.lead_min].add(**record)
+
+    def _score(stats) -> dict:
         results: dict = {}
         for name in model_names:
             results[name] = {}
-            for lead, bucket in accum[name].items():
-                if not bucket["pred_pw"]:
+            for lead in leads_min:
+                st = stats[name][lead]
+                if len(st) == 0:
                     continue
-                pred_pw = np.concatenate([a.ravel() for a in bucket["pred_pw"]])
-                obs_pw = np.concatenate([a.ravel() for a in bucket["obs_pw"]])
-                pred_stack = np.stack(bucket["pred_fss"])
-                obs_stack = np.stack(bucket["obs_fss"])
-                n_samples = len(bucket["pred_fss"])
-
-                cont = continuous_scores(pred_pw, obs_pw)
-                crps = crps_deterministic(pred_pw, obs_pw)
-
-                per_threshold = {}
-                for thr in thresholds:
-                    cat = categorical_scores(pred_pw, obs_pw, thr)
-                    fss = fss_curve(pred_stack, obs_stack, threshold=thr, scales_px=fss_scales)
-                    per_threshold[str(thr)] = {
-                        "csi": cat["csi"],
-                        "pod": cat["pod"],
-                        "far": cat["far"],
-                        "freq_bias": cat["freq_bias"],
-                        "hits": cat["hits"],
-                        "misses": cat["misses"],
-                        "false_alarms": cat["false_alarms"],
-                        "mean_error": cont["bias"],
-                        "mae": cont["mae"],
-                        "rmse": cont["rmse"],
-                        "crps": crps,
-                        "reliability": None,  # Brier-decomposition slot, wired once a
-                                              # probabilistic (quantile) model is scored
-                        "fss": {str(k): v for k, v in fss.items()},
-                        "n_samples": n_samples,
-                        "n_valid_cells": n_valid_by_lead.get(lead, 0),
-                    }
-                results[name][str(lead)] = per_threshold
+                results[name][str(lead)] = st.aggregate()
         return results
 
-    results = _score(accum_all, n_valid_by_lead_all)
-    results_case_days = _score(accum_case, n_valid_by_lead_case) if case_idx_set else {}
+    results = _score(stats_all)
+    results_case_days = _score(stats_case) if case_idx_set else {}
 
-    n_scored_total = sum(n_scored_by_lead.values())  # counted once, not per model
+    # Block-bootstrap CIs (all-samples stratum only) + paired difference vs
+    # the configured reference model, merged onto each per_threshold row —
+    # existing point-estimate keys (row["csi"], row["rmse"], …) are
+    # untouched, so any consumer reading only those stays compatible.
+    boot_cfg = cfg["bootstrap"]
+    ref_model = boot_cfg.get("reference_model")
+    for lead in leads_min:
+        stats_by_model = {m: stats_all[m][lead] for m in model_names if len(stats_all[m][lead])}
+        if not stats_by_model:
+            continue
+        boot = block_bootstrap(stats_by_model, blocks_h=float(boot_cfg["blocks_h"]),
+                              n_boot=int(boot_cfg["n"]), ci=float(boot_cfg["ci"]),
+                              seed=int(boot_cfg["seed"]), ref_model=ref_model)
+        if not boot:
+            continue
+        ci_by_model = boot.get("ci", {})
+        diff_by_model = boot.get("diff_vs_ref", {})
+        for name in stats_by_model:
+            row_by_thr = results[name].get(str(lead))
+            if row_by_thr is None:
+                continue
+            for thr in thresholds:
+                thr_key = str(thr)
+                row = row_by_thr[thr_key]
+                row["ci"] = ci_by_model.get(name, {}).get(thr_key)
+                vs_ref = diff_by_model.get(name, {}).get(thr_key) if name != ref_model else None
+                row["ci_vs_reference"] = {"reference_model": ref_model, **vs_ref} if vs_ref else None
+
+    n_scored_total = len(selected)  # counted once, not per model
+
+    n_adequate_events = sum(1 for v in issue_event_max.values() if v > float(cfg["adequacy"]["threshold_mm_h"]))
+    adequate = n_adequate_events >= int(cfg["adequacy"]["min_events"])
+
+    sample_set_hash = manifest_hash(manifest)
 
     metadata = {
         "store": str(zarr_path),
@@ -426,7 +488,7 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         "git_commit": _git_commit(),
         "models": list(models.keys()),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "sample_set_hash": _sample_set_hash(dataset, selected),
+        "sample_set_hash": sample_set_hash,
         "thresholds_mm_h": thresholds,
         "leads_min": leads_min,
         "fss_scales_px": fss_scales,
@@ -437,8 +499,18 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         "km_per_px": km_per_px,
         "advection_max_shift_px": max_shift,
         "train_val_split": split_dt.isoformat(),
+        "bootstrap": {"blocks_h": float(boot_cfg["blocks_h"]), "n": int(boot_cfg["n"]),
+                     "ci": float(boot_cfg["ci"]), "seed": int(boot_cfg["seed"]),
+                     "reference_model": ref_model},
+        "adequacy": {
+            "threshold_mm_h": float(cfg["adequacy"]["threshold_mm_h"]),
+            "min_events": int(cfg["adequacy"]["min_events"]),
+            "n_events": n_adequate_events,
+        },
+        "adequate": adequate,
     }
-    return {"metadata": metadata, "results": results, "results_case_days": results_case_days}
+    return {"metadata": metadata, "results": results, "results_case_days": results_case_days,
+           "manifest": manifest}
 
 
 # ─────────────────────────────────────────────────────────────── reporting
@@ -448,9 +520,20 @@ def _fmt(v) -> str:
     return f"{v:.3f}" if isinstance(v, float) and v == v else ("nan" if v is None else str(v))
 
 
+def _fmt_ci(row: dict, key: str) -> str:
+    """``value [ci_lo, ci_hi]`` when a bootstrap CI was merged onto this row,
+    else just the point estimate."""
+    val = _fmt(row[key])
+    ci = row.get("ci")
+    if not ci or ci.get(key) is None:
+        return val
+    lo, hi = ci[key].get("ci_lo"), ci[key].get("ci_hi")
+    return f"{val} [{_fmt(lo)}, {_fmt(hi)}]"
+
+
 def _markdown_table(results: dict) -> list[str]:
     lines = [
-        "| model | lead (min) | threshold (mm/h) | CSI | POD | FAR | mean_error | RMSE | FSS |",
+        "| model | lead (min) | threshold (mm/h) | CSI (90% CI) | POD | FAR | mean_error | RMSE (90% CI) | FSS |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for model, by_lead in results.items():
@@ -458,14 +541,15 @@ def _markdown_table(results: dict) -> list[str]:
             for thr, row in sorted(by_thr.items(), key=lambda kv: float(kv[0])):
                 fss_txt = ", ".join(f"{k}px={_fmt(v)}" for k, v in row["fss"].items())
                 lines.append(
-                    f"| {model} | {lead} | {thr} | {_fmt(row['csi'])} | {_fmt(row['pod'])} | "
-                    f"{_fmt(row['far'])} | {_fmt(row['mean_error'])} | {_fmt(row['rmse'])} | {fss_txt} |"
+                    f"| {model} | {lead} | {thr} | {_fmt_ci(row, 'csi')} | {_fmt(row['pod'])} | "
+                    f"{_fmt(row['far'])} | {_fmt(row['mean_error'])} | {_fmt_ci(row, 'rmse')} | {fss_txt} |"
                 )
     return lines
 
 
 def to_markdown(report: dict) -> str:
     meta = report["metadata"]
+    adequacy = meta.get("adequacy", {})
     lines = [
         f"# Benchmark: {meta.get('config_name')} (v{meta.get('config_version')})",
         "",
@@ -474,6 +558,10 @@ def to_markdown(report: dict) -> str:
         f"samples: {meta['n_samples_selected']} / {meta['n_samples_indexed']} "
         f"({meta.get('n_case_day_samples', 0)} case-day)  |  "
         f"commit: `{meta.get('git_commit')}`",
+        "",
+        (f"adequacy: {adequacy.get('n_events', 0)} issue-times with domain max truth > "
+         f"{adequacy.get('threshold_mm_h')} mm/h (min {adequacy.get('min_events')} required) "
+         f"-> **{'adequate' if meta.get('adequate') else 'NOT adequate'}**"),
         "",
         *_markdown_table(report["results"]),
     ]
@@ -509,7 +597,11 @@ def main(argv: list[str] | None = None) -> int:
 
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(_nan_to_null(report), indent=2, allow_nan=False))
+    manifest_path = write_manifest(report["manifest"], out_path)
+    LOG.info("wrote %s (%d samples)", manifest_path, len(report["manifest"]))
+
+    json_report = {k: v for k, v in report.items() if k != "manifest"}
+    out_path.write_text(json.dumps(_nan_to_null(json_report), indent=2, allow_nan=False))
     LOG.info("wrote %s", out_path)
 
     if args.markdown:
