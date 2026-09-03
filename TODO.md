@@ -127,6 +127,13 @@ CSI decays. The objective is the biggest lever we own.
       sharded tensors; streaming loader. Acceptance: ≥3× epoch speedup, same
       loss curve. Lane: agent.
 
+- [ ] **2.7 Better motion estimator** — the block-matching flow (backend
+      `morph.py`, benchmark `_advection.py`) scores blocks by unnormalised
+      cross-correlation → mass-biased, ~30% overshoot, spurious cross-axis
+      drift; MAX_SHIFT is grid-specific. Switch to SSD / mean-subtracted NCC
+      over wet cells, derive the search radius from grid spacing × cadence,
+      share one implementation. Found by review of 3.2. Lane: agent.
+
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored
@@ -146,6 +153,11 @@ on different rulers. Transparency is the only credible route to "reference".
       scoreboard. Lane: agent + ops.
 - [ ] **3.4 Public scoreboard page** — nightly job over the Verify archive →
       static page (per lead, per model, yesterday vs what fell). Lane: agent.
+- [ ] **3.6 Benchmark statistics** — block-bootstrap CIs resampled by
+      issue-time (6 h blocks) so two models within noise don't trade places
+      nightly; adequacy defined in events (≥30 issue-times with domain max
+      > 5 mm/h) not a flat sample cap; per-lead stratified samples; sidecar
+      sample manifest. Depends 3.2. Lane: agent.
 - [ ] **3.5 Deployment gate** — checkpoint swap requires benchmark win + a
       canary hour where old and new fields are both archived and diffed.
       Lane: ops. Depends: 3.2
