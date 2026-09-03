@@ -1,0 +1,48 @@
+name: research-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/**"
+      - "backend/src/pluvio_backend/morph.py"
+      - "backend/src/pluvio_backend/cache.py"
+      - "backend/src/pluvio_backend/schedules.py"
+      - "backend/src/pluvio_backend/colormap.py"
+      - ".github/workflows/research-tests.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/**"
+      - "backend/src/pluvio_backend/morph.py"
+      - "backend/src/pluvio_backend/cache.py"
+      - "backend/src/pluvio_backend/schedules.py"
+      - "backend/src/pluvio_backend/colormap.py"
+      - ".github/workflows/research-tests.yml"
+
+concurrency:
+  group: research-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: research/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r research/requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check --config research/pyproject.toml research/tests
+
+      - name: Pytest
+        run: pytest research/tests -q

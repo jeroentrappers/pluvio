@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import json
 import pathlib
+from datetime import UTC
 
 import numpy as np
 import pytest
 import yaml
 import zarr
-
 from model.metrics import categorical_scores, continuous_scores, fractions_skill_score
 from tools import benchmark as bm
 from tools._advection import advect_forecast, flow_for_pair, max_shift_px, warp
@@ -202,11 +202,11 @@ def test_baselines_run_end_to_end_on_synthetic_store(tmp_path):
     assert report["metadata"]["sample_set_hash"]
     assert report["metadata"]["n_scores_total"] == report["metadata"]["n_samples_selected"]
 
-    for name, by_lead in report["results"].items():
+    for by_lead in report["results"].values():
         assert set(by_lead.keys()) == {"30", "60", "90", "120"}
-        for lead, by_thr in by_lead.items():
+        for by_thr in by_lead.values():
             assert set(by_thr.keys()) == {"0.1", "1.0"}
-            for thr, row in by_thr.items():
+            for row in by_thr.values():
                 assert row["n_samples"] > 0
                 assert np.isfinite(row["rmse"])
                 assert np.isfinite(row["mean_error"])
@@ -226,8 +226,8 @@ def test_nan_domain_scored_on_identical_finite_support(tmp_path):
 
     full_cells = 16 * 16
     corner_cells = 4 * 4
-    for name, by_lead in report["results"].items():
-        for lead, by_thr in by_lead.items():
+    for by_lead in report["results"].values():
+        for by_thr in by_lead.values():
             row = by_thr["0.1"]
             # Every sample lost exactly the NaN corner, for every model —
             # identical support.
@@ -280,8 +280,8 @@ def test_case_days_scored_in_full_and_reported_separately(tmp_path):
     store = _make_synthetic_store(tmp_path / "store.zarr")
     root = zarr.open_group(str(store), mode="r")
     epochs = np.asarray(root["issue_time"][:])
-    from datetime import datetime, timezone
-    case_date = datetime.fromtimestamp(int(epochs[5]), tz=timezone.utc).date().isoformat()
+    from datetime import datetime
+    case_date = datetime.fromtimestamp(int(epochs[5]), tz=UTC).date().isoformat()
 
     config_path = _write_config(tmp_path / "benchmark.yaml", case_days=[case_date],
                                 # A tiny max_samples that would normally starve

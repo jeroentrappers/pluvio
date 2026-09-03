@@ -1,0 +1,14 @@
+# Test-only dependency set for research/tests — deliberately smaller than
+# research/pyproject.toml (which is the full research-toolchain env): only
+# what the test suite actually imports.
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+
+numpy>=1.26,<3
+pandas>=2.2,<3
+pyproj>=3.6,<4
+rasterio>=1.4,<2      # geo.analysis_grid_dst()
+torch==2.14.0          # CPU wheel, via the extra index above
+zarr>=3,<4
+ruff>=0.8,<1
+pytest>=8.3,<9

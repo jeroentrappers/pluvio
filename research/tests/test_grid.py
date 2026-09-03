@@ -5,7 +5,6 @@ import json
 import numpy as np
 import pytest
 import zarr
-
 from model import geo
 from model.grid import Grid, GridContractError
 
@@ -137,7 +136,7 @@ def test_edge_bounds_spans_exact_cell_footprint():
 
 def test_transform_matches_edge_bounds_origin():
     g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
-    ew, es, ee, en = g.edge_bounds()
+    ew, _es, _ee, en = g.edge_bounds()
     x0, y0, dx, dy = g.transform()
     assert x0 == pytest.approx(ew)
     assert y0 == pytest.approx(en)
@@ -149,15 +148,15 @@ def test_cell_of_accepts_point_inside_boundary_cells_own_footprint():
     # envelope's south bound (48.9) — a point there is still inside cell
     # (191, 0)'s own footprint and must resolve to it, not None.
     g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
-    w, s, e, n = g.bounds_of_cell(191, 0)
+    _w, s, _e, _n = g.bounds_of_cell(191, 0)
     assert s < 48.9  # south edge is below the centre-envelope bound
     assert g.cell_of(lat=48.895, lon=1.5) == (191, 0)
 
 
 def test_bounds_of_cell_tiles_exactly():
     g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
-    h, wid = g.shape
-    w, s, e, n = g.bounds
+    _h, wid = g.shape
+    w, _s, e, _n = g.bounds
     dlon = (e - w) / (wid - 1)
     for r, c in [(0, 0), (10, 10), (191, 190)]:
         _, _, east0, _ = g.bounds_of_cell(r, c)

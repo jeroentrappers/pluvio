@@ -8,7 +8,6 @@ import pathlib
 
 import numpy as np
 import pytest
-
 from tools.qc import checks, verdict
 from tools.qc.thresholds import Thresholds, load_thresholds
 
@@ -35,8 +34,8 @@ def test_registration_offset_recovers_planted_shift():
     true_dlat, true_dlon = 0.04, -0.02  # exact multiples of `step_deg` below
 
     def sampler(dlat: float, dlon: float) -> np.ndarray:
-        dr = int(round(dlat / cell))
-        dc = int(round(dlon / cell))
+        dr = round(dlat / cell)
+        dc = round(dlon / cell)
         r0, c0 = margin - dr, margin + dc
         return canvas[r0:r0 + h, c0:c0 + w]
 
@@ -415,7 +414,7 @@ def test_load_thresholds_rejects_unknown_key(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_qc_watchdog_cli_exits_1_on_stale(tmp_path):
-    import tools.qc_watchdog as qc_watchdog
+    from tools import qc_watchdog
 
     now = dt.datetime.now(dt.UTC).timestamp()
     n, h, w = 10, 8, 8
@@ -437,7 +436,7 @@ def test_qc_watchdog_cli_exits_1_on_stale(tmp_path):
 
 
 def test_qc_watchdog_cli_exits_0_when_fresh_and_quiet(tmp_path):
-    import tools.qc_watchdog as qc_watchdog
+    from tools import qc_watchdog
 
     now = dt.datetime.now(dt.UTC).timestamp()
     n, h, w = 10, 8, 8
@@ -458,7 +457,7 @@ def test_qc_watchdog_cli_exits_0_when_fresh_and_quiet(tmp_path):
 
 def test_qc_inputs_cli_exits_1_on_stale_issue(tmp_path, monkeypatch):
     zarr = pytest.importorskip("zarr")
-    import tools.qc_inputs as qc_inputs
+    from tools import qc_inputs
 
     n, h, w = 5, 6, 6
     old_epoch = int(dt.datetime.now(dt.UTC).timestamp() - 3600 * 10)  # way past 75 min

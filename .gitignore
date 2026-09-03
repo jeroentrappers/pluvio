@@ -82,3 +82,9 @@ app.*.dSYM/
 *.swp
 .DS_Store
 .history
+
+# Python / research venv
+research/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
