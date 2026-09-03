@@ -149,7 +149,10 @@ ALARO_CHANNELS = [
 # SST: daily, gap-free L4; 36h max-age so every issue time finds that day's (or
 # the previous day's) field. Real-valued °C GeoTIFF → "lum" reads band 1 as-is.
 SST_CHANNELS = [
-    RasterChannel("sst", "sst", "ostia", SST_BBOX, 2160, "lum"),
+    # OSTIA publishes day D around D+2 06:00 UTC (measured 2026-09-03): a 36 h
+    # window meant every issue was appended before its SST existed and the
+    # channel was NaN store-wide. SST changes slowly; 96 h is safe.
+    RasterChannel("sst", "sst", "ostia", SST_BBOX, 5760, "lum"),
 ]
 
 RASTER_CHANNELS = MSG_CHANNELS + ALARO_CHANNELS + SST_CHANNELS
