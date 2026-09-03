@@ -27,24 +27,29 @@ below every metric. Make eyes unnecessary.
       `zarr_dataset`, composite producer, backend cache). Acceptance: a store
       missing/inconsistent attrs fails loudly; all producers write them.
       Lane: agent → ops for deploy. Depends: —
-- [~] **1.2 Geometry & warp unit tests** — `research/tests/`: grid_latlon
+- [x] **1.2 Geometry & warp unit tests** — `research/tests/`: grid_latlon
       south edge equals the 700/765 trim of `_lib._resample`; `morph._warp`
       sign convention (content moves by +D); `morph_pair` centroid and
       intensity preservation; `zarr_dataset` derives grid from store.
-      Acceptance: pytest green locally and in CI. Lane: agent.
-- [~] **1.3 Fiducial round-trip test** — synthetic delta at known lat/lon
+      Merged 2a43652; mutation-tested (aux trim, fy/fx swap, NaN target
+      exclusion each fail exactly one test). Lane: agent.
+- [x] **1.3 Fiducial round-trip test** — synthetic delta at known lat/lon
       through store → `build_input` → reprojection → render must land within
-      one cell. Acceptance: test in CI; would have caught trim + aux + sign.
-      Lane: agent. Depends: 1.5
-- [~] **1.4 Store contract checks as a library** — factor `qc_inputs` /
-      `qc_watchdog` into `research/tools/qc/` with one JSON verdict format;
-      calibrate range checks to the store's normalised units (alaro 0–255,
-      msg_ir108, aws_*); synthetic fixtures in CI. Acceptance: hourly run
-      has zero false warnings for 7 days while still flagging the dead sst.
-      Lane: agent + ops.
-- [~] **1.5 Research test infrastructure** — `research/requirements-dev.txt`,
-      `uv` venv recipe, `pytest` layout, `.github/workflows/research-tests.yml`.
-      Acceptance: CI runs research tests on every push. Lane: agent.
+      one cell. Merged 2a43652; pick cell moved to the south/east edge so the
+      painter's half-cell (edge vs centre) bug is not hidden by truncation.
+      Lane: agent.
+- [x] **1.4 Store contract checks as a library** — `research/tools/qc/`
+      (`verdict`, `checks`, `thresholds`) wrapping both CLIs; AWS bands
+      derived from `build_aux.AWS_CHANNELS`, percentile (p0.1/p99.9) range
+      check, additive `verdict` key in the JSON. Merged 1495442, deployed to
+      hetz1 2026-09-03 (whole package). First live verdict: `warn` — sst 93 %
+      NaN (1.6), alaro_precip signed corr 0.03, msg_ir108 −0.065 (both under
+      the 0.05 alignment floor; investigate in 1.6). Acceptance still open:
+      zero false warnings for 7 days. Lane: agent + ops.
+- [x] **1.5 Research test infrastructure** — `research/requirements-dev.txt`
+      (torch from the CPU index), `research/.venv` via `uv`, fixture conftest
+      + `_store_spec`, `.github/workflows/research-tests.yml` (pytest + ruff).
+      Merged 2a43652; 102 tests green from main. Lane: agent.
 - [~] **1.6 Input unit fixes** — `alaro_precip` scale (0–255 → mm/h?),
       `msg_ir108` units documented; `sst`: feed alive (OSTIA D+2 06:00 lag),
       channel was NaN store-wide because the 36 h max-age preceded publication
@@ -145,18 +150,27 @@ CSI decays. The objective is the biggest lever we own.
 Why: every skill claim this week had to be re-derived because runs were scored
 on different rulers. Transparency is the only credible route to "reference".
 
-- [~] **3.1 Frozen benchmark definition** — `research/benchmark/benchmark.yaml`:
-      one validation season + curated convective/frontal days; fixed
-      thresholds (0.1/0.5/1/2/5 mm/h) and leads. Lane: agent.
-- [~] **3.2 Benchmark scorer** — `research/tools/benchmark.py`: CSI/POD/FAR,
-      FSS (neighbourhoods), RMSE, bias, reliability (probabilistic) per
-      lead/threshold for any list of (name, checkpoint|baseline); baselines
-      persistence + advection; JSON + markdown table. Acceptance: unit tests on
-      synthetic fields; reproduces this week's tables. Lane: agent.
+- [x] **3.1 Frozen benchmark definition** — `research/benchmark/benchmark.yaml`:
+      val window from 2026-04-02T21:30Z (after the store's own 80/20 split;
+      the scorer refuses earlier starts unless `allow_train_overlap`), case
+      days scored in full as their own stratum, thresholds 0.1/0.5/1/2/5 mm/h.
+      Merged 19cccf0. Lane: agent.
+- [x] **3.2 Benchmark scorer** — `research/tools/benchmark.py` +
+      `_advection.py`: CSI/POD/FAR/freq-bias/FSS/RMSE/MAE/mean_error/CRPS per
+      lead/threshold, persistence + advection (NCC block flow, radius from the
+      finer grid axis) + operational baselines, one validity mask per sample
+      shared by every entry, `sample_set_hash`/config/git provenance. Merged
+      19cccf0 + follow-ups ece22c9. Open: `reliability` slot is `None` until
+      2.2; full 2000-sample 192² run needs ~7 GB RAM; run it against
+      operational/legacy/v2/v3 once v3 converges. Lane: agent.
 - [~] **3.3 External baselines** — Buienradar point forecasts (raintext API)
       sampled at stations, UKMO nowcast over the UK box, OPERA where
-      obtainable; archived alongside our runs. Acceptance: nightly rows in the
-      scoreboard. Lane: agent + ops.
+      obtainable; archived alongside our runs. Branch
+      `worktree-agent-a12f2b246e41c03be`: DST rollover and t0-relative leads
+      verified; second fix cycle (idx-loss duplicates, float32 NaN truth,
+      integer-only values) in progress. Then: systemd timer every 5 min,
+      archive under /mnt/storagebox/external_baselines. Acceptance: nightly
+      rows in the scoreboard. Lane: agent + ops.
 - [ ] **3.4 Public scoreboard page** — nightly job over the Verify archive →
       static page (per lead, per model, yesterday vs what fell). Lane: agent.
 - [ ] **3.6 Benchmark statistics** — block-bootstrap CIs resampled by
