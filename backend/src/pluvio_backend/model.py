@@ -98,12 +98,17 @@ def _grid_from_npz(d, fallback: GridSpec) -> GridSpec:
     if bounds is None:
         if shape == fallback.shape:
             return fallback
-        LOG.warning("npz carries no bounds and its shape %s is not the caller's %s — "
-                    "assuming the legacy DEFAULT_BOUNDS footprint", shape, fallback.shape)
+        LOG.warning(
+            "npz carries no bounds and its shape %s is not the caller's %s — "
+            "assuming the legacy DEFAULT_BOUNDS footprint",
+            shape,
+            fallback.shape,
+        )
         return GridSpec(bounds=dict(DEFAULT_BOUNDS), shape=shape)
     west, south, east, north = bounds
-    return GridSpec(bounds={"west": west, "east": east, "south": south, "north": north},
-                    shape=shape)
+    return GridSpec(
+        bounds={"west": west, "east": east, "south": south, "north": north}, shape=shape
+    )
 
 
 def _load_fresh(path: pathlib.Path):
@@ -138,29 +143,31 @@ def _band_from_cube(d, issued_at, band_name: schedules.BandName):
     src = np.nan_to_num(d["rates"].astype("float32"))
     band = schedules.band(band_name)
     if band_name != "nowcast":
-        out = np.stack([_interp_lead(src, src_leads, L) for L in band.leads_min]).astype("float32")
+        out = np.stack([_interp_lead(src, src_leads, lead) for lead in band.leads_min]).astype(
+            "float32"
+        )
         return out, issued_at
 
     from .morph import flow_for_pair, morph_pair
 
     flows: dict[tuple[int, int], np.ndarray] = {}
     frames = []
-    for L in band.leads_min:
-        if L <= src_leads[0]:
+    for lead in band.leads_min:
+        if lead <= src_leads[0]:
             frames.append(src[0])
             continue
-        if L >= src_leads[-1]:
+        if lead >= src_leads[-1]:
             frames.append(src[-1])
             continue
-        j = max(i for i in range(len(src_leads)) if src_leads[i] <= L)
+        j = max(i for i in range(len(src_leads)) if src_leads[i] <= lead)
         a_lead, b_lead = src_leads[j], src_leads[j + 1]
-        if L == a_lead:
+        if lead == a_lead:
             frames.append(src[j])
             continue
         key = (a_lead, b_lead)
         if key not in flows:
             flows[key] = flow_for_pair(src[j], src[j + 1])
-        w = (L - a_lead) / (b_lead - a_lead)
+        w = (lead - a_lead) / (b_lead - a_lead)
         frames.append(morph_pair(src[j], src[j + 1], w, flow=flows[key]))
     out = np.stack(frames).astype("float32")
     return out, issued_at
@@ -173,11 +180,14 @@ def _area_resample(a: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
     ri = np.clip(np.linspace(0, H, oh + 1).astype(int), 0, H)
     ci = np.clip(np.linspace(0, W, ow + 1).astype(int), 0, W)
     rows = np.add.reduceat(a, ri[:-1], axis=0) / np.maximum(np.diff(ri), 1)[:, None]
-    return (np.add.reduceat(rows, ci[:-1], axis=1) / np.maximum(np.diff(ci), 1)[None, :]).astype("float32")
+    return (np.add.reduceat(rows, ci[:-1], axis=1) / np.maximum(np.diff(ci), 1)[None, :]).astype(
+        "float32"
+    )
 
 
-def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime,
-                      grid: GridSpec) -> np.ndarray:
+def _lagrangian_blend(
+    out: np.ndarray, leads_min: list[int], issued_at: datetime, grid: GridSpec
+) -> np.ndarray:
     """Anchor the seam: continue the OBSERVED composite into the forecast.
 
     The v2 artifact's issue time lags wall clock by 30-70 min (store-append
@@ -229,19 +239,33 @@ def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime
     r0, r1 = max(0, min(r0, gh)), max(0, min(r1, gh))
     c0, c1 = max(0, min(c0, gw)), max(0, min(c1, gw))
     if (r0, r1, c0, c1) != win:
-        LOG.info("lagrangian blend: target box %s clamped to the observed raster "
-                 "%s -> rows %d:%d cols %d:%d", grid.edge_bounds(), (gh, gw), r0, r1, c0, c1)
+        LOG.info(
+            "lagrangian blend: target box %s clamped to the observed raster "
+            "%s -> rows %d:%d cols %d:%d",
+            grid.edge_bounds(),
+            (gh, gw),
+            r0,
+            r1,
+            c0,
+            c1,
+        )
     if not (c0 < c1 and r0 < r1):
-        LOG.warning("lagrangian blend: target box %s does not overlap the observed "
-                    "raster (%d x %d over %s) — serving the model field unblended",
-                    grid.edge_bounds(), gh, gw, (W0, S0, E0, N0))
+        LOG.warning(
+            "lagrangian blend: target box %s does not overlap the observed "
+            "raster (%d x %d over %s) — serving the model field unblended",
+            grid.edge_bounds(),
+            gh,
+            gw,
+            (W0, S0, E0, N0),
+        )
         return out
 
     from .morph import _warp, flow_for_pair
 
     def obs_at(i: int) -> np.ndarray:
-        return _area_resample(np.nan_to_num(np.asarray(rates[i, r0:r1, c0:c1], dtype="float32")),
-                              grid.shape)
+        return _area_resample(
+            np.nan_to_num(np.asarray(rates[i, r0:r1, c0:c1], dtype="float32")), grid.shape
+        )
 
     newest = obs_at(len(times) - 1)
     older = obs_at(len(times) - 11)
@@ -267,9 +291,12 @@ def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime
         # their own motion — cells visibly reversed direction at the seam.)
         adv = _warp(newest, scale * fy, scale * fx)
         blended[k] = np.clip(w * adv + (1 - w) * out[k], 0.0, None)
-    LOG.info("nowcast lagrangian blend: obs_age=%.0f min issue_age=%.0f min flow_span=%.0f min",
-             (datetime.now(UTC).timestamp() - t_obs) / 60,
-             (datetime.now(UTC).timestamp() - issue_e) / 60, span_min)
+    LOG.info(
+        "nowcast lagrangian blend: obs_age=%.0f min issue_age=%.0f min flow_span=%.0f min",
+        (datetime.now(UTC).timestamp() - t_obs) / 60,
+        (datetime.now(UTC).timestamp() - issue_e) / 60,
+        span_min,
+    )
     return blended
 
 
@@ -295,10 +322,13 @@ def model_band(
             d, issued_at = loaded
             npz_grid = _grid_from_npz(d, grid)
             out, _ = _band_from_cube(d, issued_at, band_name)
-            out = _lagrangian_blend(out, schedules.band(band_name).leads_min,
-                                    issued_at, npz_grid)
-            LOG.info("nowcast served from v2 npz + observed blend: issued=%s max=%.2f mm/h "
-                     "grid=%s", issued_at.isoformat(), float(out.max()), npz_grid.shape)
+            out = _lagrangian_blend(out, schedules.band(band_name).leads_min, issued_at, npz_grid)
+            LOG.info(
+                "nowcast served from v2 npz + observed blend: issued=%s max=%.2f mm/h grid=%s",
+                issued_at.isoformat(),
+                float(out.max()),
+                npz_grid.shape,
+            )
             return out, issued_at, npz_grid
 
     # 2) full-horizon cube serves every band (and the nowcast as fallback).
@@ -307,9 +337,14 @@ def model_band(
         d, issued_at = loaded
         npz_grid = _grid_from_npz(d, grid)
         out, _ = _band_from_cube(d, issued_at, band_name)
-        LOG.info("forecast(%s) served from cube: producer=%s issued=%s max=%.2f mm/h grid=%s",
-                 band_name, str(d["producer"]) if "producer" in d else "?",
-                 issued_at.isoformat(), float(out.max()), npz_grid.shape)
+        LOG.info(
+            "forecast(%s) served from cube: producer=%s issued=%s max=%.2f mm/h grid=%s",
+            band_name,
+            str(d["producer"]) if "producer" in d else "?",
+            issued_at.isoformat(),
+            float(out.max()),
+            npz_grid.shape,
+        )
         return out, issued_at, npz_grid
 
     # 3) stub keeps the API alive — always on the caller's grid.
@@ -342,8 +377,11 @@ def band_provenance(band_name: schedules.BandName) -> dict | None:
         # nearest lead to the band centre
         mid = (lo + hi) // 2
         j = int(np.argmin(np.abs(src_leads - mid)))
-        return {"source": sources[j], "confidence": float(conf[j]),
-                "producer": str(d["producer"]) if "producer" in d else "unknown"}
+        return {
+            "source": sources[j],
+            "confidence": float(conf[j]),
+            "producer": str(d["producer"]) if "producer" in d else "unknown",
+        }
     mid_lead = (lo + min(hi, int(src_leads.max()) + 1)) // 2
     j = int(np.argmin(np.abs(src_leads - mid_lead)))
     return {

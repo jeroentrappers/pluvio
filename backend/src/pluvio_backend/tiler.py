@@ -16,8 +16,11 @@ from PIL import Image
 from .colormap import draw_fiducials, rgba_for_array, upsample_field
 
 
-def render_overlay(mm_per_h: np.ndarray, target_hw: tuple[int, int] | None = None,
-                   fiducials: tuple[float, float, float, float] | None = None) -> bytes:
+def render_overlay(
+    mm_per_h: np.ndarray,
+    target_hw: tuple[int, int] | None = None,
+    fiducials: tuple[float, float, float, float] | None = None,
+) -> bytes:
     """Render a single precipitation field as PNG bytes."""
     if target_hw is not None:
         mm_per_h = upsample_field(mm_per_h, target_hw)
@@ -30,18 +33,24 @@ def render_overlay(mm_per_h: np.ndarray, target_hw: tuple[int, int] | None = Non
     return buf.getvalue()
 
 
-def render_overlay_to_path(mm_per_h: np.ndarray, path: pathlib.Path,
-                           target_hw: tuple[int, int] | None = None,
-                           fiducials: tuple[float, float, float, float] | None = None) -> pathlib.Path:
+def render_overlay_to_path(
+    mm_per_h: np.ndarray,
+    path: pathlib.Path,
+    target_hw: tuple[int, int] | None = None,
+    fiducials: tuple[float, float, float, float] | None = None,
+) -> pathlib.Path:
     """Convenience wrapper: render and write to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(render_overlay(mm_per_h, target_hw, fiducials=fiducials))
     return path
 
 
-def render_sprite(fields: list[np.ndarray], cols: int = 12,
-                  target_hw: tuple[int, int] | None = None,
-                  fiducials: tuple[float, float, float, float] | None = None) -> tuple[bytes, int, int]:
+def render_sprite(
+    fields: list[np.ndarray],
+    cols: int = 12,
+    target_hw: tuple[int, int] | None = None,
+    fiducials: tuple[float, float, float, float] | None = None,
+) -> tuple[bytes, int, int]:
     """Tile many precipitation fields into one RGBA sprite-sheet PNG.
 
     The web client downloads this single image per prediction and scrubs by
@@ -62,7 +71,7 @@ def render_sprite(fields: list[np.ndarray], cols: int = 12,
         tile = rgba_for_array(f)
         if fiducials is not None:
             draw_fiducials(tile, fiducials)
-        sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = tile
+        sheet[r * h : (r + 1) * h, c * w : (c + 1) * w] = tile
     buf = io.BytesIO()
     Image.fromarray(sheet, mode="RGBA").save(buf, format="PNG", optimize=True)
     return buf.getvalue(), rows, cols

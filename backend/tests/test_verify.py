@@ -230,9 +230,7 @@ def test_regrid_handles_a_target_box_hanging_off_the_source() -> None:
     out = verify._regrid_block_mean(src, (0.0, 0.0, 4.0, 4.0), (2.0, 0.0, 6.0, 4.0), (2, 2))
     assert out[:, 0] == pytest.approx([1.0, 1.0])
     assert np.isnan(out[:, 1]).all()
-    away = verify._regrid_block_mean(
-        src, (0.0, 0.0, 4.0, 4.0), (10.0, 0.0, 14.0, 4.0), (2, 2)
-    )
+    away = verify._regrid_block_mean(src, (0.0, 0.0, 4.0, 4.0), (10.0, 0.0, 14.0, 4.0), (2, 2))
     assert np.isnan(away).all()
 
 
@@ -243,9 +241,9 @@ def test_regrid_handles_a_target_box_hanging_off_the_source() -> None:
 # on every side — nothing at the grid centre, ~3.5 km at the serving box edges.
 # ---------------------------------------------------------------------------
 
-CONV_FC_BOUNDS = (1.5, 48.9, 7.5, 52.5)     # CELL CENTRES, as forecast_archive writes
+CONV_FC_BOUNDS = (1.5, 48.9, 7.5, 52.5)  # CELL CENTRES, as forecast_archive writes
 CONV_FC_SHAPE = (10, 10)
-CONV_SUB = 6                                 # composite cells per forecast cell
+CONV_SUB = 6  # composite cells per forecast cell
 CONV_QPE_SHAPE = (CONV_FC_SHAPE[0] * CONV_SUB, CONV_FC_SHAPE[1] * CONV_SUB)
 # The composite is laid out on the forecast grid's TRUE footprint, so every
 # forecast cell maps to an exact CONV_SUB x CONV_SUB block of source cells.
@@ -255,8 +253,7 @@ CONV_WET = 8.0
 
 def _conv_frame(row: int, col: int) -> np.ndarray:
     frame = np.zeros(CONV_QPE_SHAPE, dtype="float32")
-    frame[row * CONV_SUB:(row + 1) * CONV_SUB,
-          col * CONV_SUB:(col + 1) * CONV_SUB] = CONV_WET
+    frame[row * CONV_SUB : (row + 1) * CONV_SUB, col * CONV_SUB : (col + 1) * CONV_SUB] = CONV_WET
     return frame
 
 
@@ -275,12 +272,12 @@ def test_observed_on_reads_the_npz_bounds_as_cell_centres(tmp_path, monkeypatch,
     assert obs is not None
     assert np.isfinite(obs).all()
     assert obs[row, col] == pytest.approx(CONV_WET)
-    assert obs.sum() == pytest.approx(CONV_WET)   # nothing bled into a neighbour
+    assert obs.sum() == pytest.approx(CONV_WET)  # nothing bled into a neighbour
 
     # The defect, for contrast: the npz bounds fed through as edges.
     mutant = verify._regrid_block_mean(
-        np.asarray(_conv_frame(row, col)), CONV_QPE_BOUNDS,
-        CONV_FC_BOUNDS, CONV_FC_SHAPE)
+        np.asarray(_conv_frame(row, col)), CONV_QPE_BOUNDS, CONV_FC_BOUNDS, CONV_FC_SHAPE
+    )
     if row in (0, CONV_FC_SHAPE[0] - 1) or col in (0, CONV_FC_SHAPE[1] - 1):
         assert mutant[row, col] != pytest.approx(CONV_WET)
 

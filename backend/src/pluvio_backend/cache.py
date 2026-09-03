@@ -255,8 +255,9 @@ class ForecastCache:
         import os
 
         try:
-            px_lon, px_lat = (float(x) for x in
-                              os.environ.get("PLUVIO_OVERLAY_PXDEG", "46.51,74.0").split(","))
+            px_lon, px_lat = (
+                float(x) for x in os.environ.get("PLUVIO_OVERLAY_PXDEG", "46.51,74.0").split(",")
+            )
         except ValueError:
             px_lon, px_lat = 46.51, 74.0
         g = grid or self.grid
@@ -286,8 +287,7 @@ class ForecastCache:
         n_written = 0
         for i, lead in enumerate(band.leads_min):
             target = snapshot_dir / "overlays" / band_name / f"{lead}.png"
-            render_overlay_to_path(rates_mm_per_h[i], target, target_hw=shape,
-                                   fiducials=fid)
+            render_overlay_to_path(rates_mm_per_h[i], target, target_hw=shape, fiducials=fid)
             n_written += 1
         return n_written
 
@@ -372,8 +372,9 @@ class ForecastCache:
         ordered.sort(key=lambda t: t[0])
 
         shape = self._render_shape()
-        png, rows, cols = render_sprite([t[2] for t in ordered], cols=cols, target_hw=shape,
-                                        fiducials=self._fiducial_bounds())
+        png, rows, cols = render_sprite(
+            [t[2] for t in ordered], cols=cols, target_hw=shape, fiducials=self._fiducial_bounds()
+        )
         (snapshot_dir / "sprite.png").write_bytes(png)
 
         h, w = shape
@@ -465,8 +466,7 @@ class ForecastCache:
         try:
             grid = json.loads(meta_path.read_text(encoding="utf-8"))["grid"]
             h, w = (int(x) for x in grid["shape"])
-            return GridSpec(bounds={k: float(v) for k, v in grid["bounds"].items()},
-                            shape=(h, w))
+            return GridSpec(bounds={k: float(v) for k, v in grid["bounds"].items()}, shape=(h, w))
         except Exception as exc:
             LOG.warning("snapshot %s has unreadable grid metadata (%s)", snapshot_dir.name, exc)
             return None

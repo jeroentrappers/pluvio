@@ -15,11 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import schedules
+from . import history, schedules, verify
 from .cache import ForecastCache
 from .config import Settings, get_settings
-from . import history
-from . import verify
 
 LOG = logging.getLogger("pluvio.api")
 
@@ -45,7 +43,8 @@ class _WSManager:
         for ws in list(self._clients):
             try:
                 await ws.send_json(message)
-            except Exception:  # noqa: BLE001 — a dead socket shouldn't block others
+            # A dead socket shouldn't block the other clients.
+            except Exception:
                 self._clients.discard(ws)
 
 
@@ -78,7 +77,8 @@ async def _watch_snapshots(cache: ForecastCache, manager: _WSManager) -> None:
                 if msg:
                     await manager.broadcast(msg)
                     LOG.info("ws: broadcast new snapshot %s to clients", name)
-        except Exception:  # noqa: BLE001 — keep the watcher alive across hiccups
+        # Keep the watcher alive across hiccups.
+        except Exception:
             LOG.exception("ws: snapshot watcher error")
         await asyncio.sleep(_SNAPSHOT_POLL_SECONDS)
 
@@ -188,7 +188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         issued = meta.get("issued_at")
         try:
             issued_dt = datetime.fromisoformat(issued.replace("Z", "+00:00")) if issued else None
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             issued_dt = None
         age = (datetime.now(UTC) - issued_dt).total_seconds() if issued_dt is not None else None
         degraded = age is not None and age > settings.cache_stale_after_seconds
@@ -290,7 +290,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await websocket.receive_text()
         except WebSocketDisconnect:
             pass
-        except Exception:  # noqa: BLE001 — never let one client crash the route
+        # Never let one misbehaving client crash the route.
+        except Exception:
             LOG.debug("ws: client error", exc_info=True)
         finally:
             ws_manager.disconnect(websocket)
@@ -348,7 +349,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         newest = int(data["times"][-1])
         frames = [
             HistoryFrameDto(
-                minutes_ago=int(round((t - newest) / 60)),
+                minutes_ago=round((t - newest) / 60),
                 valid_time=datetime.fromtimestamp(t, tz=UTC),
                 rate_mm_per_h=rate,
                 overlay_url=f"/v1/history/overlay/{t}.png?t={info.get('mtime', 0)}",
@@ -392,8 +393,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         png = verify.frame_png(issue, lead, kind)
         if png is None:
             raise HTTPException(status_code=404, detail="frame unavailable")
-        return Response(content=png, media_type="image/png",
-                        headers={"Cache-Control": "public, max-age=3600"})
+        return Response(
+            content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"}
+        )
 
     @app.get("/v1/verify/scores")
     def verify_scores(issue: int, lead: int) -> dict:
@@ -414,8 +416,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         path = history.tile_sprite_png_path(tx, ty)
         if path is None:
             raise HTTPException(status_code=404, detail="tile unavailable")
-        return FileResponse(path, media_type="image/png",
-                            headers={"Cache-Control": "public, max-age=300"})
+        return FileResponse(
+            path, media_type="image/png", headers={"Cache-Control": "public, max-age=300"}
+        )
 
     @app.get("/v1/history/sprite.png")
     def history_sprite() -> FileResponse:
