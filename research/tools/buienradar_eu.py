@@ -78,6 +78,7 @@ import itertools
 import json
 import logging
 import math
+import os
 import pathlib
 import re
 import sqlite3
@@ -689,11 +690,17 @@ def open_index(root: pathlib.Path, *, create: bool = True) -> sqlite3.Connection
     the dry run reports what a real tick would actually download, but nothing
     is created on disk when the archive does not exist yet.
     """
-    target = root / "index.sqlite"
+    # The archive root is usually a CIFS mount (the storage box), where SQLite
+    # cannot take file locks ("database is locked" on an empty file). The index
+    # can therefore live elsewhere — a local disk — via PLUVIO_BUIENRADAR_EU_INDEX
+    # (or --index); frames and metadata stay under ``root``.
+    override = os.environ.get("PLUVIO_BUIENRADAR_EU_INDEX")
+    target = pathlib.Path(override) if override else root / "index.sqlite"
     if not create and not target.exists():
         target = ":memory:"
     else:
         root.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
@@ -1156,6 +1163,12 @@ def index_check(root: pathlib.Path) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="buienradar_eu", description=__doc__.split("\n")[0])
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--index",
+        default=None,
+        help="sqlite index path (default <root>/index.sqlite; put it on local disk when "
+        "the root is a CIFS mount — same as PLUVIO_BUIENRADAR_EU_INDEX)",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("collect", help="fetch metadata and archive any new frames")
@@ -1183,6 +1196,8 @@ def main(argv=None) -> int:
     p.add_argument("--out", default=None, help="write a .npy of the float32 mm/h array")
 
     args = parser.parse_args(argv)
+    if args.index:
+        os.environ["PLUVIO_BUIENRADAR_EU_INDEX"] = args.index
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s"
     )

@@ -912,3 +912,18 @@ def test_cli_cadence(tmp_path, http, capsys):
     assert json.loads(capsys.readouterr().out)["runs"] == 1
     assert br.main(["cadence", "--root", str(tmp_path), "--days", "1"]) == 0
     capsys.readouterr()
+
+
+def test_index_can_live_outside_the_archive_root(tmp_path, monkeypatch):
+    """The storage box is a CIFS mount where SQLite cannot lock; the index must
+    be relocatable to local disk while frames stay under root."""
+    from tools import buienradar_eu as eu
+
+    root = tmp_path / "archive"
+    local = tmp_path / "state" / "idx.sqlite"
+    monkeypatch.setenv("PLUVIO_BUIENRADAR_EU_INDEX", str(local))
+    conn = eu.open_index(root)
+    conn.execute("SELECT count(*) FROM frames").fetchone()
+    conn.close()
+    assert local.exists()
+    assert not (root / "index.sqlite").exists()
