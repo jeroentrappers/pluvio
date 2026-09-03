@@ -215,7 +215,7 @@ def _load_models(specs: list[str], device):
 
 
 def _km_per_px(root) -> float:
-    """Approximate grid spacing from the store's ``bounds``/``grid_n``
+    """Grid spacing along the finer axis from the store's ``bounds``/``grid_n``
     attrs (v3+ stores); falls back to the legacy ~6 km KNMI-stereo grid
     spacing when those attrs aren't present."""
     attrs = dict(root.attrs)
@@ -227,7 +227,10 @@ def _km_per_px(root) -> float:
     lat_mid = (south + north) / 2.0
     lat_km = (north - south) * 111.0
     lon_km = (east - west) * 111.0 * math.cos(math.radians(lat_mid))
-    return float(((lat_km / grid_n) + (lon_km / grid_n)) / 2.0)
+    # Finer axis: on a regular lat/lon grid the E-W spacing is ~30% smaller
+    # than N-S at Benelux latitudes, and the search radius must still cover
+    # the target speed along that axis.
+    return float(min(lat_km, lon_km) / grid_n)
 
 
 # ─────────────────────────────────────────────────────────────── scoring
@@ -319,7 +322,7 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
                 flow_cache.popitem(last=False)
         else:
             flow_cache.move_to_end(s.issue_idx)
-        advected = advect_forecast(prev_raw, np.nan_to_num(issue_raw), s.lead_min,
+        advected = advect_forecast(np.nan_to_num(prev_raw), np.nan_to_num(issue_raw), s.lead_min,
                                     dataset.history_step_min, max_shift=max_shift,
                                     flow=flow_cache[s.issue_idx])
 
@@ -346,11 +349,12 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         selector = valid if cell_mask is None else (valid & cell_mask)
 
         obs_fss = np.where(valid, np.nan_to_num(obs_raw), fss_fill)
-        n_valid_by_lead_all[s.lead_min] += int(valid.sum())
+        n_selected = int(selector.sum())
+        n_valid_by_lead_all[s.lead_min] += n_selected
         n_scored_by_lead[s.lead_min] += 1
         is_case = si in case_idx_set
         if is_case:
-            n_valid_by_lead_case[s.lead_min] += int(valid.sum())
+            n_valid_by_lead_case[s.lead_min] += n_selected
 
         for name, pred in preds.items():
             pred_fss = np.where(valid, np.nan_to_num(pred), fss_fill)
