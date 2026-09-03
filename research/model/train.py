@@ -33,6 +33,10 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
+# weighted_huber/total_loss live in model.losses (single source of truth for
+# CombinedLoss too); re-exported here for anything still importing them from
+# model.train.
+from model.losses import CombinedLoss, total_loss, weighted_huber  # noqa: E402,F401
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
 
@@ -59,36 +63,6 @@ def _time_split(data_root: pathlib.Path, val_frac: float) -> datetime:
     return stamps[cut]
 
 
-def weighted_huber(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Huber loss weighted by ``(1 + obs)`` so heavy rain matters.
-
-    Softened from the original ``(1 + obs)²``: the squared weight made the
-    optimizer hedge precipitation upward everywhere, producing a persistent
-    wet bias. Linear weighting keeps the heavy-rain emphasis without the
-    systematic over-prediction.
-    """
-    delta = 1.0
-    diff = pred - target
-    abs_diff = diff.abs()
-    quad = torch.minimum(abs_diff, torch.tensor(delta, device=pred.device))
-    lin = abs_diff - quad
-    per_pixel = 0.5 * quad**2 + delta * lin
-    weight = 1.0 + target
-    return (per_pixel * weight).mean()
-
-
-def total_loss(pred: torch.Tensor, target: torch.Tensor, bias_penalty: float) -> torch.Tensor:
-    """Weighted Huber + a penalty on the systematic (batch-mean) bias.
-
-    The bias term directly punishes ``mean(pred) - mean(target)``, which is
-    the exact quantity we saw drift to +0.14 mm/h. Keeps the model honest
-    about *how much* rain, not just *where*.
-    """
-    base = weighted_huber(pred, target)
-    bias = (pred.mean() - target.mean()).pow(2)
-    return base + bias_penalty * bias
-
-
 def rmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.sqrt(F.mse_loss(pred, target))
 
@@ -99,10 +73,15 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.GradScaler,
     device: torch.device,
-    bias_penalty: float,
-) -> float:
+    loss_fn: CombinedLoss,
+) -> tuple[float, dict[str, float]]:
+    """Runs one epoch. Returns the mean batch loss and the mean of each
+    loss component (``loss_fn.last_terms``) over the epoch — components with
+    zero weight are simply absent from every batch's ``last_terms`` dict."""
     model.train()
     losses: list[float] = []
+    term_sums: dict[str, float] = {}
+    term_counts: dict[str, int] = {}
     use_amp = device.type == "cuda"
     for x, y in loader:
         x = x.to(device, non_blocking=True)
@@ -111,17 +90,21 @@ def train_one_epoch(
         if use_amp:
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 pred = model(x)
-                loss = total_loss(pred, y, bias_penalty)
+                loss = loss_fn(pred, y)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
             pred = model(x)
-            loss = total_loss(pred, y, bias_penalty)
+            loss = loss_fn(pred, y)
             loss.backward()
             optimizer.step()
         losses.append(float(loss.detach().cpu()))
-    return float(sum(losses) / max(len(losses), 1))
+        for k, v in loss_fn.last_terms.items():
+            term_sums[k] = term_sums.get(k, 0.0) + v
+            term_counts[k] = term_counts.get(k, 0) + 1
+    mean_terms = {k: term_sums[k] / term_counts[k] for k in term_sums}
+    return float(sum(losses) / max(len(losses), 1)), mean_terms
 
 
 @torch.no_grad()
@@ -164,6 +147,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="Subsample validation for the per-epoch metric (CPU speed).")
     parser.add_argument("--bias-penalty", type=float, default=0.5,
                         help="Weight on the mean-bias penalty term (fixes wet over-prediction).")
+    parser.add_argument("--fss-weight", type=float, default=0.0,
+                        help="Weight on the differentiable exceedance-FSS structure loss "
+                             "(0 = disabled, matching the pre-existing Huber-only objective).")
+    parser.add_argument("--fss-thresholds", default="0.5,1.0,2.0",
+                        help="Comma-separated rain-rate thresholds (mm/h) for --fss-weight.")
+    parser.add_argument("--fss-scales", default="1,3,5",
+                        help="Comma-separated neighbourhood pooling scales (px) for --fss-weight.")
+    parser.add_argument("--fss-tau", type=float, default=0.05,
+                        help="Softness (mm/h) of the sigmoid exceedance indicator for --fss-weight.")
+    parser.add_argument("--sharpness-weight", type=float, default=0.0,
+                        help="Weight on the gradient-energy sharpness loss "
+                             "(0 = disabled, matching the pre-existing Huber-only objective).")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (val RMSE plateau)")
     parser.add_argument("--max-minutes", type=float, default=None,
@@ -171,6 +166,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    if args.fss_weight < 0:
+        raise SystemExit(f"--fss-weight must be >= 0, got {args.fss_weight}")
+    if args.sharpness_weight < 0:
+        raise SystemExit(f"--sharpness-weight must be >= 0, got {args.sharpness_weight}")
+    if args.fss_tau <= 0:
+        raise SystemExit(f"--fss-tau must be > 0, got {args.fss_tau}")
+    fss_thresholds = tuple(float(v) for v in args.fss_thresholds.split(",") if v.strip())
+    fss_scales = tuple(int(v) for v in args.fss_scales.split(",") if v.strip())
+    if not fss_thresholds:
+        raise SystemExit(f"--fss-thresholds must list at least one threshold, got {args.fss_thresholds!r}")
+    if not fss_scales or any(s < 1 for s in fss_scales):
+        raise SystemExit(f"--fss-scales must list integers >= 1, got {args.fss_scales!r}")
 
     device = torch.device(args.device)
     LOG.info("Training on %s", device)
@@ -233,6 +241,23 @@ def main(argv: list[str] | None = None) -> int:
         num_params(model),
     )
 
+    loss_fn = CombinedLoss(
+        bias_penalty=args.bias_penalty,
+        fss_weight=args.fss_weight,
+        fss_thresholds=fss_thresholds,
+        fss_scales=fss_scales,
+        fss_tau=args.fss_tau,
+        sharpness_weight=args.sharpness_weight,
+    )
+    loss_config = {
+        "bias_penalty": args.bias_penalty,
+        "fss_weight": args.fss_weight,
+        "fss_thresholds": fss_thresholds,
+        "fss_scales": fss_scales,
+        "fss_tau": args.fss_tau,
+        "sharpness_weight": args.sharpness_weight,
+    }
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
     # Val RMSE at a fixed LR oscillates around an early best without ever
@@ -250,8 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(
-            model, train_loader, optimizer, scaler, device, args.bias_penalty
+        train_loss, term_means = train_one_epoch(
+            model, train_loader, optimizer, scaler, device, loss_fn
         )
         metrics = validate(model, val_loader, device)
         scheduler.step(metrics["val_rmse"])
@@ -261,6 +286,11 @@ def main(argv: list[str] | None = None) -> int:
             epoch, train_loss, metrics["val_rmse"],
             optimizer.param_groups[0]["lr"], elapsed_min,
         )
+        if args.fss_weight > 0 or args.sharpness_weight > 0:
+            LOG.info(
+                "  ↳ loss terms: %s",
+                ", ".join(f"{k}={v:.4f}" for k, v in term_means.items()),
+            )
         if metrics["val_rmse"] < best_val:
             best_val = metrics["val_rmse"]
             no_improve = 0
@@ -272,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
                     "base_channels": args.base_channels,
                     "arch": "PluvioUNet",
                     "epoch": epoch,
+                    "loss_config": loss_config,
                 },
                 checkpoint_path,
             )
