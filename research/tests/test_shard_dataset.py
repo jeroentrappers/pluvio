@@ -15,6 +15,7 @@ import time
 import numpy as np
 import pytest
 import torch
+
 from model.shard_dataset import (
     INDEX_NAME,
     MANIFEST_NAME,
@@ -22,6 +23,7 @@ from model.shard_dataset import (
     ShardRecipeMismatch,
     ShardStoreIncomplete,
     cast_for_shard,
+    compare_recipes,
     recipe_from_dataset,
 )
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split
@@ -43,7 +45,8 @@ def _render(store, out, *, split="all", dtype="float16", extra=()):
     return out / split
 
 
-def _zarr_set(store, *, split="all", val_frac=0.2, require_rain_fraction=None):
+def _zarr_set(store, *, split="all", val_frac=0.2, require_rain_fraction=None,
+              lagrangian_channels=0):
     time_range = None
     if split != "all":
         boundary = issue_time_split(store, val_frac)
@@ -52,6 +55,7 @@ def _zarr_set(store, *, split="all", val_frac=0.2, require_rain_fraction=None):
         store, time_range=time_range,
         leads_min=tuple(int(v) for v in LEADS.split(",")),
         require_rain_fraction=require_rain_fraction,
+        lagrangian_channels=lagrangian_channels,
     )
 
 
@@ -156,8 +160,12 @@ def test_manifest_records_the_recipe_grid_counts_and_source_hash(synthetic_store
     assert manifest["n_samples"] == len(zds)
     assert manifest["grid_hw"] == list(zds.grid_hw)
     assert manifest["n_channels"] == zds.n_channels
-    assert len(manifest["channel_recipe"]) == zds.n_channels
-    assert manifest["channel_recipe"][zds.history_steps] == "nowcast_at_lead"
+    # channel_recipe is the dataset's own recipe (ds.channel_recipe()), the one
+    # train.py puts in the checkpoint — not a second, drifting copy here.
+    assert manifest["channel_recipe"] == zds.channel_recipe()
+    names = manifest["channel_recipe"]["channel_names"]
+    assert len(names) == zds.n_channels
+    assert names[zds.history_steps] == "nowcast_at_lead"
     assert manifest["recipe"]["aux_channels"] == list(zds.aux_channels)
     assert manifest["recipe"]["static_channels"] == list(zds.static_channels)
     assert manifest["recipe"]["normalise_version"] >= 1
@@ -447,3 +455,97 @@ def test_shard_dataset_is_faster_than_the_zarr_dataset(synthetic_store, tmp_path
               f"zarr={zarr_rate:.0f} shard={shard_rate:.0f} "
               f"speedup={shard_rate / zarr_rate:.1f}x")
     assert shard_rate > zarr_rate
+
+
+# ──────────────────────────────────── Lagrangian channels in shards (2.3/2.6)
+
+
+def test_lagrangian_planes_are_rendered_into_the_shards(synthetic_store, tmp_path):
+    """The flow estimate is the expensive half of a Lagrangian sample (2.3), so
+    baking it into the shards is the whole point: the rendered sample must be
+    the zarr sample, planes and all."""
+    shard_dir = _render(synthetic_store, tmp_path / "shards",
+                        extra=("--lagrangian-channels", "2"))
+    zds = _zarr_set(synthetic_store, lagrangian_channels=2)
+    sds = ShardDataset(shard_dir)
+
+    assert sds.n_channels == zds.n_channels
+    assert sds.recipe["lagrangian_channels"] == 2
+    manifest = json.loads((shard_dir / MANIFEST_NAME).read_text())
+    assert manifest["channel_recipe"] == zds.channel_recipe()
+    assert manifest["channel_recipe"]["channel_names"][-2:] == [
+        "lagrangian_rate", "lagrangian_flow_mag"]
+
+    assert len(sds) == len(zds) > 0
+    for i in (0, len(sds) // 2, len(sds) - 1):
+        zx, _ = zds[i]
+        sx, _ = sds[i]
+        assert torch.equal(sx, torch.from_numpy(
+            cast_for_shard(zx.numpy(), "float16").astype("float32")))
+        assert float(sx[-2].abs().max()) > 0.0      # the advected plane is not empty
+
+
+def test_recipe_separates_shards_rendered_with_and_without_the_planes(synthetic_store, tmp_path):
+    """The channel count alone does not identify a sample set — the recipe must
+    name the Lagrangian count, or shards rendered with an extra aux channel and
+    no planes would look interchangeable with these."""
+    plain = _zarr_set(synthetic_store)
+    lag = _zarr_set(synthetic_store, lagrangian_channels=1)
+    common = {"split_boundary_epoch": None, "val_frac": None, "dtype": "float16"}
+    r_plain = recipe_from_dataset(plain, split="all", **common)
+    r_lag = recipe_from_dataset(lag, split="all", **common)
+    assert r_plain["lagrangian_channels"] == 0
+    assert r_lag["lagrangian_channels"] == 1
+    assert any(d.startswith("lagrangian_channels")
+               for d in compare_recipes(r_plain, r_lag))
+
+    shard_dir = _render(synthetic_store, tmp_path / "shards")
+    with pytest.raises(ShardRecipeMismatch, match="lagrangian_channels"):
+        ShardDataset(shard_dir, expected_recipe=r_lag)
+
+
+def test_train_rejects_shards_missing_the_lagrangian_planes(synthetic_store, tmp_path):
+    """`--shards --lagrangian-channels 2` against shards rendered without them
+    must fail loudly, not train a model that never sees the planes."""
+    from model.train import main as train_main
+
+    root = tmp_path / "shards"
+    _render(synthetic_store, root, split="train,val")
+    with pytest.raises(SystemExit, match="lagrangian-channels"):
+        train_main(["--shards", str(root), "--lagrangian-channels", "2",
+                    "--epochs", "1", "--device", "cpu"])
+
+
+def test_train_probe_compares_the_lagrangian_count_against_the_store(synthetic_store, tmp_path):
+    """With --zarr given, the store-derived recipe catches it first, and names
+    the field."""
+    from model.train import main as train_main
+
+    root = tmp_path / "shards"
+    _render(synthetic_store, root, split="train,val")
+    with pytest.raises(ShardRecipeMismatch, match="lagrangian_channels"):
+        train_main(["--shards", str(root), "--zarr", str(synthetic_store),
+                    "--lagrangian-channels", "1", "--epochs", "1", "--device", "cpu"])
+
+
+def test_train_runs_on_lagrangian_shards_and_records_the_recipe(synthetic_store, tmp_path):
+    from model.train import main as train_main
+
+    root = tmp_path / "shards"
+    _render(synthetic_store, root, split="train,val",
+            extra=("--lagrangian-channels", "1"))
+    ckpt = tmp_path / "ck" / "unet.pt"
+    assert train_main([
+        "--shards", str(root), "--zarr", str(synthetic_store),
+        "--lagrangian-channels", "1", "--epochs", "1", "--batch-size", "2",
+        "--base-channels", "4", "--num-workers", "0", "--device", "cpu",
+        "--checkpoint", str(ckpt),
+    ]) == 0
+    state = torch.load(ckpt, weights_only=False)
+    zds = _zarr_set(synthetic_store, lagrangian_channels=1)
+    assert state["in_channels"] == zds.n_channels
+    # A shard-trained checkpoint must serve through the same recipe path as a
+    # zarr-trained one, or infer_latest would rebuild the wrong input.
+    assert state["channel_recipe"]["lagrangian_channels"] == 1
+    assert state["channel_recipe"]["n_channels"] == zds.n_channels
+    assert state["channel_recipe"]["aux_channels"] == list(zds.aux_channels)

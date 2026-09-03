@@ -74,6 +74,8 @@ def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
         kwargs["history_steps"] = int(recipe["history_steps"])
     if "history_step_min" in recipe:
         kwargs["history_step_min"] = int(recipe["history_step_min"])
+    if "history_tolerance_s" in recipe:
+        kwargs["history_tolerance_s"] = int(recipe["history_tolerance_s"])
     if recipe.get("aux_channels") is not None:
         kwargs["aux_channels"] = list(recipe["aux_channels"])
     lag = (int(lagrangian_channels) if lagrangian_channels is not None
@@ -81,6 +83,18 @@ def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
 
     ds = ZarrCorrectionDataset(zarr_path, leads_min=tuple(leads_min), build_index=False,
                                lagrangian_channels=lag, **kwargs)
+
+    # Statics are auto-discovered from the store, so they are checked rather
+    # than forced: a static RENAMED between training and serving keeps the
+    # channel count intact and would otherwise load in silence, feeding the
+    # model a different plane at that index.
+    recipe_static = recipe.get("static_channels")
+    if recipe_static is not None and list(recipe_static) != list(ds.static_channels):
+        raise ValueError(
+            f"checkpoint was trained on static channels {list(recipe_static)} but "
+            f"this store discovers {list(ds.static_channels)} — same count or not, "
+            "the planes at those indices are not the ones the model learned"
+        )
 
     expected = ckpt.get("in_channels", recipe.get("n_channels"))
     if expected is not None and int(expected) != ds.n_channels:

@@ -136,6 +136,61 @@ def advect_with_nan(field: np.ndarray, dy: np.ndarray, dx: np.ndarray) -> np.nda
     return out.astype("float32")
 
 
+def free_blocks(grid_hw: tuple[int, int], blocks: int, max_shift: int) -> np.ndarray:
+    """``(blocks, blocks)`` bool mask of blocks whose NCC search window can
+    slide the FULL ``±max_shift`` in both axes without leaving the grid.
+
+    ``motion.block_flow`` skips any candidate offset whose shifted window
+    would fall outside the array, so a block on the grid edge can only test
+    offsets pointing INWARD. It is not flagged invalid for that (it has rain,
+    it returns a best match and ``valid=True``) — it just cannot see the
+    displacement it is being asked about, and on uniform motion it reports
+    ~zero. Measured on 192² with a uniform (+3, +3): 7 of 16 blocks wrong,
+    the upsampled field decaying to zero from row 168 on, i.e. ~60 % of the
+    area under-advected. So the caller has to know which blocks were free to
+    look and which were fenced in.
+    """
+    h, w = grid_hw
+    ys = np.linspace(0, h, blocks + 1).astype(int)
+    xs = np.linspace(0, w, blocks + 1).astype(int)
+    free = np.zeros((blocks, blocks), dtype=bool)
+    for bi in range(blocks):
+        for bj in range(blocks):
+            free[bi, bj] = (ys[bi] - max_shift >= 0 and ys[bi + 1] + max_shift <= h
+                            and xs[bj] - max_shift >= 0 and xs[bj + 1] + max_shift <= w)
+    return free
+
+
+def repair_edge_flow(vy: np.ndarray, vx: np.ndarray, valid: np.ndarray,
+                     grid_hw: tuple[int, int], max_shift: int
+                     ) -> tuple[np.ndarray, np.ndarray]:
+    """Replace every block that could not measure the motion — fenced in by
+    the grid edge (``free_blocks``) or too dry to try (``valid``) — with the
+    per-component MEDIAN of the blocks that could.
+
+    Without this the Lagrangian plane carries a stationary band along the two
+    downstream edges (and, via the bilinear upsample between block centres, a
+    linear decay reaching well into the interior), which is exactly the
+    artefact the channel exists to remove. The median of the free, valid
+    blocks is the honest stand-in: it is the flow actually measured on this
+    frame pair, just not measurable *there*. A dry block gets it for the same
+    reason — leaving it at zero would dilute its wet neighbours through the
+    upsample.
+
+    Returns the pair unchanged when no block was both free and valid (nothing
+    to extrapolate from — a fully dry or degenerate frame pair).
+    """
+    usable = free_blocks(grid_hw, vy.shape[0], max_shift) & valid
+    if not usable.any():
+        usable = valid.copy()          # nothing free: fall back to any measurement
+    if not usable.any():
+        return vy, vx                  # nothing measured at all: zeros, as estimated
+    out_y, out_x = vy.copy(), vx.copy()
+    out_y[~usable] = float(np.median(vy[usable]))
+    out_x[~usable] = float(np.median(vx[usable]))
+    return out_y, out_x
+
+
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
     """Bring each channel family to ~O(1). aws_* are already normalised in the
     builder; the rendered MSG/ALARO bytes go to [0,1]; SST/static get sensible
@@ -230,7 +285,8 @@ class ZarrCorrectionDataset(Dataset):
         spacing = km_per_px_from_bounds(attrs.get("bounds"), attrs.get("grid_n"))
         self.km_per_px = _LEGACY_KM_PER_PX if spacing is None else spacing
         self.lagrangian_max_shift = max_shift_px(self.km_per_px, self.history_step_min)
-        self._flow_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        self._flow_cache: dict[tuple[int, int | None],
+                               tuple[np.ndarray, np.ndarray]] = {}
 
         # Aux + static channels (auto-detect from the store unless given).
         # v2 curriculum: a "truth" array (build_zarr --truth rtcor|qpe) becomes
@@ -450,44 +506,54 @@ class ZarrCorrectionDataset(Dataset):
 
     # ────────────────────────────────────────────── Lagrangian channels (2.3)
 
-    def issue_block_flow(self, issue_idx: int,
-                         history_idx: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+    def issue_block_flow(self, issue_idx: int, history_idx: tuple[int, ...],
+                         latest: np.ndarray | None = None
+                         ) -> tuple[np.ndarray, np.ndarray]:
         """Per-block (BLOCKS x BLOCKS) displacement from the two NEWEST history
-        frames of this issue, in px per ``history_step_min``.
+        frames of this issue, in px per ``history_step_min``, with the blocks
+        that could not measure it filled in (see ``repair_edge_flow``).
 
-        Cached per issue: the flow depends only on that frame pair, never on
-        the lead, so every lead of an issue must reuse one estimate (the
-        estimate is ~150 ms at 192**2 — recomputing it per lead would be the
+        Cached per frame PAIR — ``(issue_idx, prev_idx)``, not the issue alone,
+        because a history gap can hand the same issue a different predecessor
+        under a different ``history_steps``/tolerance. The flow never depends
+        on the lead, so every lead of an issue reuses one estimate (the
+        estimate is ~165 ms at 192**2 — recomputing it per lead would be the
         dominant cost of a sample). The BLOCK field is what's cached, not the
-        upsampled (2, H, W) one: 4x4x2 float32 is 128 bytes an issue, so the
+        upsampled (2, H, W) one: 4x4x2 float32 is 128 bytes a pair, so the
         cache can hold a whole split, while the full field is ~300 kB and
         would force an LRU that misses under a shuffled loader.
+
+        ``latest`` is the caller's already-read ``radar[issue_idx, 0]`` (a
+        second read of it here would double the chunk reads of every sample);
+        omit it and it is read.
 
         A single-step history (``history_steps == 1``) has no frame pair, so
         the flow is zero — Lagrangian persistence degenerates to persistence,
         which is the honest answer rather than a guess.
         """
-        hit = self._flow_cache.get(issue_idx)
+        prev_idx = history_idx[-2] if len(history_idx) >= 2 else None
+        key = (issue_idx, prev_idx)
+        hit = self._flow_cache.get(key)
         if hit is not None:
             return hit
-        root = self._open()
-        radar = root["radar"]
-        prev_idx = history_idx[-2] if len(history_idx) >= 2 else None
         if prev_idx is None:
             zeros = np.zeros((BLOCKS, BLOCKS), dtype="float32")
             flow = (zeros, zeros)
         else:
+            radar = self._open()["radar"]
             prev = np.nan_to_num(np.asarray(radar[prev_idx, 0], dtype="float32"))
-            curr = np.nan_to_num(np.asarray(radar[issue_idx, 0], dtype="float32"))
+            curr = np.nan_to_num(np.asarray(
+                radar[issue_idx, 0] if latest is None else latest, dtype="float32"))
             # subpixel=False deliberately: this must be the SAME motion the
             # benchmark's advection baseline sees (tools/_advection uses the
             # default), and the parabolic refinement puts up to 0.5 px of
             # spurious offset on an exact match (the score surface either
             # side of a perfect peak is not symmetric), which the lead scaling
             # then multiplies into a visible drift.
-            vy, vx, _valid = block_flow(prev, curr, max_shift=self.lagrangian_max_shift)
-            flow = (vy, vx)
-        self._flow_cache[issue_idx] = flow
+            vy, vx, valid = block_flow(prev, curr, max_shift=self.lagrangian_max_shift)
+            flow = repair_edge_flow(vy, vx, valid, self.grid_hw,
+                                    self.lagrangian_max_shift)
+        self._flow_cache[key] = flow
         return flow
 
     def _lagrangian_planes(self, issue_idx: int, lead_min: int,
@@ -508,7 +574,7 @@ class ZarrCorrectionDataset(Dataset):
            this plane's prior was transported, i.e. how much to trust it, and
            marks the blocks where the estimator found no motion at all.
         """
-        vy, vx = self.issue_block_flow(issue_idx, history_idx)
+        vy, vx = self.issue_block_flow(issue_idx, history_idx, latest)
         flow = upsample_flow(vy, vx, self.grid_hw)
         scale = lead_min / self.history_step_min if self.history_step_min else 0.0
         planes = [advect_with_nan(latest, scale * flow[0], scale * flow[1])]
@@ -516,6 +582,18 @@ class ZarrCorrectionDataset(Dataset):
             mag = np.hypot(flow[0], flow[1]) / max(self.lagrangian_max_shift, 1)
             planes.append(mag.astype("float32"))
         return planes
+
+    def channel_names(self) -> list[str]:
+        """Every channel ``build_input`` writes, in its exact order — the
+        human-readable half of the recipe (the machine-checked half is
+        ``channel_recipe``). Rendered into a shard manifest and into the
+        training checkpoint, so "which plane is channel 27" never has to be
+        re-derived by reading this file."""
+        names = [f"radar_history_{i}" for i in range(self.history_steps)]
+        names += ["nowcast_at_lead", "lead_over_120", "tod_sin", "tod_cos"]
+        names += list(self.aux_channels) + list(self.static_channels)
+        names += ["lagrangian_rate", "lagrangian_flow_mag"][:self.lagrangian_channels]
+        return names
 
     def channel_recipe(self) -> dict:
         """How this dataset assembles ``build_input``, for the checkpoint.
@@ -529,10 +607,12 @@ class ZarrCorrectionDataset(Dataset):
         return {
             "history_steps": int(self.history_steps),
             "history_step_min": int(self.history_step_min),
+            "history_tolerance_s": int(self.history_tolerance_s),
             "aux_channels": list(self.aux_channels),
             "static_channels": list(self.static_channels),
             "lagrangian_channels": int(self.lagrangian_channels),
             "n_channels": int(self.n_channels),
+            "channel_names": self.channel_names(),
         }
 
     def latest_issue_idx(self) -> int:
