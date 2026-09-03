@@ -315,6 +315,45 @@ class Grid:
             )
         return _legacy_latlon(self.shape, self.proj_extent, crs=self.crs, bias=self.latlon_bias)
 
+    def envelope(self) -> tuple[float, float, float, float]:
+        """(west, south, east, north) CORNER ENVELOPE of `latlon()` — the
+        smallest axis-aligned lon/lat box that contains every cell centre.
+
+        For a regular (EPSG:4326) grid this is identical to `bounds`. For a
+        PROJECTED grid whose rows/columns are not lon/lat-aligned (the legacy
+        KNMI stereographic analysis grid: the south row's latitude varies
+        ~0.475 deg / ~53 km west->east, the east column's longitude varies
+        ~1.71 deg / ~115 km north->south — see `inner_rectangle()`), this
+        box is NOT the grid's true footprint: it over-claims area the grid
+        does not actually cover near every edge except the one row/column
+        that touches the envelope's extremum. Safe wherever a SUPERSET of
+        the domain is wanted (a WMS/DEM fetch region, a reproject
+        destination target that itself carries the true CRS) — unsafe
+        wherever the box itself is later treated as a lat/lon rectangle to
+        paint, crop, or bin data onto cell-for-cell (use `inner_rectangle()`
+        for a conservative subset, or reproject properly)."""
+        lat, lon = self.latlon()
+        return float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())
+
+    def inner_rectangle(self) -> tuple[float, float, float, float]:
+        """(west, south, east, north) largest lon/lat rectangle GUARANTEED to
+        be covered by every row and every column of `latlon()`.
+
+        west/east are chosen so every row's own lon range contains
+        [west, east]; south/north so every column's own lat range contains
+        [south, north]. For a regular grid this equals `envelope()` /
+        `bounds`. For the legacy stereographic grid it is strictly smaller
+        than `envelope()` — the gap is the curvature `envelope()` over-claims
+        (see its docstring). Use this wherever a lat/lon box must actually be
+        a SUBSET of the true domain (e.g. a crop or a sanity bound), never
+        `envelope()`/`bounds` for that purpose."""
+        lat, lon = self.latlon()
+        west = float(lon.min(axis=1).max())
+        east = float(lon.max(axis=1).min())
+        south = float(lat.min(axis=0).max())
+        north = float(lat.max(axis=0).min())
+        return west, south, east, north
+
     def edge_bounds(self) -> tuple[float, float, float, float]:
         """(west, south, east, north) footprint EDGES — `bounds` inflated by
         half a cell in each direction. Use this (or `transform()`) wherever

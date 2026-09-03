@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 import pyproj
+import pytest
 from model import geo
 from notebooks._lib import ANALYSIS_GRID, _resample
 
@@ -110,6 +111,56 @@ def test_grid_latlon_env_bias_change_takes_effect_without_cache_clear(monkeypatc
     lat_b, lon_b = geo.grid_latlon()
     np.testing.assert_allclose(lat_b - lat_a, 2.0, atol=1e-4)
     np.testing.assert_allclose(lon_b - lon_a, 2.0, atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# 1.10: geo.bbox()/envelope()/inner_rectangle() — see
+# research/docs/geometry_audit.md and test_grid.py's Grid-level equivalents.
+# ---------------------------------------------------------------------------
+
+def test_bbox_is_envelope():
+    assert geo.bbox() == geo.envelope()
+
+
+def test_envelope_contains_every_grid_point():
+    lat, lon = geo.grid_latlon()
+    w, s, e, n = geo.envelope()
+    assert lon.min() >= w and lon.max() <= e
+    assert lat.min() >= s and lat.max() <= n
+
+
+def test_inner_rectangle_contained_by_every_row_and_column():
+    lat, lon = geo.grid_latlon()
+    w, s, e, n = geo.inner_rectangle()
+    assert (lon.min(axis=1) <= w + 1e-6).all()
+    assert (lon.max(axis=1) >= e - 1e-6).all()
+    assert (lat.min(axis=0) <= s + 1e-6).all()
+    assert (lat.max(axis=0) >= n - 1e-6).all()
+
+
+def test_inner_rectangle_strictly_smaller_than_envelope():
+    ew, es, ee, en = geo.envelope()
+    iw, is_, ie, in_ = geo.inner_rectangle()
+    assert (ie - iw) < (ee - ew)
+    assert (in_ - is_) < (en - es)
+
+
+def test_envelope_and_inner_rectangle_delegate_to_grid_module():
+    """geo.envelope()/inner_rectangle() are thin wrappers around
+    geo.grid_latlon() — pin them to the Grid-level equivalents computed from
+    the same zero-bias lat/lon so the two never drift."""
+    from model.grid import Grid
+
+    grid_env = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS).envelope()
+    grid_inner = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS).inner_rectangle()
+    lat, lon = geo.grid_latlon(bias=_ZERO_BIAS)
+    assert (float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())) == \
+        pytest.approx(grid_env)
+    w = float(lon.min(axis=1).max())
+    e = float(lon.max(axis=1).min())
+    s = float(lat.min(axis=0).max())
+    n = float(lat.max(axis=0).min())
+    assert (w, s, e, n) == pytest.approx(grid_inner)
 
 
 def test_resample_last_row_averages_source_rows_693_to_699():
