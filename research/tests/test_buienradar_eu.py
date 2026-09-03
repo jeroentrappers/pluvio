@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import json
 import math
+import os
 import pathlib
 import sqlite3
 import urllib.error
@@ -927,3 +928,294 @@ def test_index_can_live_outside_the_archive_root(tmp_path, monkeypatch):
     conn.close()
     assert local.exists()
     assert not (root / "index.sqlite").exists()
+
+
+# ---------------------------------------------------------------------------
+# Index location, durability and repair
+# ---------------------------------------------------------------------------
+def test_index_override_is_honoured_by_every_helper(tmp_path, monkeypatch, http):
+    local = tmp_path / "state" / "idx.sqlite"
+    monkeypatch.setenv(br.INDEX_ENV, str(local))
+    assert br.index_path(tmp_path / "archive") == local
+    run_tick(tmp_path / "archive", http)
+    assert local.exists()
+    assert not (tmp_path / "archive" / "index.sqlite").exists()
+    assert br.index_check(tmp_path / "archive")["frames_indexed"] == 7
+
+
+def test_index_connections_wait_for_a_lock_instead_of_failing(tmp_path):
+    # Ticks overlap (a tick can outlast the 5-minute timer), and the CIFS-era
+    # failure mode was an instant "database is locked".
+    assert br.INDEX_TIMEOUT_S >= 60.0
+    conn = br.open_index(tmp_path)
+    try:
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == int(
+            br.INDEX_TIMEOUT_S * 1000
+        )
+    finally:
+        conn.close()
+
+
+def test_a_corrupt_index_is_moved_aside_and_rebuilt(tmp_path, http, caplog):
+    """Everything in the index is re-derivable, so a garbage file must not end
+    the tick — it is renamed aside and replaced by an empty index."""
+    index = tmp_path / "index.sqlite"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_bytes(b"this is not a database" * 20)
+    with caplog.at_level("ERROR"):
+        conn = br.open_index(tmp_path)
+    conn.close()
+    assert "is unusable" in caplog.text
+    aside = list(tmp_path.glob("index.sqlite.corrupt-*"))
+    assert len(aside) == 1
+    assert aside[0].read_bytes().startswith(b"this is not a database")
+    # ...and the rebuilt index is a working, empty one the tick can use.
+    stats, fatal = run_tick(tmp_path, http)
+    assert fatal == []
+    assert stats.downloaded == 7
+
+
+def test_write_atomic_uses_a_pid_unique_temp_and_fsyncs_it(tmp_path, monkeypatch):
+    """Two overlapping ticks must not share a scratch file, and the bytes must
+    reach the (CIFS) server before the rename publishes them."""
+    seen: dict[str, object] = {}
+    real_replace, real_fsync = os.replace, os.fsync
+
+    def replace(src, dst):
+        seen["src"] = str(src)
+        real_replace(src, dst)
+
+    def fsync(fd):
+        seen["fsync"] = True
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "replace", replace)
+    monkeypatch.setattr(os, "fsync", fsync)
+    target = tmp_path / "a" / "frame.png"
+    br.write_atomic(target, b"payload")
+    assert target.read_bytes() == b"payload"
+    assert seen["src"] == str(target) + f".{os.getpid()}.part"
+    assert seen["fsync"] is True
+    assert list(tmp_path.rglob("*.part")) == []
+
+
+def test_sidecars_are_not_rewritten_when_unchanged(tmp_path, http):
+    run_tick(tmp_path, http)
+    sidecars = [tmp_path / "georeference.json", tmp_path / "frame.pgw"]
+    for p in sidecars:
+        os.utime(p, ns=(0, 0))
+    run_tick(tmp_path, http, now="2026-06-15T12:12:00+00:00")
+    assert [p.stat().st_mtime_ns for p in sidecars] == [0, 0]
+    # ...but a changed payload is written.
+    sidecars[1].write_text("stale\n")
+    assert br.write_if_changed(sidecars[1], br.world_file().encode()) is True
+    assert br.write_if_changed(sidecars[0], sidecars[0].read_bytes()) is False
+
+
+# ---------------------------------------------------------------------------
+# verify is read-only and calls unindexed files damage
+# ---------------------------------------------------------------------------
+def test_verify_refuses_to_create_an_index(tmp_path, http):
+    """An index created by verify reads as "nothing archived" and hides the
+    damage it was run to find."""
+    run_tick(tmp_path, http)
+    (tmp_path / "index.sqlite").unlink()
+    with pytest.raises(br.MissingIndexError) as exc:
+        br.index_check(tmp_path)
+    assert br.INDEX_ENV in str(exc.value)
+    assert not (tmp_path / "index.sqlite").exists()
+    assert br.main(["verify", "--root", str(tmp_path)]) == 1
+    assert not (tmp_path / "index.sqlite").exists()
+
+
+def test_verify_does_not_write_to_the_index(tmp_path, http):
+    run_tick(tmp_path, http)
+    index = tmp_path / "index.sqlite"
+    before = index.read_bytes()
+    conn = br.open_index_readonly(tmp_path)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("DELETE FROM frames")
+    finally:
+        conn.close()
+    br.index_check(tmp_path)
+    assert index.read_bytes() == before
+
+
+def test_an_index_with_no_rows_beside_a_full_archive_is_damage(tmp_path, http, capsys):
+    run_tick(tmp_path, http)
+    conn = sqlite3.connect(tmp_path / "index.sqlite")
+    conn.execute("DELETE FROM frames")
+    conn.commit()
+    conn.close()
+    report = br.index_check(tmp_path)
+    assert (report["frames_indexed"], report["frames_on_disk"]) == (0, 7)
+    assert br.index_damage(report)
+    assert br.main(["verify", "--root", str(tmp_path)]) == 1
+    capsys.readouterr()
+
+
+def test_unindexed_files_are_damage(tmp_path, http, capsys):
+    run_tick(tmp_path, http)
+    (tmp_path / "composite/2026/06/15/stray.png").write_bytes(b"x")
+    report = br.index_check(tmp_path)
+    assert report["unindexed_files"] == ["composite/2026/06/15/stray.png"]
+    assert br.index_damage(report) == ["1 file(s) on disk with no index row"]
+    assert br.main(["verify", "--root", str(tmp_path)]) == 1
+    capsys.readouterr()
+
+
+def test_index_damage_is_empty_for_a_healthy_archive(tmp_path, http):
+    run_tick(tmp_path, http)
+    assert br.index_damage(br.index_check(tmp_path)) == []
+
+
+# ---------------------------------------------------------------------------
+# Torn and unindexed files on disk
+# ---------------------------------------------------------------------------
+def test_a_frame_that_no_longer_matches_its_hash_is_refetched(tmp_path, http, caplog):
+    """verify's sha_mismatch heals itself: existence is not proof, so a
+    truncated file is re-fetched instead of being skipped forever."""
+    run_tick(tmp_path, http)
+    torn = tmp_path / "composite/2026/06/15/202606151115Z.png"
+    original = torn.read_bytes()
+    torn.write_bytes(original[: len(original) // 2])
+    with caplog.at_level("WARNING"):
+        stats, _ = run_tick(tmp_path, http, now="2026-06-15T12:12:00+00:00")
+    assert "does not match its indexed sha256" in caplog.text
+    assert (stats.restored, stats.downloaded, stats.revised) == (1, 0, 0)
+    assert torn.read_bytes() == original
+    assert br.index_check(tmp_path)["sha_mismatch"] == []
+
+
+def test_an_unindexed_file_with_other_bytes_is_never_overwritten(tmp_path, http):
+    """The index can be lost while the frames survive. Revision 0 on disk is
+    then unprovable but still the frame as first published, so differing bytes
+    must mint a revision rather than overwrite it."""
+    run_tick(tmp_path, http)
+    newest = tmp_path / "composite/2026/06/15/202606151200Z.png"
+    published = newest.read_bytes()
+    (tmp_path / "index.sqlite").unlink()  # index lost; archive intact
+    http.frame_payloads[COMPOSITE_URL.format("202606151200")] = png_bytes((7, 7, 7, 255))
+
+    stats, _ = run_tick(tmp_path, http, now="2026-06-15T12:12:00+00:00")
+    assert newest.read_bytes() == published
+    revised = tmp_path / "composite/2026/06/15/202606151200Z.r1.png"
+    assert revised.read_bytes() == png_bytes((7, 7, 7, 255))
+    assert stats.revised == 1
+    rows = br.index_check(tmp_path)
+    assert rows["sha_mismatch"] == [] and rows["missing_files"] == []
+
+
+def test_identical_bytes_at_an_unindexed_path_mint_no_revision(tmp_path, http):
+    run_tick(tmp_path, http)
+    (tmp_path / "index.sqlite").unlink()
+    stats, _ = run_tick(tmp_path, http, now="2026-06-15T12:12:00+00:00")
+    assert stats.revised == 0
+    assert list((tmp_path / "composite/2026/06/15").glob("*.r*.png")) == []
+
+
+# ---------------------------------------------------------------------------
+# runs table bookkeeping
+# ---------------------------------------------------------------------------
+def test_runs_row_keeps_the_first_sighting(tmp_path, http):
+    """The row used to be INSERT OR REPLACE'd with last-seen values, so its
+    first_seen column silently tracked the newest sighting."""
+    run_tick(tmp_path, http, now="2026-06-15T12:10:00+00:00")
+    http.forecast = forecast_doc("202606151145", n=5)
+    run_tick(tmp_path, http, now="2026-06-15T12:15:00+00:00")
+    conn = sqlite3.connect(tmp_path / "index.sqlite")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM runs WHERE run_id='202606151145'").fetchone()
+    conn.close()
+    assert row["first_seen"] == "2026-06-15T12:10:00+00:00"
+    assert row["frames"] == 3
+    assert row["first_valid"] == "202606151220"
+    assert row["last_seen"] == "2026-06-15T12:15:00+00:00"
+    assert row["last_frames"] == 5
+    assert row["last_valid"] == "202606151240"
+
+
+def test_an_unchanged_run_writes_no_further_ledger_lines(tmp_path, http):
+    for minute in (10, 15, 20):
+        run_tick(tmp_path, http, now=f"2026-06-15T12:{minute}:00+00:00")
+    lines = br.runs_ledger(tmp_path).read_text().splitlines()
+    assert len(lines) == 1
+
+
+def test_a_pre_migration_runs_table_is_migrated(tmp_path):
+    """Indexes created before the last-seen columns existed must keep working."""
+    index = tmp_path / "index.sqlite"
+    conn = sqlite3.connect(index)
+    conn.executescript(
+        "CREATE TABLE runs (run_id TEXT PRIMARY KEY, first_valid TEXT NOT NULL,"
+        " last_valid TEXT NOT NULL, frames INTEGER NOT NULL, first_seen TEXT NOT NULL);"
+        " INSERT INTO runs VALUES ('202606151145', 'a', 'b', 3, 'seen');"
+    )
+    conn.commit()
+    conn.close()
+    conn = br.open_index(tmp_path)
+    try:
+        row = conn.execute("SELECT * FROM runs").fetchone()
+    finally:
+        conn.close()
+    assert (row["last_frames"], row["last_seen"]) == (3, "seen")
+
+
+# ---------------------------------------------------------------------------
+# CLI argument placement
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("before", [True, False])
+def test_index_can_be_given_before_or_after_the_subcommand(tmp_path, http, monkeypatch, before):
+    """The systemd unit uses the env var, but --index must work in both
+    positions: after the subcommand it used to be a SystemExit 2."""
+    monkeypatch.delenv(br.INDEX_ENV, raising=False)
+    local = tmp_path / "state" / "idx.sqlite"
+    root = tmp_path / "archive"
+    argv = ["--index", str(local), "collect", "--root", str(root), "--sleep", "0"]
+    if not before:
+        argv = ["collect", "--root", str(root), "--index", str(local), "--sleep", "0"]
+    assert br.main(argv) == 0
+    assert local.exists()
+    assert not (root / "index.sqlite").exists()
+    assert br.main(["verify", "--index", str(local), "--root", str(root)]) == 0
+
+
+def test_verbose_can_be_given_after_the_subcommand(tmp_path, http):
+    assert br.main(["collect", "--verbose", "--root", str(tmp_path), "--sleep", "0"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Off-ramp colours are rejected tightly and reported
+# ---------------------------------------------------------------------------
+def test_ramp_tolerance_is_tight_but_clears_the_ramp_itself():
+    """The largest ramp distance measured on live frames was 1.9, so the old
+    40-unit tolerance admitted colours that are not on the ramp at all."""
+    assert br.MAX_RAMP_DISTANCE == 10.0
+    colours = [br.ramp_colour(t) for t in np.linspace(0.0, 1.0, 200)]
+    _t, dist = br.ramp_position(np.asarray(colours))
+    assert dist.max() < 1.0
+
+
+def test_off_ramp_pixels_are_logged_with_their_fraction(tmp_path, caplog):
+    img = Image.new("RGBA", (4, 1))
+    img.putdata([(0, 0, 0, 0), (0, 128, 0, 255), (253, 23, 2, 204), (253, 23, 2, 204)])
+    img.save(tmp_path / "off.png")
+    with caplog.at_level("WARNING"):
+        rate = br.png_to_rate(tmp_path / "off.png")
+    assert math.isnan(rate[0, 1])
+    # one of the three opaque pixels was rejected; transparent ones are not
+    # "rejected", they are simply outside coverage.
+    assert "1/3 opaque pixels (33.333%)" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        br.png_to_class(tmp_path / "off.png")
+    assert "rejected as no-data" in caplog.text
+
+
+def test_a_clean_frame_logs_nothing(tmp_path, caplog):
+    ramp_png(tmp_path / "clean.png", br.RAMP)
+    with caplog.at_level("WARNING"):
+        br.png_to_rate(tmp_path / "clean.png")
+    assert caplog.text == ""

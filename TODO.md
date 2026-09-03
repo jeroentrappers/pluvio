@@ -227,7 +227,7 @@ on different rulers. Transparency is the only credible route to "reference".
       canary hour where old and new fields are both archived and diffed.
       Lane: ops. Depends: 3.2
 - [~] **3.7 Buienradar EU composite + forecast archive** —
-      `research/tools/buienradar_eu.py` (+ 71 offline tests): archives the
+      `research/tools/buienradar_eu.py` (+ 95 offline tests): archives the
       Europe rain-radar composite as a continuous linear history and every
       forecast run separately, so our nowcasts can be scored against theirs
       on the same frames. Collected with Buienradar's written permission;
@@ -246,16 +246,27 @@ on different rulers. Transparency is the only credible route to "reference".
       mandatory 5-min tick.
       Georeference is a sidecar (`georeference.json` + `frame.pgw`): EPSG:3857,
       766×652, corners 34-61 N / 13.5 W-35 E, ~7.05 km square pixels.
-      Open: (a) deploy `pluvio-buienradar-eu.timer` on hetz1 (every 5 min,
-      `/mnt/storagebox/buienradar_eu`, retention forever — row already in
-      `docs/ops_schedule.md`); (b) the colour→mm/h table is PROVISIONAL —
+      **Deployed** on hetz1 since 2026-09-03 21:50 UTC+2:
+      `pluvio-buienradar-eu.timer`, every 5 min (`*:00/5:45`), archive root
+      `/mnt/storagebox/buienradar_eu`, retention forever. The unit carries
+      `Environment=PLUVIO_BUIENRADAR_EU_INDEX=/opt/pluvio/state/buienradar_eu/index.sqlite`
+      because the root is CIFS and SQLite cannot lock there ("database is
+      locked" on an empty index); the plain `collect --root ...` invocation
+      does not work in production and `verify` needs the same env var.
+      First ticks: 41 frames, then 0 downloaded / 41 skipped. Measured frame
+      sizes 38.9 KB (composite) / 42.7 KB (forecast, wet scene) → 18-46 GB/yr
+      at 96 runs/day × 30 frames, forecast frames dominating.
+      Open: (a) the colour→mm/h table is PROVISIONAL —
       Buienradar publishes only a 5-class legend (0-2/2-5/5-10/10-100/100+
       mm/h) while the PNGs carry a finer continuous ramp, so
       `png_to_rate` interpolates between the legend anchors and needs
       validating against our own composite over the same frames (use
-      `png_to_class` until then); (c) confirm whether composite frames are
+      `png_to_class` until then); (b) confirm whether composite frames are
       ever revised in place — the collector re-checks the newest two frames
-      every tick and would archive a `.r1` twin, none seen in the first hour.
+      every tick and would archive a `.r1` twin, none seen in the first hour,
+      so this needs days of ticks to answer; (c) storage review once a month
+      of real (mixed wet/dry) depth is on disk, against the 18-46 GB/yr
+      estimate, before committing to "forever" for good.
       Acceptance: 24 h of unbroken 15-min composite history + every run
       archived, and a decoder validated against our composite.
       Lane: agent + ops. Depends: 3.2

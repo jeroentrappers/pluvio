@@ -64,8 +64,18 @@ Usage
     python -m tools.buienradar_eu verify --root ...
     python -m tools.buienradar_eu decode --png frame.png [--out rate.npy]
 
-Exit status: 0 also on partial success (missing frames are warnings), non-zero
-only when a metadata document itself could not be fetched or parsed.
+The archive root is a CIFS mount in production, where SQLite cannot lock, so
+the index lives on local disk: set ``PLUVIO_BUIENRADAR_EU_INDEX`` (what the
+systemd unit does) or pass ``--index``, which is accepted both before and after
+the subcommand. Every command that reads the index needs the same setting —
+``verify`` refuses to run without an existing index rather than creating an
+empty one that would report a full archive as unindexed.
+
+Exit status: ``collect`` returns 0 also on partial success (missing frames are
+warnings), non-zero only when a metadata document itself could not be fetched
+or parsed. ``verify`` returns non-zero on any damage: missing files, hash
+mismatches, files with no index row, or an index with no rows at all beside a
+non-empty archive.
 """
 
 from __future__ import annotations
@@ -85,6 +95,7 @@ import sqlite3
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 LOG = logging.getLogger("pluvio.buienradar_eu")
@@ -259,7 +270,14 @@ RATE_ANCHORS = (
 )
 
 #: A colour further than this (RGB euclidean) from the ramp is not precipitation.
-MAX_RAMP_DISTANCE = 40.0
+#: The frames are quantised per frame, so real precipitation colours still land
+#: on the ramp: across the live frames measured on 2026-09-03 the largest
+#: distance of any non-transparent pixel was 1.9, so 10 is already ~5x slack
+#: while still rejecting anything that is not on the ramp (coastlines, borders,
+#: labels). :func:`png_to_rate` logs the rejected fraction whenever it is
+#: non-zero, so a future palette change shows up as a warning instead of
+#: silently turning into rain.
+MAX_RAMP_DISTANCE = 10.0
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -332,6 +350,33 @@ def _rgba(path: pathlib.Path):
     return arr
 
 
+def _nodata_mask(arr, dist, path):
+    """No-data mask (transparent or off-ramp), logging off-ramp pixels.
+
+    An opaque pixel too far from the ramp is a colour we do not understand:
+    counted and reported rather than silently decoded, because a palette change
+    on Buienradar's side would show up here first.
+    """
+    import numpy as np
+
+    transparent = arr[..., 3] == 0
+    off_ramp = (~transparent) & (dist > MAX_RAMP_DISTANCE)
+    rejected = int(np.count_nonzero(off_ramp))
+    if rejected:
+        opaque = int(np.count_nonzero(~transparent))
+        LOG.warning(
+            "%s: %d/%d opaque pixels (%.3f%%) are further than %.1f from the "
+            "colour ramp and were rejected as no-data (max distance %.1f)",
+            path,
+            rejected,
+            opaque,
+            100.0 * rejected / max(opaque, 1),
+            MAX_RAMP_DISTANCE,
+            float(np.max(dist[off_ramp])),
+        )
+    return transparent | off_ramp
+
+
 def png_to_rate(path):
     """Decode an archived frame to a float32 mm/h array (NaN where no data).
 
@@ -342,10 +387,11 @@ def png_to_rate(path):
     """
     import numpy as np
 
-    arr = _rgba(pathlib.Path(path))
+    path = pathlib.Path(path)
+    arr = _rgba(path)
     t, dist = ramp_position(arr[..., :3])
     rate = rate_from_position(t)
-    nodata = (arr[..., 3] == 0) | (dist > MAX_RAMP_DISTANCE)
+    nodata = _nodata_mask(arr, dist, path)
     out = np.where(nodata, np.nan, rate).astype("float32")
     return out
 
@@ -359,12 +405,12 @@ def png_to_class(path):
     """
     import numpy as np
 
-    arr = _rgba(pathlib.Path(path))
+    path = pathlib.Path(path)
+    arr = _rgba(path)
     t, dist = ramp_position(arr[..., :3])
     edges = np.asarray([a[0] for a in RATE_ANCHORS[1:]], dtype="float32")
     cls = np.digitize(t, edges).astype("int8")
-    nodata = (arr[..., 3] == 0) | (dist > MAX_RAMP_DISTANCE)
-    cls[nodata] = -1
+    cls[_nodata_mask(arr, dist, path)] = -1
     return cls
 
 
@@ -675,41 +721,152 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 CREATE TABLE IF NOT EXISTS runs (
     run_id      TEXT PRIMARY KEY,
-    first_valid TEXT NOT NULL,
-    last_valid  TEXT NOT NULL,
-    frames      INTEGER NOT NULL,
-    first_seen  TEXT NOT NULL
+    first_valid TEXT NOT NULL,   -- as first seen; earliest leads drop out later
+    last_valid  TEXT NOT NULL,   -- as last seen
+    frames      INTEGER NOT NULL,-- frame count as first seen
+    first_seen  TEXT NOT NULL,   -- fetch instant of the first sighting
+    last_frames INTEGER,         -- frame count as last seen
+    last_seen   TEXT             -- fetch instant of the last sighting
 );
 """
 
+#: Columns added after the table shipped, with the value to backfill.
+RUNS_MIGRATIONS = (
+    ("last_frames", "INTEGER", "frames"),
+    ("last_seen", "TEXT", "first_seen"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that older indexes predate, backfilling from what they had.
+
+    ``runs`` originally kept only one set of values per run and overwrote them
+    on every sighting; first_seen/frames are now immutable and the last-seen
+    values live in their own columns.
+    """
+    have = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    for column, decl, backfill in RUNS_MIGRATIONS:
+        if column not in have:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {column} {decl}")
+            conn.execute(f"UPDATE runs SET {column} = {backfill} WHERE {column} IS NULL")
+
+
+#: Env var that moves the sqlite index off the archive root — see below.
+INDEX_ENV = "PLUVIO_BUIENRADAR_EU_INDEX"
+
+#: How long sqlite waits for a lock before giving up. One tick can take
+#: minutes (30+ frame fetches spaced apart) and the timer fires every 5, so an
+#: overlapping tick must queue rather than die with "database is locked".
+INDEX_TIMEOUT_S = 60.0
+
+
+class MissingIndexError(RuntimeError):
+    """The index does not exist where we were told to look for it."""
+
+
+def index_path(root: pathlib.Path) -> pathlib.Path:
+    """Where the sqlite index lives for ``root``.
+
+    The archive root is usually a CIFS mount (the storage box), where SQLite
+    cannot take file locks ("database is locked" on an empty file). The index
+    can therefore live elsewhere — a local disk — via :data:`INDEX_ENV` (or
+    ``--index``); frames and metadata stay under ``root``.
+    """
+    override = os.environ.get(INDEX_ENV)
+    return pathlib.Path(override) if override else pathlib.Path(root) / "index.sqlite"
+
+
+def _connect_index(target) -> sqlite3.Connection:
+    conn = sqlite3.connect(target, timeout=INDEX_TIMEOUT_S)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.executescript(SCHEMA)
+        _migrate(conn)
+        conn.commit()
+    except BaseException:
+        # Release the file before the caller renames it aside.
+        conn.close()
+        raise
+    return conn
+
 
 def open_index(root: pathlib.Path, *, create: bool = True) -> sqlite3.Connection:
-    """Open (and migrate) the frame index.
+    """Open (and migrate) the frame index for writing.
 
     ``create=False`` is the --dry-run path: an existing index is still read, so
     the dry run reports what a real tick would actually download, but nothing
     is created on disk when the archive does not exist yet.
+
+    A corrupt index is renamed aside and rebuilt empty rather than aborting the
+    tick: everything in it is re-derivable from the archive (paths, hashes and
+    the run ledger all live on disk), so losing it costs at most some re-fetches.
     """
-    # The archive root is usually a CIFS mount (the storage box), where SQLite
-    # cannot take file locks ("database is locked" on an empty file). The index
-    # can therefore live elsewhere — a local disk — via PLUVIO_BUIENRADAR_EU_INDEX
-    # (or --index); frames and metadata stay under ``root``.
-    override = os.environ.get("PLUVIO_BUIENRADAR_EU_INDEX")
-    target = pathlib.Path(override) if override else root / "index.sqlite"
+    target = index_path(root)
     if not create and not target.exists():
-        target = ":memory:"
-    else:
-        root.mkdir(parents=True, exist_ok=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target)
+        return _connect_index(":memory:")
+    root.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return _connect_index(target)
+    except sqlite3.DatabaseError as exc:
+        aside = target.with_name(
+            f"{target.name}.corrupt-{dt.datetime.now(dt.UTC):%Y%m%d%H%M%S}"
+        )
+        LOG.error(
+            "index %s is unusable (%s); moving it to %s and rebuilding it empty "
+            "— frames already on disk are re-indexed as they are re-checked",
+            target,
+            exc,
+            aside.name,
+        )
+        os.replace(target, aside)
+        return _connect_index(target)
+
+
+def open_index_readonly(root: pathlib.Path) -> sqlite3.Connection:
+    """Open the index read-only, refusing to create or migrate anything.
+
+    ``verify`` must never be the command that brings an index into existence:
+    an empty index created next to a full archive reads as "nothing archived"
+    and hides real damage.
+    """
+    target = index_path(root)
+    if not target.exists():
+        raise MissingIndexError(
+            f"no index at {target} — set {INDEX_ENV} (or pass --index) to the "
+            "path the collector uses; the index does not live under the "
+            "archive root when the root is a CIFS mount"
+        )
+    conn = sqlite3.connect(f"file:{urllib.parse.quote(str(target))}?mode=ro", uri=True,
+                           timeout=INDEX_TIMEOUT_S)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    conn.commit()
     return conn
 
 
 def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def read_bytes_or_none(path: pathlib.Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def row_damage(root: pathlib.Path, row) -> str | None:
+    """Why ``row``'s file cannot be trusted, or None when it is intact.
+
+    Existence alone is not enough: a truncated write or a torn rename leaves a
+    file that the index vouches for but that no longer holds the bytes we
+    hashed, and such a frame must be re-fetched rather than served.
+    """
+    payload = read_bytes_or_none(root / row["path"])
+    if payload is None:
+        return "is missing"
+    if len(payload) != row["bytes"] or sha256(payload) != row["sha256"]:
+        return "does not match its indexed sha256"
+    return None
 
 
 def latest_meta_sha(conn: sqlite3.Connection, kind: str) -> str | None:
@@ -763,10 +920,37 @@ def runs_ledger(root: pathlib.Path) -> pathlib.Path:
 
 
 def write_atomic(path: pathlib.Path, payload: bytes) -> None:
+    """Publish ``payload`` at ``path`` all at once, or not at all.
+
+    The temp name carries our pid so two overlapping ticks cannot write the
+    same scratch file, and the bytes are fsynced before the rename because the
+    archive is on CIFS: without it a crash (or a server-side reboot) can
+    publish a rename of a file whose data never landed, i.e. a truncated PNG
+    that the index nonetheless vouches for.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
-    tmp.write_bytes(payload)
-    tmp.replace(path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.part")
+    with open(tmp, "wb") as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def write_if_changed(path: pathlib.Path, payload: bytes) -> bool:
+    """:func:`write_atomic`, skipped when the file already has these bytes.
+
+    Used for the sidecars a tick rewrites every 5 minutes; their content only
+    changes when the code does, and not touching them keeps their mtime
+    meaningful (and saves 288 CIFS writes a day).
+    """
+    try:
+        if path.read_bytes() == payload:
+            return False
+    except OSError:
+        pass
+    write_atomic(path, payload)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -850,7 +1034,7 @@ def _record_run(
     count = len(meta.frames)
 
     row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    if row is not None and (row["frames"], row["last_valid"]) == (count, last_valid):
+    if row is not None and (row["last_frames"], row["last_valid"]) == (count, last_valid):
         return
     update = row is not None
     entry = {
@@ -878,10 +1062,24 @@ def _record_run(
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with open(ledger, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    # first_valid/frames/first_seen describe the *first* sighting and are never
+    # rewritten (the earliest lead times drop out of the metadata as a run ages,
+    # so overwriting them would erase the run as it was published); the
+    # last-seen values are what the dedupe check above compares against.
     conn.execute(
-        "INSERT OR REPLACE INTO runs (run_id, first_valid, last_valid, frames, first_seen)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (run_id, first_valid, last_valid, count, entry["first_seen"]),
+        "INSERT INTO runs (run_id, first_valid, last_valid, frames, first_seen,"
+        " last_frames, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(run_id) DO UPDATE SET last_valid = excluded.last_valid,"
+        " last_frames = excluded.last_frames, last_seen = excluded.last_seen",
+        (
+            run_id,
+            first_valid,
+            last_valid,
+            count,
+            entry["first_seen"],
+            count,
+            fetched.isoformat(),
+        ),
     )
     conn.commit()
     if not update:
@@ -917,16 +1115,24 @@ def collect_frames(
     for frame in meta.frames:
         rows = frame_rows(conn, kind, frame.valid_id, frame.run_id)
         recheck = frame.valid_id in revision_ids
-        # An indexed frame whose file has gone missing counts as not archived,
-        # so a deleted or half-written file heals on the next tick instead of
+        # An indexed frame whose file has gone missing — or whose bytes no
+        # longer hash to what the index recorded — counts as not archived, so a
+        # deleted, half-written or torn file heals on the next tick instead of
         # being skipped forever on the strength of its index row.
-        present = [r for r in rows if (root / r["path"]).exists()]
+        present, damaged = [], []
+        for row in rows:
+            reason = row_damage(root, row)
+            if reason is None:
+                present.append(row)
+            else:
+                damaged.append((row, reason))
         if present and not recheck:
             stats.skipped += 1
             continue
         rel = frame_relpath(kind, frame, 0)
-        if rows and not present:
-            LOG.warning("index has %s but the file is missing; refetching", rows[0]["path"])
+        if damaged and not present:
+            row, reason = damaged[0]
+            LOG.warning("index has %s but the file %s; refetching", row["path"], reason)
         if dry_run:
             if not present:
                 LOG.info("[dry-run] would download %s -> %s", frame.url, rel)
@@ -947,17 +1153,31 @@ def collect_frames(
         digest = sha256(payload)
         match = next((r for r in rows if r["sha256"] == digest), None)
         if match is not None:
-            if (root / match["path"]).exists():
+            if row_damage(root, match) is None:
                 stats.skipped += 1
                 continue
-            # Same bytes as a row we already have, but the file is gone:
-            # restore it in place rather than minting a bogus revision.
+            # Same bytes as a row we already have, but the file is gone or no
+            # longer matches it: repair it in place rather than minting a bogus
+            # revision.
             write_atomic(root / match["path"], payload)
             stats.restored += 1
-            LOG.info("restored missing %s", match["path"])
+            LOG.info("repaired %s from an identical re-fetch", match["path"])
             continue
         revision = (max((r["revision"] for r in rows), default=-1) + 1) if rows else 0
         rel = frame_relpath(kind, frame, revision)
+        # The index can be lost or rebuilt while the frames survive, and then
+        # revision 0 already exists on disk with no row to prove it. Different
+        # bytes at that path must still mint a revision: overwriting it would
+        # destroy the frame as it was first published, which is the one thing
+        # this archive exists to keep.
+        while (existing := read_bytes_or_none(root / rel)) is not None and existing != payload:
+            LOG.warning(
+                "%s exists with different bytes than the feed now serves and is "
+                "not in the index; archiving the new bytes as a revision",
+                rel,
+            )
+            revision += 1
+            rel = frame_relpath(kind, frame, revision)
         write_atomic(root / rel, payload)
         conn.execute(
             "INSERT OR REPLACE INTO frames"
@@ -1002,11 +1222,11 @@ def collect(
 
     if not dry_run:
         root.mkdir(parents=True, exist_ok=True)
-        write_atomic(
+        write_if_changed(
             root / "georeference.json",
             (json.dumps(georeference(), indent=2, sort_keys=True) + "\n").encode(),
         )
-        write_atomic(root / "frame.pgw", world_file().encode())
+        write_if_changed(root / "frame.pgw", world_file().encode())
 
     conn = open_index(root, create=not dry_run)
     try:
@@ -1124,9 +1344,13 @@ def cadence_summary(root: pathlib.Path, days: int | None = None) -> dict:
 
 
 def index_check(root: pathlib.Path) -> dict:
-    """Cross-check the sqlite index against the files on disk."""
+    """Cross-check the sqlite index against the files on disk.
+
+    Read-only on purpose: see :func:`open_index_readonly`. Raises
+    :class:`MissingIndexError` when there is no index to check.
+    """
     root = pathlib.Path(root)
-    conn = open_index(root)
+    conn = open_index_readonly(root)
     try:
         rows = conn.execute("SELECT * FROM frames").fetchall()
         missing, corrupt = [], []
@@ -1157,21 +1381,59 @@ def index_check(root: pathlib.Path) -> dict:
         conn.close()
 
 
+def index_damage(report: dict) -> list[str]:
+    """Human-readable reasons an :func:`index_check` report is not healthy.
+
+    Unindexed files count: a frame nobody has a hash for is a frame we cannot
+    prove is the one Buienradar served, and an index that has lost its rows
+    while the archive is full of them (frames_indexed 0, files on disk) is the
+    loudest version of the same fault — both used to pass verify silently.
+    """
+    reasons = []
+    for key, what in (
+        ("missing_files", "indexed frame(s) missing from disk"),
+        ("sha_mismatch", "frame(s) whose bytes do not match the index"),
+        ("unindexed_files", "file(s) on disk with no index row"),
+    ):
+        if report[key]:
+            reasons.append(f"{len(report[key])} {what}")
+    if not report["frames_indexed"] and report["frames_on_disk"]:
+        reasons.append(
+            f"the index has no frame rows at all while {report['frames_on_disk']} "
+            "frame(s) are on disk"
+        )
+    return reasons
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="buienradar_eu", description=__doc__.split("\n")[0])
-    parser.add_argument("--verbose", action="store_true")
+def _global_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Options accepted both before and after the subcommand.
+
+    ``SUPPRESS`` as the default is what makes both positions work: without it
+    the subparser's own default would overwrite a value given before the
+    subcommand.
+    """
+    parser.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument(
         "--index",
-        default=None,
-        help="sqlite index path (default <root>/index.sqlite; put it on local disk when "
-        "the root is a CIFS mount — same as PLUVIO_BUIENRADAR_EU_INDEX)",
+        default=argparse.SUPPRESS,
+        help=f"sqlite index path (default <root>/index.sqlite; put it on local disk when "
+        f"the root is a CIFS mount — same as {INDEX_ENV})",
     )
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="buienradar_eu", description=__doc__.split("\n")[0])
+    _global_options(parser)
+    common = _global_options(argparse.ArgumentParser(add_help=False))
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    c = sub.add_parser("collect", help="fetch metadata and archive any new frames")
+    c = sub.add_parser(
+        "collect", parents=[common], help="fetch metadata and archive any new frames"
+    )
     c.add_argument("--root", required=True)
     c.add_argument("--dry-run", action="store_true")
     c.add_argument("--sleep", type=float, default=0.2, help="seconds between image fetches")
@@ -1184,22 +1446,24 @@ def main(argv=None) -> int:
         help="re-fetch this many newest frames per feed to detect revisions",
     )
 
-    d = sub.add_parser("cadence", help="summarise the forecast run cadence")
+    d = sub.add_parser("cadence", parents=[common], help="summarise the forecast run cadence")
     d.add_argument("--root", required=True)
     d.add_argument("--days", type=int, default=None)
 
-    v = sub.add_parser("verify", help="cross-check the index against the files on disk")
+    v = sub.add_parser("verify", parents=[common], help="cross-check the index against the files on disk")
     v.add_argument("--root", required=True)
 
-    p = sub.add_parser("decode", help="decode one archived PNG to mm/h (provisional)")
+    p = sub.add_parser("decode", parents=[common], help="decode one archived PNG to mm/h (provisional)")
     p.add_argument("--png", required=True)
     p.add_argument("--out", default=None, help="write a .npy of the float32 mm/h array")
 
     args = parser.parse_args(argv)
-    if args.index:
-        os.environ["PLUVIO_BUIENRADAR_EU_INDEX"] = args.index
+    index = getattr(args, "index", None)
+    if index:
+        os.environ[INDEX_ENV] = index
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s"
+        level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
+        format="%(levelname)s %(message)s",
     )
 
     if args.cmd == "collect":
@@ -1224,10 +1488,16 @@ def main(argv=None) -> int:
         return 0
 
     if args.cmd == "verify":
-        report = index_check(pathlib.Path(args.root))
+        try:
+            report = index_check(pathlib.Path(args.root))
+        except (MissingIndexError, sqlite3.DatabaseError) as exc:
+            LOG.error("cannot verify %s: %s", args.root, exc)
+            return 1
         print(json.dumps(report, indent=2))
-        bad = report["missing_files"] or report["sha_mismatch"]
-        return 1 if bad else 0
+        damage = index_damage(report)
+        for reason in damage:
+            LOG.error("archive damage — %s", reason)
+        return 1 if damage else 0
 
     if args.cmd == "decode":
         import numpy as np
