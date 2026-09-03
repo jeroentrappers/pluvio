@@ -45,14 +45,18 @@ below every metric. Make eyes unnecessary.
 - [~] **1.5 Research test infrastructure** — `research/requirements-dev.txt`,
       `uv` venv recipe, `pytest` layout, `.github/workflows/research-tests.yml`.
       Acceptance: CI runs research tests on every push. Lane: agent.
-- [ ] **1.6 Input unit fixes** — `alaro_precip` scale (0–255 → mm/h?), `sst`
-      feed dead 48+ issues, `msg_ir108` units documented. Acceptance: QC range
-      checks pass with documented units; store rebuilt or corrected for the
-      affected channels. Lane: ops + research.
-- [ ] **1.7 Archive retention audit** — the 3-day QPE prune deleted a year of
-      truth-grade composite. Define retention per archive class (truth-grade =
-      forever on storagebox). Acceptance: retention manifest + timers match it.
-      Lane: ops.
+- [~] **1.6 Input unit fixes** — `alaro_precip` scale (0–255 → mm/h?),
+      `msg_ir108` units documented; `sst`: feed alive (OSTIA D+2 06:00 lag),
+      channel was NaN store-wide because the 36 h max-age preceded publication
+      → max-age 96 h deployed (3e82e0d); one-off SST backfill for existing
+      issues still needed. Acceptance: QC range checks pass with documented
+      units; affected channels corrected in the store. Lane: ops + research.
+- [x] **1.7 Archive retention audit** — audited 2026-09-03: `qpe_archive.py
+      --prune` deletes only raw volumes/caches (coverage-guarded); day-zarrs are
+      kept forever by design. The QPE archive is simply young (started
+      2026-08-31) — composite truth exists for days, RAC carries the history.
+      Follow-up: write the retention classes into a manifest (raw 3 d, OPERA
+      7 d, composite/QPE/forecast archives forever). Lane: ops.
 - [ ] **1.8 Operations as declared state** — every recurring job a systemd
       unit generated from one manifest (append+infer cron, producers, QC,
       archives); asusprime training under a persistent job runner (supervisor
