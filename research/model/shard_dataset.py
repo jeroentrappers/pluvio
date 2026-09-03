@@ -28,7 +28,11 @@ planes plus the target per sample (``x_%05d.npy``, ``y_%05d.npy``), and
 ``__getitem__`` reassembles the full ``(C, H, W)`` input in ``build_input``
 channel order. That is bit-for-bit the flat sample at ~2.8x less disk — the
 difference between 332 GiB and 119 GiB for the full v3 sample set, which is
-what makes it fit on the render box at all. ``"flat"`` (one whole sample per
+what makes it fit on the render box at all. The win is FOOTPRINT, not read
+bandwidth: under ``shuffle=True`` an issue's leads land in different batches
+and each sample pulls its own per-issue block, so the bytes read per sample are
+about what flat reads. An issue-grouped sampler is what would turn the layout
+into a bandwidth win too. ``"flat"`` (one whole sample per
 row, no ``inv`` file) stays available behind ``--layout flat``; it is also how
 every store rendered before this change reads, since a manifest with no
 ``"layout"`` key means flat.
@@ -304,10 +308,17 @@ def source_store_hash(zarr_path: str | pathlib.Path,
     * every array's name, shape and dtype;
     * the full ``issue_time`` vector (an appended, truncated or re-timed store
       fingerprints differently);
-    * and the CONTENT of ``radar[i, 0]``, ``truth[i]`` and one aux array at
-      ``n_samples`` evenly spaced issue indices ``i``.
+    * and the CONTENT of ``radar[i]`` (**every lead**, not just the analysis),
+      ``truth[i]`` and one aux array at ``n_samples`` evenly spaced issue
+      indices ``i``.
 
-    The content half is ~64 x 3 planes — seconds on the real store, and it is
+    Probing ``radar[i, 0]`` alone was not enough: the analysis is the history
+    stack, but ``radar[i, lead_idx]`` is the ``nowcast_at_lead`` channel, so a
+    rebuild that touched only the operational nowcast leads left the digest
+    unchanged (measured). The whole ``radar[i]`` block is one chunk in the
+    store's own chunking, so reading all leads costs no extra I/O.
+
+    The content half is ~64 x 3 blocks — seconds on the real store, and it is
     the half that catches an in-place value rebuild. It is a sample, not a
     proof: an edit confined to the issues between two probes still slips past.
     ``hash_mode`` says which mode produced the digest so an old manifest stays
@@ -332,31 +343,27 @@ def source_store_hash(zarr_path: str | pathlib.Path,
     per_issue = [n for n in array_keys
                  if n not in ("radar", "truth", "issue_time", "leads_min")
                  and len(root[n].shape) == 3 and root[n].shape[0] == issue.size]
-    probes: list[tuple[str, bool]] = [("radar", True)]
-    sampled_names = ["radar[:, 0]"]
+    probes = ["radar"]
     if "truth" in array_keys:
-        probes.append(("truth", False))
-        sampled_names.append("truth")
+        probes.append("truth")
     if per_issue:
-        probes.append((per_issue[0], False))
-        sampled_names.append(per_issue[0])
+        probes.append(per_issue[0])
 
     idx = _sampled_issue_indices(int(issue.size), n_samples)
     for i in idx.tolist():
         h.update(np.int64(i).tobytes())
-        for name, is_radar in probes:
-            block = root[name][i, 0] if is_radar else root[name][i]
-            h.update(np.ascontiguousarray(block).tobytes())
+        for name in probes:
+            h.update(np.ascontiguousarray(root[name][i]).tobytes())
 
     return {
         "path": str(zarr_path),
         "hash": h.hexdigest(),
         "hash_mode": "structural+sampled",
         "hash_covers": "group attrs + array names/shapes/dtypes + full issue_time vector "
-                       f"+ content of {', '.join(sampled_names)} at {idx.size} evenly "
+                       f"+ full content of {', '.join(probes)} at {idx.size} evenly "
                        "spaced issue indices",
         "n_issues": int(issue.size),
-        "sampled": {"arrays": sampled_names, "n_issues_sampled": int(idx.size),
+        "sampled": {"arrays": probes, "n_issues_sampled": int(idx.size),
                     "issue_indices": [int(v) for v in idx]},
     }
 
@@ -506,21 +513,6 @@ class ShardDataset(Dataset):
         self.n_channels = int(self.recipe["n_channels"])
         self.grid_hw: tuple[int, int] = tuple(int(v) for v in self.recipe["grid_hw"])
 
-        # Layout is a STORAGE choice, not sample semantics — the reassembled
-        # sample is identical either way — so it lives in the manifest and not
-        # in the recipe (a dedup store and a flat store of the same samples
-        # must stay interchangeable for train.py's recipe comparison).
-        self.layout = str(self.manifest.get("layout", LAYOUT_FLAT))
-        if self.layout not in LAYOUTS:
-            raise ShardRecipeMismatch(
-                f"{self.shard_dir}: manifest layout {self.layout!r} is not one of "
-                f"{LAYOUTS} — written by a newer build?"
-            )
-        self._inv_idx = np.zeros(0, dtype="int64")
-        self._var_idx = np.zeros(0, dtype="int64")
-        if self.layout == LAYOUT_DEDUP:
-            self._inv_idx, self._var_idx = self._channel_split()
-
         expected = expected_channels
         if expected is None:
             env_expected = os.environ.get("PLUVIO_EXPECTED_CHANNELS")
@@ -547,6 +539,38 @@ class ShardDataset(Dataset):
                 f"{self.shard_dir}: shard sample counts sum to {self._n} but the manifest "
                 f"says n_samples={self.manifest['n_samples']}"
             )
+
+        # Layout is a STORAGE choice, not sample semantics — the reassembled
+        # sample is identical either way — so it lives in the manifest and not
+        # in the recipe (a dedup store and a flat store of the same samples
+        # must stay interchangeable for train.py's recipe comparison).
+        #
+        # The SHARD ENTRIES are authoritative, not the top-level key: a dedup
+        # store whose "layout" got lost (hand-edited manifest, or a
+        # merge/roundtrip that dropped it) would otherwise read as flat and
+        # hand out (n_var, H, W) arrays while n_channels says 33 — no error
+        # anywhere. A shard carrying an "inv" file IS a dedup shard.
+        declared = self.manifest.get("layout")
+        has_inv = any("inv" in shard for shard in self._shards)
+        self.layout = LAYOUT_DEDUP if has_inv else str(declared or LAYOUT_FLAT)
+        if self.layout not in LAYOUTS:
+            raise ShardRecipeMismatch(
+                f"{self.shard_dir}: manifest layout {self.layout!r} is not one of "
+                f"{LAYOUTS} — written by a newer build?"
+            )
+        if declared is None:
+            LOG.warning("%s: manifest has no 'layout' key — reading it as %r "
+                        "(inferred from the shard entries)", self.shard_dir, self.layout)
+        elif str(declared) != self.layout:
+            raise ShardRecipeMismatch(
+                f"{self.shard_dir}: manifest says layout {declared!r} but its shard entries "
+                f"carry {'an' if has_inv else 'no'} 'inv' file, i.e. layout {self.layout!r} "
+                "— the manifest disagrees with the files it lists; re-render the store"
+            )
+        self._inv_idx = np.zeros(0, dtype="int64")
+        self._var_idx = np.zeros(0, dtype="int64")
+        if self.layout == LAYOUT_DEDUP:
+            self._inv_idx, self._var_idx = self._channel_split()
 
         for shard in self._shards:
             for key in shard_file_keys(self.layout):
@@ -593,6 +617,34 @@ class ShardDataset(Dataset):
         )
 
     # ──────────────────────────────────────────────────── dedup bookkeeping
+
+    def _check_shapes(self, sid: int, arrays: tuple[np.ndarray, np.ndarray,
+                                                    np.ndarray | None]) -> None:
+        """Assert a freshly opened shard's channel counts against the layout.
+
+        The layout decides how many planes ``x`` holds — all of them, or only
+        the lead-varying ones — so reading it wrong is not a crash, it is a
+        wrongly-assembled sample. Cheap (once per shard open, off the .npy
+        header) and it turns every way the layout could be misread into an
+        error at the first read."""
+        xs, ys, inv = arrays
+        want_x = len(self._var_idx) if self.layout == LAYOUT_DEDUP else self.n_channels
+        checks = [("x", xs.shape[1], want_x), ("y", ys.shape[1], 1)]
+        if inv is not None:
+            checks.append(("inv", inv.shape[1], len(self._inv_idx)))
+        for key, got, want in checks:
+            if got != want:
+                raise ShardStoreIncomplete(
+                    f"{self.shard_dir}: shard {sid} file {self._shards[sid][key]!r} holds "
+                    f"{got} channel(s), but layout {self.layout!r} over "
+                    f"{self.n_channels} channels expects {want} — the store's files do not "
+                    "match the manifest that describes them; re-render it"
+                )
+        if inv is not None and inv.shape[0] != int(self._shards[sid].get("n_issues", -1)):
+            raise ShardStoreIncomplete(
+                f"{self.shard_dir}: shard {sid} per-issue block has {inv.shape[0]} row(s), "
+                f"manifest says {self._shards[sid].get('n_issues')!r} — re-render the store"
+            )
 
     def _channel_split(self) -> tuple[np.ndarray, np.ndarray]:
         """(lead-invariant, lead-varying) channel indices for the dedup layout.
@@ -701,6 +753,7 @@ class ShardDataset(Dataset):
             (np.load(self.shard_dir / shard["inv"], mmap_mode="r")
              if self.layout == LAYOUT_DEDUP else None),
         )
+        self._check_shapes(sid, pair)
         self._open_shards[sid] = pair
         while len(self._open_shards) > self._max_open:
             self._open_shards.popitem(last=False)

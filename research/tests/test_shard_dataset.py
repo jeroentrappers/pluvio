@@ -592,7 +592,7 @@ def test_source_store_hash_catches_an_in_place_value_rebuild(synthetic_store):
     before = render_shards.source_store_hash(synthetic_store)
     assert before["hash_mode"] == "structural+sampled"
     assert before["sampled"]["n_issues_sampled"] > 0
-    assert "radar[:, 0]" in before["sampled"]["arrays"]
+    assert before["sampled"]["arrays"][0] == "radar"
 
     _rebuild_store_values(synthetic_store, identical=True)
     assert render_shards.source_store_hash(synthetic_store)["hash"] == before["hash"]
@@ -891,3 +891,156 @@ def test_a_zarr_trained_checkpoint_has_no_shard_provenance(synthetic_store, tmp_
                        "--base-channels", "4", "--num-workers", "0", "--device", "cpu",
                        "--checkpoint", str(ckpt)]) == 0
     assert torch.load(ckpt, weights_only=False)["shards"] is None
+
+
+def test_source_fingerprint_covers_every_radar_lead_not_just_the_analysis(synthetic_store):
+    """`radar[i, 0]` is the history stack, but `radar[i, lead_idx]` is the
+    `nowcast_at_lead` channel — probing only lead 0 left a rebuild of the
+    operational nowcast leads invisible (measured). The whole `radar[i]` block
+    is one chunk, so covering all leads costs no extra I/O."""
+    import zarr
+
+    before = render_shards.source_store_hash(synthetic_store)["hash"]
+    root = zarr.open_group(str(synthetic_store), mode="a")
+    radar = np.asarray(root["radar"][:])
+    rng = np.random.default_rng(11)
+    radar[:, 1:] = (rng.random(radar[:, 1:].shape) * 5.0).astype(radar.dtype)
+    root["radar"][:] = radar
+    assert render_shards.source_store_hash(synthetic_store)["hash"] != before
+
+
+# ─────────────────────────────────────────── shard alignment on resume (2.6)
+
+
+def test_resume_refuses_a_changed_samples_per_shard(synthetic_store, tmp_path):
+    """`--samples-per-shard` re-cuts every boundary but is deliberately NOT in
+    RECIPE_KEYS (it does not change what a sample means). Measured before the
+    fix: a partial render at 2 resumed at 3 kept shard 3 (`first_sample` 6) at
+    offset 12 — 3 of 81 samples silently wrong, manifest `complete`, `--verify`
+    clean."""
+    out = tmp_path / "shards"
+    argv = ["--zarr", str(synthetic_store), "--out", str(out), "--split", "all",
+            "--leads", LEADS]
+    assert render_shards.main([*argv, "--samples-per-shard", "2"]) == 0
+    with pytest.raises(ShardRecipeMismatch, match="samples-per-shard"):
+        render_shards.main([*argv, "--samples-per-shard", "3"])
+
+    # --force is the documented way through, and the result is a clean render.
+    assert render_shards.main([*argv, "--samples-per-shard", "3", "--force"]) == 0
+    sds = ShardDataset(out / "all", verify_checksums=True)
+    zds = _zarr_set(synthetic_store)
+    assert len(sds) == len(zds)
+    for i in range(len(zds)):
+        zx, zy = zds[i]
+        sx, sy = sds[i]
+        assert torch.equal(sx, torch.from_numpy(
+            cast_for_shard(zx.numpy(), "float16").astype("float32"))), i
+        assert torch.equal(sy, torch.from_numpy(
+            cast_for_shard(zy.numpy(), "float16").astype("float32"))), i
+
+
+def test_a_kept_shard_must_match_its_offset_not_just_its_sample_count(
+        synthetic_store, tmp_path, monkeypatch):
+    """The offset guard on its own: with `samples_per_shard` forced to look
+    unchanged, a shard whose `first_sample` moved must still be re-rendered
+    rather than kept at the wrong offset."""
+    out = tmp_path / "shards"
+    argv = ["--zarr", str(synthetic_store), "--out", str(out), "--split", "all",
+            "--leads", LEADS, "--samples-per-shard", "2"]
+    assert render_shards.main(argv) == 0
+    shard_dir = out / "all"
+    path = shard_dir / MANIFEST_NAME
+    manifest = json.loads(path.read_text())
+    # Every shard keeps its files and its n_samples, but claims to start one
+    # shard later — exactly the misalignment a re-cut plan produces.
+    for shard in manifest["shards"]:
+        shard["first_sample"] += shard["n_samples"]
+    path.write_text(json.dumps(manifest))
+
+    rendered: list[int] = []
+    real = render_shards._render_shard
+
+    def spy(job):
+        rendered.append(job["id"])
+        return real(job)
+
+    monkeypatch.setattr(render_shards, "_render_shard", spy)
+    assert render_shards.main(argv) == 0
+    assert rendered == [s["id"] for s in manifest["shards"]], \
+        "every misaligned shard must be re-rendered, not kept"
+    ShardDataset(shard_dir, verify_checksums=True)
+
+
+def test_render_refuses_an_empty_index_instead_of_a_complete_empty_store(synthetic_store,
+                                                                        tmp_path):
+    with pytest.raises(SystemExit, match="no samples to render"):
+        render_shards.main(["--zarr", str(synthetic_store), "--out", str(tmp_path / "s"),
+                            "--split", "all", "--leads", LEADS, "--max-samples", "0"])
+    assert not (tmp_path / "s" / "all" / MANIFEST_NAME).exists()
+
+
+# ───────────────────────────────────── layout backward compatibility (2.6)
+
+
+def test_a_manifest_without_a_layout_key_reads_as_flat(synthetic_store, tmp_path):
+    """Every store rendered before the dedup layout has no `layout` key and no
+    `inv` files; it must keep loading, as flat."""
+    shard_dir = _render(synthetic_store, tmp_path / "flat", extra=("--layout", "flat"))
+    path = shard_dir / MANIFEST_NAME
+    manifest = json.loads(path.read_text())
+    del manifest["layout"]
+    path.write_text(json.dumps(manifest))
+
+    sds = ShardDataset(shard_dir)
+    assert sds.layout == "flat"
+    zds = _zarr_set(synthetic_store)
+    for i in range(len(zds)):
+        zx, _ = zds[i]
+        assert torch.equal(sds[i][0], torch.from_numpy(
+            cast_for_shard(zx.numpy(), "float16").astype("float32"))), i
+
+
+def test_a_dedup_store_that_lost_its_layout_key_is_still_read_as_dedup(synthetic_store,
+                                                                       tmp_path):
+    """The dangerous half of the same defaulting rule: falling back to flat here
+    would hand out (n_var, H, W) arrays while n_channels says 13, silently. The
+    shard entries carry `inv`, so they decide."""
+    shard_dir = _render(synthetic_store, tmp_path / "dedup")
+    path = shard_dir / MANIFEST_NAME
+    manifest = json.loads(path.read_text())
+    del manifest["layout"]
+    path.write_text(json.dumps(manifest))
+
+    sds = ShardDataset(shard_dir)
+    assert sds.layout == "dedup"
+    zds = _zarr_set(synthetic_store)
+    for i in range(len(zds)):
+        zx, _ = zds[i]
+        assert torch.equal(sds[i][0], torch.from_numpy(
+            cast_for_shard(zx.numpy(), "float16").astype("float32"))), i
+
+
+def test_a_manifest_whose_layout_contradicts_its_shard_entries_is_refused(synthetic_store,
+                                                                          tmp_path):
+    shard_dir = _render(synthetic_store, tmp_path / "dedup")
+    path = shard_dir / MANIFEST_NAME
+    manifest = json.loads(path.read_text())
+    manifest["layout"] = "flat"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ShardRecipeMismatch, match="layout"):
+        ShardDataset(shard_dir)
+
+
+def test_a_shard_file_with_the_wrong_channel_count_is_caught_on_first_read(synthetic_store,
+                                                                          tmp_path):
+    """Belt to the layout braces: whatever route produced it, an `x` file whose
+    channel count does not match the layout must fail at the first read rather
+    than assemble a wrong sample."""
+    dedup = _render(synthetic_store, tmp_path / "dedup")
+    flat = _render(synthetic_store, tmp_path / "flat", extra=("--layout", "flat"))
+    # Swap flat's whole-sample x file into the dedup store, keeping its name.
+    shard = json.loads((dedup / MANIFEST_NAME).read_text())["shards"][0]
+    (dedup / shard["x"]).write_bytes((flat / shard["x"]).read_bytes())
+    sds = ShardDataset(dedup)
+    with pytest.raises(ShardStoreIncomplete, match="channel"):
+        sds[0]

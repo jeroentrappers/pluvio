@@ -336,13 +336,21 @@ real shape — 192², 33 channels, 30-min cadence): zarr 41.5 samples/s → shar
 14,737 samples/s (355×). The tiny 24² test store shows 227 → 341k (1500×).
 Both are upper bounds: on the real store the loader is dominated by cold random
 chunk reads (~40 samples/s *aggregate* over 6 workers, which is exactly the 47
-min/epoch), while the shard path is bounded by disk bandwidth. Under the default
-dedup layout that is 0.861 MiB/sample, so a 3× epoch (≥120 samples/s) needs
-≥104 MiB/s — and the reads are larger and fewer than that suggests, since an
-issue's four leads share one 2.04 MiB per-issue block that the page cache holds
-across them. (Flat: 2.391 MiB/sample, ≥290 MiB/s of random 2.4 MiB reads.)
-Trivial on NVMe, fine on SATA SSD, hopeless on a spinning disk. The real
+min/epoch), while the shard path is bounded by disk bandwidth. Flat is 2.391
+MiB/sample, so a 3× epoch (≥120 samples/s) needs ≥290 MiB/s of random 2.4 MiB
+reads. Trivial on NVMe, fine on SATA SSD, hopeless on a spinning disk. The real
 acceptance number needs the GPU box.
+
+**Dedup's win is footprint, not bandwidth.** Its 0.861 MiB/sample is the number
+on disk, not the number a shuffled loader reads: `train.py` uses
+`shuffle=True`, so an issue's four leads land in different batches (and
+different workers), and each sample pulls its own 2.04 MiB per-issue block —
+~2.4 MiB read per sample, i.e. the same ~287 MiB/s as flat, plus one array fill
+for the reassembly. The per-issue block is only read once per issue if an
+issue-grouped sampler keeps its leads together (the same sampler 2.3 wants for
+the `--zarr` flow cache), or if the page cache happens to still hold it. So:
+dedup to make the render FIT, and an issue-grouped sampler if the ≥3× gate
+turns out to be bandwidth-bound on the box.
 
 **Storage — per-issue dedup is the layout, not a follow-up.** The flat layout
 does not fit the box: asusprime's `/home` was measured at **194 G** free at the
@@ -377,14 +385,26 @@ Measured, at 192² float16 (input + `(1,H,W)` target, 4 leads/issue):
 | flat | 35 (`--lagrangian-channels 2`) | 2.531 | 281.0 GiB | 70.1 GiB | 351.1 GiB |
 | dedup | 35 (30 per issue) | **0.949** | 105.4 GiB | 26.3 GiB | **131.7 GiB** |
 
-2.78× smaller, and 131.7 GiB of 194 G leaves room for the checkpoints. `--layout
-flat` is still there (one branch in each file) for a box with the disk to spare
-and no interest in the per-sample copy.
+2.78× smaller at 33 channels (2.67× at 35 — the extra planes are one invariant
+and one varying, so the varying half grows faster), and 131.7 GiB of 194 G
+leaves room for the checkpoints. `--layout flat` is still there (one branch in
+each file) for a box with the disk to spare and no interest in the per-sample
+copy.
+
+Both MiB/sample columns assume **4 leads per issue**, which is what the current
+store gives every fully-covered issue. Dedup's per-sample cost is
+`inv/leads_per_issue + var`, so it degrades as that ratio falls: a
+`--require-rain-fraction` filter drops individual (issue, lead) samples while
+the issue still pays for its whole invariant block, and at 1 lead/issue dedup
+is 2.11 + 0.42 = 2.53 MiB/sample — no better than flat. Check
+`n_samples / sum(n_issues)` in the manifest after rendering a filtered split.
 
 Fallbacks if even that does not fit, in order: render `--split train` only and
 leave val on the zarr (val is forward-only and 20% of the samples), then
-`--max-samples` to cap the rendered set per split (it is recorded in the recipe,
-so a train run cannot mistake a capped store for the full one).
+`--max-samples` to cap the rendered set per split. Note what `--max-samples`
+is: a cap on what gets RENDERED, recorded in the recipe and hashed, so a train
+run cannot mistake a capped store for the full one — it is not a check against
+the full store's sample count, and nothing detects "the store grew since".
 
 **asusprime invocation** (python 3.10 / zarr 2.x there; the renderer only reads
 the store, so no `zarr_format` concern). This is the 2.3 ablation render — the

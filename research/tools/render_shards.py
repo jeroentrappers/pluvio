@@ -287,16 +287,25 @@ def _write_manifest(out_dir: pathlib.Path, manifest: dict[str, Any]) -> None:
 
 
 def _load_existing(out_dir: pathlib.Path, recipe: dict[str, Any], *, force: bool,
-                   layout: str, n_inv: int, n_var: int,
+                   layout: str, n_inv: int, n_var: int, samples_per_shard: int,
                    source_store: dict[str, Any] | None = None,
                    ) -> dict[int, dict[str, Any]]:
     """Shards already on disk that we can keep, keyed by shard id.
 
-    Three ways a resume must refuse rather than fill in the gaps: a different
-    recipe, a different LAYOUT, and — the one this missed until review — a
-    source store whose fingerprint has moved. The recipe cannot see an in-place
-    value rebuild, so without the source check a resume happily renders the
-    missing shards from the new numbers and the loader accepts the mixture."""
+    Four ways a resume must refuse rather than fill in the gaps: a different
+    recipe, a different LAYOUT, a different ``--samples-per-shard``, and — the
+    one this missed until review — a source store whose fingerprint has moved.
+
+    The recipe cannot see either of the last two. An in-place value rebuild
+    leaves shapes, attrs and ``issue_time`` identical, so without the source
+    check a resume renders the missing shards from the new numbers and the
+    loader accepts the mixture. And ``samples_per_shard`` is a shard-BOUNDARY
+    choice, not a sample-semantics one, so it is deliberately not in
+    RECIPE_KEYS — but changing it re-cuts the plan, and a kept shard whose
+    sample count happens to match the new range at a different offset holds
+    the wrong samples. Measured: a partial render at ``--samples-per-shard 2``
+    resumed at 3 kept shard 3 (``first_sample`` 6) at offset 12, i.e. 3 of 81
+    samples silently wrong, manifest ``complete``, ``--verify`` clean."""
     path = out_dir / MANIFEST_NAME
     if force or not path.exists():
         return {}
@@ -312,6 +321,14 @@ def _load_existing(out_dir: pathlib.Path, recipe: dict[str, Any], *, force: bool
             f"{out_dir}: existing shards were rendered with a different recipe "
             f"({len(diffs)} field(s)):\n  " + "\n  ".join(diffs)
             + "\nPass --force to discard them, or render into a fresh --out directory."
+        )
+    old_sps = old.get("samples_per_shard")
+    if old_sps is not None and int(old_sps) != int(samples_per_shard):
+        raise ShardRecipeMismatch(
+            f"{out_dir}: existing shards were cut at --samples-per-shard {int(old_sps)}, "
+            f"this run asks for {int(samples_per_shard)}. That re-cuts every shard "
+            "boundary, so a kept shard would sit at the wrong offset in the new plan — "
+            "pass --force to re-render, or render into a fresh --out directory."
         )
     old_layout = str(old.get("layout", "flat"))
     if old_layout != layout:
@@ -380,6 +397,12 @@ def render_split(args: argparse.Namespace, split: str, boundary: datetime | None
     index = ds.index
     if args.max_samples is not None:
         index = index[: args.max_samples]
+    if not index:
+        raise SystemExit(
+            f"[{split}] no samples to render (index is empty after --max-samples="
+            f"{args.max_samples!r}). Writing a 'complete' manifest with zero shards "
+            "would produce a store that looks finished and trains on nothing."
+        )
     LOG.info("[%s] indexed %d samples in %.1fs (%d channels @ %s)",
              split, len(index), time.monotonic() - t0, ds.n_channels, ds.grid_hw)
 
@@ -397,7 +420,8 @@ def render_split(args: argparse.Namespace, split: str, boundary: datetime | None
     source_store = (getattr(args, "source_store_hash", None)
                     or source_store_hash(args.zarr))
     keep = _load_existing(out_dir, recipe, force=args.force, layout=args.layout,
-                          n_inv=n_inv, n_var=n_var, source_store=source_store)
+                          n_inv=n_inv, n_var=n_var, source_store=source_store,
+                          samples_per_shard=args.samples_per_shard)
 
     plan = _shard_plan(index, args.samples_per_shard)
     jobs = []
@@ -411,7 +435,10 @@ def render_split(args: argparse.Namespace, split: str, boundary: datetime | None
         }
         if args.layout == LAYOUT_DEDUP:
             job["inv"] = f"inv_{sid:05d}.npy"
-        if sid in keep and keep[sid]["n_samples"] == stop - start:
+        # BOTH the count and the OFFSET must match: a shard is identified by
+        # where it starts in the index, not by how many samples it holds.
+        if (sid in keep and keep[sid]["n_samples"] == stop - start
+                and int(keep[sid].get("first_sample", -1)) == start):
             continue
         job["samples"] = [
             {"issue_idx": s.issue_idx, "lead_min": s.lead_min,
@@ -540,7 +567,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="render processes (each opens the store; index is built once, here)")
     p.add_argument("--samples-per-shard", type=int, default=DEFAULT_SAMPLES_PER_SHARD,
                    help=f"target samples per shard, rounded up to an issue boundary "
-                        f"(default {DEFAULT_SAMPLES_PER_SHARD})")
+                        f"(default {DEFAULT_SAMPLES_PER_SHARD}). Changing it re-cuts every "
+                        f"boundary, so it cannot be changed on a resume — a rerun with a "
+                        f"different value refuses and asks for --force")
     p.add_argument("--layout", default=DEFAULT_LAYOUT, choices=LAYOUTS,
                    help="on-disk layout. 'dedup' (default) stores the lead-invariant "
                         "channels — the history stack, aux, statics, 29 of 33 with the "

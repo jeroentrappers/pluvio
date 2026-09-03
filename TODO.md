@@ -353,7 +353,15 @@ CSI decays. The objective is the biggest lever we own.
         issue: **2.391 → 0.861 MiB/sample, 331.6 → 119.4 GiB** for
         113,680+28,344 samples at 192²×33 ch (35 ch with
         `--lagrangian-channels 2`: 2.531 → 0.949 MiB/sample, 351.1 → 131.7
-        GiB). `ShardDataset` reassembles in `build_input` channel order and the
+        GiB; 2.78x at 33 ch, 2.67x at 35). Both figures assume 4 leads/issue —
+        dedup's per-sample cost is `inv/leads_per_issue + var`, so a
+        `--require-rain-fraction` split that drops individual leads pays more
+        per sample (at 1 lead/issue it is no better than flat). And the win is
+        FOOTPRINT, not read bandwidth: `train.py` shuffles, so each sample
+        pulls its own per-issue block and reads about what flat reads — an
+        issue-grouped sampler (the one 2.3 also wants for the `--zarr` flow
+        cache) is what would make it a bandwidth win.
+        `ShardDataset` reassembles in `build_input` channel order and the
         sample is bit-for-bit the flat one — the equality tests now run against
         dedup by default, plus a flat-vs-dedup identity test. The split comes
         from `channel_names()` via
@@ -371,6 +379,25 @@ CSI decays. The objective is the biggest lever we own.
         `hash_mode: "structural+sampled"` — seconds on the real store); a
         resume refuses on a difference and points at `--force`, and
         `train.py --shards --zarr` compares it too.
+      * **resume refuses a re-cut shard plan.** `--samples-per-shard` is
+        deliberately not in RECIPE_KEYS (it does not change what a sample
+        means), and the kept-shard guard compared only `n_samples` — so a
+        partial render at `--samples-per-shard 2` resumed at 3 kept shard 3
+        (`first_sample` 6) at offset 12: 3 of 81 samples silently wrong,
+        manifest `complete`, `--verify` clean. The guard now requires the
+        `first_sample` OFFSET to match as well, and a changed
+        `samples_per_shard` refuses the resume outright.
+      * layout is inferred from the shard entries (`inv` present → dedup), not
+        from the top-level key alone, so a dedup manifest that lost its
+        `layout` no longer reads as flat and hand out `(n_var, H, W)` arrays
+        against a 33-channel recipe; a manifest whose key contradicts its
+        entries is refused, and every shard's channel counts are asserted on
+        first open.
+      * the source fingerprint hashes `radar[i]` — every lead, one chunk, no
+        extra I/O — not just `radar[i, 0]`: probing the analysis alone left a
+        rebuild of the `nowcast_at_lead` leads invisible.
+      * an empty index refuses instead of writing a `complete` manifest with
+        zero shards.
       * `index.npy` is REQUIRED by the loader (it used to fall back to zeros —
         a silently wrong stratification, and a wrong issue→row mapping under
         dedup) and is written tmp+rename; `--force` unlinks every
@@ -385,7 +412,7 @@ CSI decays. The objective is the biggest lever we own.
         float16 arithmetic, so the aux/SST/static channels and `lead/120` are
         float16-EXACT; only `tod_sin`/`tod_cos` (≤2.4e-4) and the Lagrangian
         planes quantise.
-      53 tests in `research/tests/test_shard_dataset.py`. CLI, storage table
+      61 tests in `research/tests/test_shard_dataset.py`. CLI, storage table
       and the asusprime `--lagrangian-channels 2` invocation in
       `research/docs/training_run_v2.md`. Open: run it on the real store to
       confirm the ≥3× epoch gate (needs the GPU box). Lane: agent.
