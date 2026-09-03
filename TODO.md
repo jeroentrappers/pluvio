@@ -78,11 +78,35 @@ below every metric. Make eyes unnecessary.
       overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
       Depends: v3 convergence, 1.1
 
-- [ ] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
+- [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
       `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
       overlay bounds, Flutter `Env.radarBounds*`) — same blast radius as the
       trim bug. Lane: agent. Found by review of 1.2.
+      DONE 2026-09-03: `bbox()` split into `envelope()` (superset, the old
+      behaviour, kept as `bbox()`) and `inner_rectangle()` (guaranteed subset),
+      both on `Grid` and `model.geo`, all three taking an explicit `bias` like
+      `grid_latlon()`; all 24 consumers audited in
+      `research/docs/geometry_audit.md`. Most callers use the box correctly, as
+      a fetch/coverage superset. The one real curvature defect is
+      `radar_single_site.py --compare-opera` (#10): it scores a naive regular
+      lat/lon raster over the envelope against OPERA warped onto the TRUE
+      curved grid, so the two sides are misregistered domain-wide — median
+      37.1 km, max 120.4 km, 30.7 km at the domain centre, i.e. 4–9 cells
+      everywhere (43.8–69.3 km median inside the scored 100 km discs), which
+      makes every historical correlation/bias/MAE from that tool
+      uninformative, not merely edge-biased. `verify_radar.py` is NOT affected
+      (it reprojects OPERA onto the same naive box it bins onto, so it is
+      self-consistent). West edge is exactly meridian-aligned by construction
+      (lon_0=0); the east extremum is the NE corner, the deficit is at the SE.
+      Also fixed here: `radar_single_site.py` set `PLUVIO_GRID_N` after its
+      first `model.geo` import, making `--grid-n` a silent no-op. Documented,
+      not fixed: `infer_latest` writes cell-CENTRE bounds that the backend
+      overlay/GridSpec treat as edges → uniform ~2 km half-cell shift, the only
+      live user-visible georeferencing error (belongs to 1.13). Open follow-up:
+      rebin `polar_to_grid` onto the true curved grid (nearest-neighbour /
+      cKDTree against the real cell centres) so `--compare-opera` measures
+      something, then re-run the single-site validation.
 - [ ] **1.11 Env-latched geometry** — `geo.GRID` resolves `PLUVIO_GRID_N` at
       import and `grid_latlon` caches the bias env inside `lru_cache`; later
       changes are silently ignored (mechanism of the 192² incident). Read env

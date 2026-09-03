@@ -13,6 +13,8 @@ copies drifting apart. Both are exercised here.
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pyproj
 import pytest
@@ -147,20 +149,30 @@ def test_inner_rectangle_strictly_smaller_than_envelope():
 
 def test_envelope_and_inner_rectangle_delegate_to_grid_module():
     """geo.envelope()/inner_rectangle() are thin wrappers around
-    geo.grid_latlon() — pin them to the Grid-level equivalents computed from
-    the same zero-bias lat/lon so the two never drift."""
+    geo.grid_latlon() — call the wrappers themselves and pin them to the
+    Grid-level equivalents built from the same zero-bias geometry, so the two
+    implementations can never drift apart."""
     from model.grid import Grid
 
-    grid_env = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS).envelope()
-    grid_inner = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS).inner_rectangle()
-    lat, lon = geo.grid_latlon(bias=_ZERO_BIAS)
-    assert (float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())) == \
-        pytest.approx(grid_env)
-    w = float(lon.min(axis=1).max())
-    e = float(lon.max(axis=1).min())
-    s = float(lat.min(axis=0).max())
-    n = float(lat.max(axis=0).min())
-    assert (w, s, e, n) == pytest.approx(grid_inner)
+    g = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS)
+    assert geo.envelope(bias=_ZERO_BIAS) == pytest.approx(g.envelope())
+    assert geo.inner_rectangle(bias=_ZERO_BIAS) == pytest.approx(g.inner_rectangle())
+
+
+def test_envelope_bias_argument_bypasses_the_environment(monkeypatch):
+    """1.11: envelope()/inner_rectangle()/bbox() take `bias` like
+    grid_latlon() does, so a caller can pin the geometry without touching (or
+    being affected by) PLUVIO_GRID_LATLON_BIAS."""
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "5.0,6.0")
+    assert geo.envelope(bias=_ZERO_BIAS) == pytest.approx(geo.bbox(bias=_ZERO_BIAS))
+    # ...and the env value really would have moved it, so the pin is doing work.
+    shift = np.array([6.0, 5.0, 6.0, 5.0])  # (lon, lat, lon, lat) of (W,S,E,N)
+    np.testing.assert_allclose(
+        np.array(geo.envelope()) - np.array(geo.envelope(bias=_ZERO_BIAS)),
+        shift, atol=1e-4)
+    np.testing.assert_allclose(
+        np.array(geo.inner_rectangle()) - np.array(geo.inner_rectangle(bias=_ZERO_BIAS)),
+        shift, atol=1e-4)
 
 
 def test_resample_last_row_averages_source_rows_693_to_699():
@@ -177,3 +189,29 @@ def test_resample_last_row_averages_source_rows_693_to_699():
 
     last_block_rows = np.arange((th - 1) * yh, th * yh)
     assert np.allclose(out[-1], last_block_rows.mean())
+
+
+# ---------------------------------------------------------------------------
+# 1.10 / #24: geo.GRID is resolved ONCE, at import time, from PLUVIO_GRID_N —
+# so any CLI with a --grid-n flag must set the env BEFORE its first
+# `import model.geo`, or the flag is a silent no-op. radar_single_site.py had
+# the two lines the wrong way round.
+# ---------------------------------------------------------------------------
+
+def _first_line(src: str, needle: str) -> int:
+    for i, line in enumerate(src.splitlines(), start=1):
+        if needle in line and not line.lstrip().startswith("#"):
+            return i
+    raise AssertionError(f"{needle!r} not found")
+
+
+@pytest.mark.parametrize("tool", ["radar_single_site.py", "verify_radar.py"])
+def test_grid_n_env_is_set_before_model_geo_is_imported(tool):
+    src = (pathlib.Path(__file__).resolve().parents[1] / "tools" / tool).read_text()
+    setenv = _first_line(src, 'os.environ.setdefault("PLUVIO_GRID_N"')
+    import_geo = _first_line(src, "from model.geo import")
+    assert setenv < import_geo, (
+        f"{tool}: PLUVIO_GRID_N is set at line {setenv}, after model.geo is "
+        f"imported at line {import_geo} — geo.GRID is already resolved by "
+        "then, so --grid-n would be silently ignored"
+    )

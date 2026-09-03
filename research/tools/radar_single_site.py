@@ -434,6 +434,13 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # MUST precede the first `import model.geo` in this process: geo.GRID is
+    # resolved once, at import time, from PLUVIO_GRID_N (geo.py:65). Setting the
+    # env AFTER that import — as this tool used to, right next to the
+    # polar_to_grid() call — left --grid-n a silent no-op: every run gridded at
+    # the import-time default instead of the requested resolution. Same ordering
+    # as tools/verify_radar.py (1.10 / geometry_audit.md #24).
+    os.environ.setdefault("PLUVIO_GRID_N", str(args.grid_n))
 
     vol = find_volume(args.radar, args.time)
     if vol is None:
@@ -457,8 +464,6 @@ def main(argv=None) -> int:
              np.nanmax(rate), np.nanmean(rate[np.isfinite(rate) & (rate > 0)]) if (rate > 0).any() else 0.0)
 
     from model.geo import GRID, bbox
-    import os
-    os.environ.setdefault("PLUVIO_GRID_N", str(args.grid_n))
     grid = polar_to_grid(rate, az, rng, site, GRID, bbox(), elangle=el,
                          max_beam_m=args.max_beam_m)
     cov = np.isfinite(grid)

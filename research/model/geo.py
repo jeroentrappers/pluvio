@@ -113,7 +113,7 @@ def grid_latlon(bias: tuple[float, float] | None = None) -> tuple[np.ndarray, np
 grid_latlon.cache_clear = _grid_latlon_cached.cache_clear
 
 
-def bbox() -> tuple[float, float, float, float]:
+def bbox(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
     """(west, south, east, north) lon/lat CORNER ENVELOPE of the grid.
 
     This is `envelope()` — see its docstring. The legacy analysis grid is NOT
@@ -134,22 +134,30 @@ def bbox() -> tuple[float, float, float, float]:
     calls it with `bounds=bbox()`) are misaligned by the same curvature
     error; see the audit doc rather than assuming this box is a rectangle.
     Use `inner_rectangle()` where a box must be a guaranteed SUBSET of the
-    true domain instead."""
-    return envelope()
+    true domain instead.
+
+    `bias` is forwarded to `grid_latlon()` — see there; None (the default)
+    means "read `PLUVIO_GRID_LATLON_BIAS` fresh on this call"."""
+    return envelope(bias)
 
 
-def envelope() -> tuple[float, float, float, float]:
-    """(west, south, east, north) lon/lat corner envelope — see `bbox()`."""
-    lat, lon = grid_latlon()
+def envelope(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
+    """(west, south, east, north) lon/lat corner envelope — see `bbox()`.
+
+    `bias` is forwarded to `grid_latlon()`; pass it explicitly to bypass the
+    environment entirely (1.11), exactly as `grid_latlon(bias=...)` does."""
+    lat, lon = grid_latlon(bias)
     return float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())
 
 
-def inner_rectangle() -> tuple[float, float, float, float]:
+def inner_rectangle(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
     """(west, south, east, north) largest lon/lat rectangle guaranteed to be
     covered by every row and every column of the grid — see
     `Grid.inner_rectangle()`. Use this, not `bbox()`/`envelope()`, wherever a
-    lat/lon box must actually be a SUBSET of the true (curved) domain."""
-    lat, lon = grid_latlon()
+    lat/lon box must actually be a SUBSET of the true (curved) domain.
+
+    `bias` is forwarded to `grid_latlon()` — see `envelope()`."""
+    lat, lon = grid_latlon(bias)
     west = float(lon.min(axis=1).max())
     east = float(lon.max(axis=1).min())
     south = float(lat.min(axis=0).max())
