@@ -294,6 +294,13 @@ on different rulers. Transparency is the only credible route to "reference".
       `research/docs/ops_schedule.md` (02:30 UTC, previous day, host paths)
       but NOT yet installed on hetz1 — ops step, nothing left in the tool.
       Lane: ops.
+      First real record (2026-09-02, light rain, max 2 mm/h): forecast lead-0
+      CSI@0.1 0.13, nowcast lead-0 CSI 0.115 with FAR 0.79; lead-0 correlation
+      between the KNMI-derived nowcast field and our composite only 0.07 (no
+      integer shift explains it; forecast kind 0.26). Open: validate on a wet
+      day, cross-check against qc_inputs' registration fit, and confirm the
+      composite slot/units before quoting numbers. Timer installed 02:30 UTC.
+      Buienradar point rows start 2026-09-03 (n_matched 0 for 09-02 is expected).
 - [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
       sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
       FSS numerator/denominator per threshold/scale), tagged with issue_time
