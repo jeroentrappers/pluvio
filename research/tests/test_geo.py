@@ -18,6 +18,7 @@ import pathlib
 import numpy as np
 import pyproj
 import pytest
+
 from model import geo
 from notebooks._lib import ANALYSIS_GRID, _resample
 

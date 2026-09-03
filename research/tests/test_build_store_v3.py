@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
 from tools import build_store_v3 as bsv3
 
 

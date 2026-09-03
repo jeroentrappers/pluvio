@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pytest
 import zarr
+
 from model import geo
 from model.grid import Grid, GridContractError
 
