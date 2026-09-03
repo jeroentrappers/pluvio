@@ -113,10 +113,56 @@ def grid_latlon(bias: tuple[float, float] | None = None) -> tuple[np.ndarray, np
 grid_latlon.cache_clear = _grid_latlon_cached.cache_clear
 
 
-def bbox() -> tuple[float, float, float, float]:
-    """(west, south, east, north) lon/lat envelope of the grid, for WMS GetMap."""
-    lat, lon = grid_latlon()
+def bbox(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
+    """(west, south, east, north) lon/lat CORNER ENVELOPE of the grid.
+
+    This is `envelope()` — see its docstring. The legacy analysis grid is NOT
+    a lat/lon rectangle: its rows/columns curve in the stereographic
+    projection (the south row's latitude varies ~0.475 deg / ~53 km, the
+    east column's longitude ~1.71 deg / ~115 km — see
+    `research/docs/geometry_audit.md`), so this box over-claims the domain
+    near every edge except the single row/column touching its extremum.
+
+    `bbox()` is kept (rather than renamed) because most existing callers use
+    it correctly: as a SUPERSET region for fetching/reprojecting external
+    rasters (fetch_eumetsat_msg, fetch_alaro_24h, build_dem, build_aux_msg),
+    where over-claiming is harmless because every true grid point is still
+    guaranteed to be inside it. Callers that instead treat this box as if it
+    WERE the grid — building an independent regular lat/lon raster over it
+    and then comparing/binning that cell-for-cell against the true curved
+    grid (e.g. `tools.radar_single_site.polar_to_grid` and everything that
+    calls it with `bounds=bbox()`) are misaligned by the same curvature
+    error; see the audit doc rather than assuming this box is a rectangle.
+    Use `inner_rectangle()` where a box must be a guaranteed SUBSET of the
+    true domain instead.
+
+    `bias` is forwarded to `grid_latlon()` — see there; None (the default)
+    means "read `PLUVIO_GRID_LATLON_BIAS` fresh on this call"."""
+    return envelope(bias)
+
+
+def envelope(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
+    """(west, south, east, north) lon/lat corner envelope — see `bbox()`.
+
+    `bias` is forwarded to `grid_latlon()`; pass it explicitly to bypass the
+    environment entirely (1.11), exactly as `grid_latlon(bias=...)` does."""
+    lat, lon = grid_latlon(bias)
     return float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())
+
+
+def inner_rectangle(bias: tuple[float, float] | None = None) -> tuple[float, float, float, float]:
+    """(west, south, east, north) largest lon/lat rectangle guaranteed to be
+    covered by every row and every column of the grid — see
+    `Grid.inner_rectangle()`. Use this, not `bbox()`/`envelope()`, wherever a
+    lat/lon box must actually be a SUBSET of the true (curved) domain.
+
+    `bias` is forwarded to `grid_latlon()` — see `envelope()`."""
+    lat, lon = grid_latlon(bias)
+    west = float(lon.min(axis=1).max())
+    east = float(lon.max(axis=1).min())
+    south = float(lat.min(axis=0).max())
+    north = float(lat.max(axis=0).min())
+    return west, south, east, north
 
 
 @functools.lru_cache(maxsize=1)

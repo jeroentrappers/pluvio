@@ -211,3 +211,128 @@ def test_from_attrs_rejects_newer_grid_version():
     attrs["grid_version"] = 999
     with pytest.raises(GridContractError, match="newer than"):
         Grid.from_attrs(attrs)
+
+
+# ---------------------------------------------------------------------------
+# 1.10: envelope() vs inner_rectangle() — geo.bbox() over-claims the curved
+# stereographic domain. See research/docs/geometry_audit.md.
+# ---------------------------------------------------------------------------
+
+def test_envelope_contains_every_grid_point_legacy():
+    g = Grid.legacy_knmi_analysis((100, 100), bias=(0.0, 0.0))
+    lat, lon = g.latlon()
+    w, s, e, n = g.envelope()
+    assert lon.min() >= w and lon.max() <= e
+    assert lat.min() >= s and lat.max() <= n
+    # tight: the envelope is exactly the corner box of the actual points.
+    assert w == pytest.approx(float(lon.min()))
+    assert e == pytest.approx(float(lon.max()))
+    assert s == pytest.approx(float(lat.min()))
+    assert n == pytest.approx(float(lat.max()))
+
+
+def test_envelope_matches_regular_grid_bounds():
+    """For a regular (EPSG:4326) grid, envelope() == inner_rectangle() ==
+    bounds — the curvature gap only exists for a projected grid."""
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(50, 40))
+    assert g.envelope() == pytest.approx(g.bounds)
+    assert g.inner_rectangle() == pytest.approx(g.bounds)
+
+
+def test_inner_rectangle_contained_by_every_row_and_column_legacy():
+    g = Grid.legacy_knmi_analysis((100, 100), bias=(0.0, 0.0))
+    lat, lon = g.latlon()
+    w, s, e, n = g.inner_rectangle()
+    # every row's own lon range must contain [w, e]
+    assert (lon.min(axis=1) <= w + 1e-6).all()
+    assert (lon.max(axis=1) >= e - 1e-6).all()
+    # every column's own lat range must contain [s, n]
+    assert (lat.min(axis=0) <= s + 1e-6).all()
+    assert (lat.max(axis=0) >= n - 1e-6).all()
+
+
+def test_inner_rectangle_strictly_smaller_than_envelope_for_legacy_grid():
+    """The whole point of 1.10: the legacy grid curves, so the guaranteed
+    subset is strictly smaller than the corner envelope on three of its four
+    edges. The west edge is the exception BY CONSTRUCTION, not by luck:
+    `_LEGACY_PROJ4` has lon_0=0 and both west corners of
+    `_LEGACY_CORNERS_LONLAT` sit at lon 0.0, so the whole west column lies on
+    projected x=0 and shares one exact longitude (see
+    test_documented_km_displacement_at_domain_edges)."""
+    g = Grid.legacy_knmi_analysis((100, 100), bias=(0.0, 0.0))
+    ew, es, ee, en = g.envelope()
+    iw, is_, ie, in_ = g.inner_rectangle()
+    assert iw >= ew
+    assert ie <= ee
+    assert is_ >= es
+    assert in_ <= en
+    assert (ie - iw) < (ee - ew)
+    assert (in_ - is_) < (en - es)
+
+
+def test_documented_km_displacement_at_domain_edges():
+    """The ~53/65/115 km numbers quoted in research/docs/geometry_audit.md,
+    asserted within tolerance so the doc can't silently drift from the
+    geometry it describes."""
+    g = Grid.legacy_knmi_analysis((100, 100), bias=(0.0, 0.0))
+    lat, lon = g.latlon()
+    row_min, row_max = lon.min(axis=1), lon.max(axis=1)
+    col_min, col_max = lat.min(axis=0), lat.max(axis=0)
+    lat0 = float(lat.mean())
+    km_per_deg_lat = 111.0
+    km_per_deg_lon = 111.0 * np.cos(np.radians(lat0))
+
+    north_gap_km = (float(lat.max()) - float(col_max.min())) * km_per_deg_lat
+    south_gap_km = (float(col_min.max()) - float(lat.min())) * km_per_deg_lat
+    east_gap_km = (float(lon.max()) - float(row_max.min())) * km_per_deg_lon
+    west_gap_km = (float(row_min.max()) - float(lon.min())) * km_per_deg_lon
+
+    assert north_gap_km == pytest.approx(64.9, abs=3.0)
+    assert south_gap_km == pytest.approx(52.8, abs=3.0)
+    assert east_gap_km == pytest.approx(115.2, abs=5.0)
+    # Exactly zero, not "approximately": lon_0=0 and both west corners at lon
+    # 0.0 put the entire west column on projected x=0, so every row's own
+    # west-most longitude IS lon.min(). No tolerance needed or wanted here —
+    # any nonzero value means the projection or the corners changed.
+    assert west_gap_km == 0.0
+    assert float(row_min.max()) == float(lon.min())
+    assert (lon[:, 0] == lon[0, 0]).all()
+
+
+def test_documented_naive_regular_grid_displacement():
+    """The domain-wide naive-vs-true numbers quoted in
+    research/docs/geometry_audit.md ("The bug"): the great-circle distance
+    between each cell centre of an independent REGULAR lat/lon raster over the
+    envelope (what `radar_single_site.polar_to_grid` bins onto:
+    col = (lon - w)/(e - w) * wd, i.e. cell centres at half-pixel offsets) and
+    the TRUE curved cell centre at the same (row, col). Pinned so the doc's
+    "4-9 cells everywhere, not an edge effect" claim can't silently drift."""
+    from pyproj import Geod
+
+    g = Grid.legacy_knmi_analysis((100, 100), bias=(0.0, 0.0))
+    lat, lon = g.latlon()
+    w, s, e, n = g.envelope()
+    h, wd = lat.shape
+    naive_lon = w + (np.arange(wd) + 0.5) * (e - w) / wd
+    naive_lat = n - (np.arange(h) + 0.5) * (n - s) / h
+    nlon = np.broadcast_to(naive_lon[None, :], lat.shape)
+    nlat = np.broadcast_to(naive_lat[:, None], lat.shape)
+    _, _, d_m = Geod(ellps="WGS84").inv(nlon, nlat, lon, lat)
+    km = d_m / 1000.0
+
+    assert float(km.min()) == pytest.approx(0.1, abs=0.5)
+    assert float(np.median(km)) == pytest.approx(37.1, abs=1.5)
+    assert float(km.mean()) == pytest.approx(39.4, abs=1.5)
+    assert float(km.max()) == pytest.approx(120.4, abs=3.0)
+    assert km[0, 0] == pytest.approx(5.0, abs=1.0)     # NW
+    assert km[0, -1] == pytest.approx(61.5, abs=2.0)   # NE
+    assert km[-1, 0] == pytest.approx(49.4, abs=2.0)   # SW
+    assert km[-1, -1] == pytest.approx(120.4, abs=3.0)  # SE (= domain max)
+    assert km[50, 50] == pytest.approx(30.7, abs=1.5)  # domain centre
+
+    # The point of the doc paragraph: even the CENTRE is several cells out, so
+    # this is not a boundary effect that a margin could be trimmed away.
+    dy_km, dx_km = 7.7, 7.1  # geo.grid_resolution_km() at 100x100
+    cell_km = (dy_km + dx_km) / 2
+    assert km[50, 50] / cell_km > 3.5
+    assert float(np.median(km)) / cell_km > 4.0
