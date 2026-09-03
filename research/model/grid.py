@@ -117,6 +117,34 @@ def _to_int_tuple(x, n: int, name: str) -> tuple[int, ...]:
     return t
 
 
+def centre_to_edge_bounds(bounds, shape) -> tuple[float, float, float, float]:
+    """(west, south, east, north) footprint EDGES for a CELL-CENTRE bounds
+    envelope + shape — `bounds` inflated by half a cell in each direction.
+
+    The repo's `bounds` are almost always the envelope of the CELL CENTRES of
+    the first/last row/col (`Grid.bounds`, the forecast/nowcast npz `bounds`
+    written by tools/infer_latest.py and tools/produce_forecast.py, the v3
+    zarr store attrs). Anything that interprets bounds as pixel EDGES — a
+    painter, a regrid that bins by fractional pixel index, a raster
+    transform — must inflate them first, or the footprint is half a cell too
+    small on every side (0 error at the centre, up to half a cell at the
+    edges: ~3.5 km on the 100x100 Belgium serving grid).
+
+    Degenerate axes (a shape of 1 along an axis) have no derivable cell size,
+    so the spacing is taken as 0 and that axis's edges equal its centres —
+    the caller must supply a real cell size if it needs one.
+
+    Raises GridContractError on a malformed bounds/shape.
+    """
+    w, s, e, n = _to_float_tuple(bounds, 4, "bounds")
+    h, wid = _to_int_tuple(shape, 2, "shape")
+    if h <= 0 or wid <= 0:
+        raise GridContractError(f"shape must be positive, got {(h, wid)}")
+    dlon = (e - w) / (wid - 1) if wid > 1 else 0.0
+    dlat = (n - s) / (h - 1) if h > 1 else 0.0
+    return (w - dlon / 2, s - dlat / 2, e + dlon / 2, n + dlat / 2)
+
+
 @dataclass(frozen=True)
 class Grid:
     """A raster's georeference: CRS, lon/lat envelope, shape, row order.
@@ -360,12 +388,12 @@ class Grid:
         `bounds` would otherwise be fed to something that paints pixel edges
         (backend cache/colormap/model/verify, web RadarMap, flutter
         OverlayImage) — feeding it the centre-envelope `bounds` instead shifts
-        the painted content by half a cell."""
-        w, s, e, n = self.bounds
-        h, wid = self.shape
-        dlon = (e - w) / (wid - 1) if wid > 1 else 0.0
-        dlat = (n - s) / (h - 1) if h > 1 else 0.0
-        return (w - dlon / 2, s - dlat / 2, e + dlon / 2, n + dlat / 2)
+        the painted content by half a cell.
+
+        Same conversion as the module-level `centre_to_edge_bounds()`, which
+        callers holding loose (bounds, shape) pairs — e.g. an npz's `bounds`
+        on its way into a regrid — should use."""
+        return centre_to_edge_bounds(self.bounds, self.shape)
 
     def transform(self) -> tuple[float, float, float, float]:
         """(x0, y0, dx, dy) north-up geotransform: (x0, y0) is the upper-left

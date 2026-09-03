@@ -38,6 +38,14 @@ exactly the class of silent, plausible-looking error this tool exists to
 measure. ``--qpe-bounds`` stays available as an explicit override and is
 logged when used.
 
+Bounds conventions differ between the two archives and are converted, never
+assumed: a QPE day-store's ``bounds`` attr is OUTER EDGES, while a forecast
+npz's ``bounds`` is the envelope of the CELL CENTRES, so every npz bounds is
+inflated by half a cell with ``model.grid.centre_to_edge_bounds()`` before it
+is binned against the composite or used to locate a station's forecast cell.
+Reading centres as edges shrinks the target footprint by half a cell on every
+side — nothing at the grid centre, up to ~3.5 km at its edges.
+
 The serving grid a forecast run is archived on (a ~100x100 Belgium box) is a
 different grid from the truth grid — about 1/50th of its area — so the
 composite is area-averaged over that window rather than stretched onto it, and
@@ -81,6 +89,7 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from model.grid import centre_to_edge_bounds  # noqa: E402
 from model.metrics import fss_components  # noqa: E402
 from tools import external_baselines as eb  # noqa: E402
 from tools._stats import SampleStats, block_bootstrap  # noqa: E402
@@ -311,7 +320,14 @@ class QpeTruth:
         """Composite frame area-regridded onto ``out_bounds``/``out_hw`` (a
         forecast run's grid), NaN wherever the composite does not cover the
         target cell — including the part of the serving box that lies outside
-        the composite domain entirely."""
+        the composite domain entirely.
+
+        ``out_bounds`` is OUTER EDGES, like the store bounds it is binned
+        against. A forecast npz's ``bounds`` is a CELL-CENTRE envelope, so
+        callers must inflate it with ``model.grid.centre_to_edge_bounds()``
+        first; passing centres straight through makes the target footprint
+        half a cell too small on every side.
+        """
         got = self.frame(valid_epoch)
         if got is None:
             return None
@@ -390,7 +406,12 @@ def score_grid_day(day: dt.date, forecast_archive: pathlib.Path, truth: QpeTruth
             for li, lead in enumerate(fc["leads"]):
                 pred = fc["rates"][li]
                 valid_epoch = fc["issue_epoch"] + lead * 60
-                obs = truth.field_on(valid_epoch, pred.shape, fc["bounds"])
+                # fc["bounds"] is a CELL-CENTRE envelope; field_on bins by
+                # outer edges (see its docstring).
+                obs = truth.field_on(
+                    valid_epoch, pred.shape,
+                    centre_to_edge_bounds(fc["bounds"], pred.shape),
+                )
                 if obs is None:
                     continue
                 valid = np.isfinite(pred) & np.isfinite(obs)
@@ -496,7 +517,15 @@ def _nearest_forecast_point(forecast_index: list[tuple[int, dict]], lat: float, 
     for fc_issue, fc in forecast_index:
         if abs(fc_issue - issue_epoch) > issue_tolerance_s:
             continue
-        w, s, e, n = fc["bounds"]
+        # fc["bounds"] is a CELL-CENTRE envelope, so the run's footprint —
+        # what the containment test and the cell index below both need — runs
+        # half a cell wider in every direction. Flooring the resulting
+        # edge-based fractional index is exactly Grid.cell_of()'s
+        # nearest-cell-centre index, so a station past the outermost cell
+        # centre still resolves to the boundary cell whose footprint holds it
+        # instead of falling outside the run's box.
+        H, W = np.shape(fc["rates"])[-2:]
+        w, s, e, n = centre_to_edge_bounds(fc["bounds"], (H, W))
         if not (w <= lon <= e and s <= lat <= n):
             continue
         for li, lead in enumerate(fc["leads"]):
@@ -506,7 +535,6 @@ def _nearest_forecast_point(forecast_index: list[tuple[int, dict]], lat: float, 
                 continue
             if best_diff is None or diff < best_diff:
                 rate = fc["rates"][li]
-                H, W = rate.shape
                 c = min(max(int((lon - w) / (e - w) * W), 0), W - 1)
                 r = min(max(int((n - lat) / (n - s) * H), 0), H - 1)
                 v = float(rate[r, c])

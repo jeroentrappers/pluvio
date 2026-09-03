@@ -107,8 +107,10 @@ class GridSpec:
     ========================================  ================  ============
 
     So: a CENTRE-bounds array must be inflated with `edge_bounds()` before it
-    is painted or cropped against pixel indices; an EDGE-bounds array must
-    NOT be (`history.point_frames`/`overlay_png` index the observed cube off
+    is painted, cropped against pixel indices, or binned against another
+    grid (`verify.observed_on` inflates the forecast npz's bounds before
+    area-averaging the edge-referenced QPE composite onto it); an
+    EDGE-bounds array must NOT be (`history.point_frames`/`overlay_png` index the observed cube off
     its bounds directly, and `model._lagrangian_blend` inflates only its
     forecast-grid side). Converting the wrong side is the half-cell — at the
     south/east edge, whole-cell — misregistration this class of bug produces.

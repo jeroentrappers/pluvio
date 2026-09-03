@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from pluvio_backend import verify
+from pluvio_backend import cache, verify
 
 QPE_N = 768
 BE_BOUNDS = (1.5, 48.9, 7.5, 52.5)  # tools/forecast_archive.py npz bounds
@@ -234,3 +234,102 @@ def test_regrid_handles_a_target_box_hanging_off_the_source() -> None:
         src, (0.0, 0.0, 4.0, 4.0), (10.0, 0.0, 14.0, 4.0), (2, 2)
     )
     assert np.isnan(away).all()
+
+
+# ---------------------------------------------------------------------------
+# bounds conventions: the forecast npz's `bounds` is a CELL-CENTRE envelope,
+# the QPE store's is OUTER EDGES. `observed_on` has to inflate the former by
+# half a cell before binning, or the target footprint is half a cell too small
+# on every side — nothing at the grid centre, ~3.5 km at the serving box edges.
+# ---------------------------------------------------------------------------
+
+CONV_FC_BOUNDS = (1.5, 48.9, 7.5, 52.5)     # CELL CENTRES, as forecast_archive writes
+CONV_FC_SHAPE = (10, 10)
+CONV_SUB = 6                                 # composite cells per forecast cell
+CONV_QPE_SHAPE = (CONV_FC_SHAPE[0] * CONV_SUB, CONV_FC_SHAPE[1] * CONV_SUB)
+# The composite is laid out on the forecast grid's TRUE footprint, so every
+# forecast cell maps to an exact CONV_SUB x CONV_SUB block of source cells.
+CONV_QPE_BOUNDS = cache.edge_bounds(CONV_FC_BOUNDS, CONV_FC_SHAPE)
+CONV_WET = 8.0
+
+
+def _conv_frame(row: int, col: int) -> np.ndarray:
+    frame = np.zeros(CONV_QPE_SHAPE, dtype="float32")
+    frame[row * CONV_SUB:(row + 1) * CONV_SUB,
+          col * CONV_SUB:(col + 1) * CONV_SUB] = CONV_WET
+    return frame
+
+
+@pytest.mark.parametrize("cell", [(0, 0), (0, 9), (9, 0), (9, 9), (4, 5)])
+def test_observed_on_reads_the_npz_bounds_as_cell_centres(tmp_path, monkeypatch, cell) -> None:
+    """The wet block fills exactly one forecast cell's true footprint, so an
+    honest area mean is CONV_WET there and 0 everywhere else. Under the
+    centre-as-edge defect a boundary cell averages its wet block together
+    with dry neighbours.
+    """
+    row, col = cell
+    _write_qpe_day(tmp_path, VALID, _conv_frame(row, col), bounds=CONV_QPE_BOUNDS)
+    monkeypatch.setattr(verify, "QPE_ROOT", tmp_path)
+
+    obs = verify.observed_on(VALID, CONV_FC_BOUNDS, CONV_FC_SHAPE)
+    assert obs is not None
+    assert np.isfinite(obs).all()
+    assert obs[row, col] == pytest.approx(CONV_WET)
+    assert obs.sum() == pytest.approx(CONV_WET)   # nothing bled into a neighbour
+
+    # The defect, for contrast: the npz bounds fed through as edges.
+    mutant = verify._regrid_block_mean(
+        np.asarray(_conv_frame(row, col)), CONV_QPE_BOUNDS,
+        CONV_FC_BOUNDS, CONV_FC_SHAPE)
+    if row in (0, CONV_FC_SHAPE[0] - 1) or col in (0, CONV_FC_SHAPE[1] - 1):
+        assert mutant[row, col] != pytest.approx(CONV_WET)
+
+
+def test_scores_and_frame_png_use_the_inflated_footprint(tmp_path, monkeypatch) -> None:
+    """End to end: a run that forecasts the wet corner cell exactly scores a
+    perfect CSI. Reading the npz bounds as edges drops the corner truth to a
+    fraction of CONV_WET, so the hit becomes a miss and a false alarm.
+    """
+    row, col = 0, 0
+    _write_qpe_day(tmp_path, VALID, _conv_frame(row, col), bounds=CONV_QPE_BOUNDS)
+    monkeypatch.setattr(verify, "QPE_ROOT", tmp_path)
+
+    issue = VALID - 30 * 60
+    ts = datetime.fromtimestamp(issue, UTC)
+    day_dir = tmp_path / "fc" / f"{ts:%Y/%m/%d}"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    rates = np.zeros((1, *CONV_FC_SHAPE), dtype="float16")
+    rates[0, row, col] = CONV_WET
+    np.savez_compressed(
+        day_dir / f"forecast_{ts:%H%M}.npz",
+        leads=np.asarray([30], dtype="int32"),
+        rates=rates,
+        bounds=np.asarray(CONV_FC_BOUNDS, dtype="float64"),
+    )
+    monkeypatch.setattr(verify, "ARCHIVE_ROOT", tmp_path / "fc")
+
+    out = verify.scores(issue, 30)
+    assert out is not None
+    assert out["n_valid"] == CONV_FC_SHAPE[0] * CONV_FC_SHAPE[1]
+    assert out["csi_1.0"] == pytest.approx(1.0)
+    assert out["mae_mm_h"] == pytest.approx(0.0)
+    assert out["bias_mm_h"] == pytest.approx(0.0)
+
+    # the difference view renders off the same regrid
+    assert verify.frame_png(issue, 30, "observed") is not None
+    assert verify.frame_png(issue, 30, "diff") is not None
+
+
+def test_observed_on_handles_a_single_cell_target_grid(tmp_path, monkeypatch) -> None:
+    """A 1-cell target axis has no derivable cell size, so `cache.edge_bounds`
+    is the identity on that axis (documented there) — no division by zero, and
+    the regrid still averages the whole source box."""
+    one = (1.5, 48.9, 7.5, 52.5)
+    assert cache.edge_bounds(one, (1, 1)) == pytest.approx(one)
+
+    _write_qpe_day(tmp_path, VALID, np.full((12, 12), 3.0, dtype="float32"), bounds=one)
+    monkeypatch.setattr(verify, "QPE_ROOT", tmp_path)
+    obs = verify.observed_on(VALID, one, (1, 1))
+    assert obs is not None
+    assert obs.shape == (1, 1)
+    assert obs[0, 0] == pytest.approx(3.0)
