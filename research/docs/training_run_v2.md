@@ -263,68 +263,179 @@ sample order, same targets, so the loss curve is unchanged.
 `shard_dataset.cast_for_shard`. `ShardDataset` casts straight back to float32,
 so `ShardDataset[i] == cast_for_shard(ZarrCorrectionDataset[i]).astype(f32)`
 bit-for-bit (asserted in `tests/test_shard_dataset.py`, with the identical cast
-applied to both sides). It is *not* bit-equal to the un-quantised float32
-sample: normalised aux (`/255`), the `lead/120` plane and the static scalings
-land off the float16 grid. That is deliberate — the store's own arrays are
-float16 and CUDA training runs under `autocast(float16)`, so the model never
-saw more precision than this. `--dtype float32` renders exact float32 shards
-(asserted bit-equal to the raw dataset) at 2× the disk.
+applied to both sides).
 
-**Safety.** The manifest records the channel recipe (names in `build_input`
-order), grid, sample count, sample-semantics recipe + its hash, a structural
-source-store fingerprint (attrs + array shapes/dtypes + the full `issue_time`
-vector — not a content hash of 14 GB) and a sha256 per shard. `ShardDataset`
-refuses an incomplete store, a mismatched recipe (`--zarr` alongside
-`--shards` re-derives the expected recipe from the store), a bumped
-`zarr_dataset.NORMALISE_VERSION`, a filtered val split, and a
-`--require-rain-fraction` the shards were not rendered with. The render is
-resumable: shards are written `*.tmp` + atomically renamed, the manifest is
-rewritten after each one and only marked `complete` at the end; a rerun keeps
-what is on disk and re-renders the rest (byte-identical to a clean render,
-asserted).
+**How much the cast actually loses** (corrected — the first version of this
+section had the rationale wrong). Almost nothing, because almost every channel
+is *already* a float16 value before the cast: `_normalise` divides float16
+store arrays by python floats, and under numpy's weak scalar promotion that
+arithmetic stays float16 — so the normalised aux (`/255`), SST and static
+channels are float16-exact, not "off the grid" as claimed here before. The
+radar history and the nowcast plane come straight out of a float16 store.
+`lead/120` is exact for every lead the 30-min cadence allows (0.25 / 0.5 /
+0.75 / 1.0). What genuinely quantises is:
+
+* `tod_sin` / `tod_cos` — float32/float64 trig, error ≤ 2.4e-4;
+* with `--lagrangian-channels`, `lagrangian_rate` and `lagrangian_flow_mag` —
+  the warp and the hypot run in float32.
+
+That is deliberate and immaterial: CUDA training runs under
+`autocast(float16)`, so the model never saw more precision than this.
+`--dtype float32` renders exact float32 shards (asserted bit-equal to the raw
+dataset) at 2× the disk.
+
+**Safety.** The manifest records the layout, the channel recipe (names in
+`build_input` order), the grid, the sample count, the sample-semantics recipe +
+its hash, a source-store fingerprint and a sha256 per shard file.
+`ShardDataset` refuses an incomplete store, a missing `index.npy`, a mismatched
+recipe, a filtered val split, and a `--require-rain-fraction` the shards were
+not rendered with. Two of those need care about *when* they hold:
+
+* a bumped `zarr_dataset.NORMALISE_VERSION` is refused **always** — the version
+  is a constant of the build, not a property of the store, so `ShardDataset`
+  compares it itself. (It used to live only in the store-derived recipe, which
+  made the guarantee silently conditional on passing `--zarr`.)
+* the store-derived checks — a changed lead set, an added aux channel, a
+  `--lagrangian-channels` count the shards lack, and the **source-store
+  fingerprint** — need `--zarr` alongside `--shards`, because without a store
+  there is nothing to re-derive them from. Pass `--zarr`. It costs an index-free
+  probe open plus ~64×3 plane reads and it is the only thing standing between a
+  rebuilt store and a run that trains on stale samples.
+
+**The source-store fingerprint** (`shard_dataset.source_store_hash`) is
+structural **plus sampled content**: group attrs, every array's
+name/shape/dtype, the full `issue_time` vector, and the contents of
+`radar[i, 0]`, `truth[i]` and one aux array at 64 evenly spaced issue indices
+(`hash_mode: "structural+sampled"`). The structural half alone was not enough,
+and that was a real hole rather than a theoretical one: a store rebuilt **in
+place** over the same window has the same arrays, shapes, attrs and
+`issue_time`, so it fingerprinted identically — a resumed render then filled in
+only the missing shards from the new values, `index.npy` was rewritten from the
+new index on top, and `ShardDataset` accepted the mixture without a word. A
+resume now refuses on a fingerprint difference and points at `--force`; so does
+`train.py --shards --zarr`. It is a sample, not a proof: an edit confined
+between two probes still slips past.
+
+The render is resumable: shards are written `*.tmp` + atomically renamed (so is
+`index.npy`), the manifest is rewritten after each one and only marked
+`complete` at the end; a rerun verifies the recipe, the layout and the source
+fingerprint, keeps what is on disk and re-renders the rest (byte-identical to a
+clean render, asserted). `--force` discards the existing shards *and* unlinks
+every `*.npy` / `*.npy.tmp` the new plan does not name, so re-rendering a
+smaller sample set does not leave tens of GiB of orphaned shards behind.
+
+**Checkpoint provenance.** A `--shards` run records
+`{"shards": {"root", "recipe_hash", "source_store"}}` in the checkpoint, so
+"which rendered store did this model train on, and from which zarr" is
+answerable from the checkpoint alone. `channel_recipe` comes from the shard
+manifest's own copy of `ds.channel_recipe()`, so a shard-trained checkpoint and
+a zarr-trained one are equal for the same channel layout (asserted).
 
 **Measured throughput** (CPU, single worker, page-cached synthetic store at the
 real shape — 192², 33 channels, 30-min cadence): zarr 41.5 samples/s → shard
 14,737 samples/s (355×). The tiny 24² test store shows 227 → 341k (1500×).
 Both are upper bounds: on the real store the loader is dominated by cold random
 chunk reads (~40 samples/s *aggregate* over 6 workers, which is exactly the 47
-min/epoch), while the shard path is bounded by disk bandwidth — 2.39 MiB/sample
-means a 3× epoch (≥120 samples/s) needs ≥290 MiB/s of random 2.4 MiB reads.
-Trivial on NVMe, fine on SATA SSD, hopeless on a spinning disk. The real
+min/epoch), while the shard path is bounded by disk bandwidth. Flat is 2.391
+MiB/sample, so a 3× epoch (≥120 samples/s) needs ≥290 MiB/s of random 2.4 MiB
+reads. Trivial on NVMe, fine on SATA SSD, hopeless on a spinning disk. The real
 acceptance number needs the GPU box.
 
-**Storage** — 192² × 33 ch float16 = 2.32 MiB per input + 0.07 MiB per target =
-**2.39 MiB/sample** (measured, matches the arithmetic):
+**Dedup's win is footprint, not bandwidth.** Its 0.861 MiB/sample is the number
+on disk, not the number a shuffled loader reads: `train.py` uses
+`shuffle=True`, so an issue's four leads land in different batches (and
+different workers), and each sample pulls its own 2.04 MiB per-issue block —
+~2.4 MiB read per sample, i.e. the same ~287 MiB/s as flat, plus one array fill
+for the reassembly. The per-issue block is only read once per issue if an
+issue-grouped sampler keeps its leads together (the same sampler 2.3 wants for
+the `--zarr` flow cache), or if the page cache happens to still hold it. So:
+dedup to make the render FIT, and an issue-grouped sampler if the ≥3× gate
+turns out to be bandwidth-bound on the box.
 
-| split | samples | size |
-|---|---|---|
-| train | 113,680 | 265 GiB |
-| val | 28,344 | 66 GiB |
-| both | 142,024 | **332 GiB** (356 GB) |
+**Storage — per-issue dedup is the layout, not a follow-up.** The flat layout
+does not fit the box: asusprime's `/home` was measured at **194 G** free at the
+c15 relay (`docs/c17_static_experiment_runbook.md`), against 332 GiB for both
+splits flat. So `--layout dedup` is the default.
 
-If that does not fit: render `--split train` only and leave val on the zarr
-(val is forward-only and 20% of the samples), or follow up with per-issue
-dedup — 29 of the 33 channels are lead-invariant, so storing them once per
-issue and expanding the 4 leads at read time is ~2.9× smaller for one small
-per-sample copy.
+29 of the 33 channels `build_input` writes are a function of the **issue**, not
+of the lead — the 6-frame radar history stack, the per-issue aux planes and the
+statics. Only `nowcast_at_lead`, `lead_over_120`, `tod_sin` and `tod_cos` change
+between an issue's four leads (and, with the Lagrangian planes on,
+`lagrangian_rate` does while `lagrangian_flow_mag` does not: it is a per-issue
+signal). Dedup stores the invariant block once per issue in `inv_*.npy` and the
+lead-dependent planes plus the target per sample in `x_*.npy` / `y_*.npy`;
+`ShardDataset` reassembles the full `(C, H, W)` input in `build_input` channel
+order on read, for one array fill per sample. The reassembled sample is
+**bit-for-bit** the flat one — the equality tests run against the dedup layout
+by default now, and a separate test asserts flat and dedup hand out identical
+tensors, including `--lagrangian-channels 2`.
+
+Which channels are invariant is derived from `channel_names()`
+(`zarr_dataset.lead_varying_channel_indices`), never hard-coded, and the
+renderer **verifies** it per issue: it builds the full input at each of the
+issue's leads and refuses to write if a channel it was about to store once is
+not identical across them. The manifest records the layout and the split.
+
+Measured, at 192² float16 (input + `(1,H,W)` target, 4 leads/issue):
+
+| layout | channels | MiB/sample | train 113,680 | val 28,344 | both 142,024 |
+|---|---|---|---|---|---|
+| flat | 33 | 2.391 | 265.4 GiB | 66.2 GiB | **331.6 GiB** |
+| dedup | 33 (29 per issue) | **0.861** | 95.6 GiB | 23.8 GiB | **119.4 GiB** |
+| flat | 35 (`--lagrangian-channels 2`) | 2.531 | 281.0 GiB | 70.1 GiB | 351.1 GiB |
+| dedup | 35 (30 per issue) | **0.949** | 105.4 GiB | 26.3 GiB | **131.7 GiB** |
+
+2.78× smaller at 33 channels (2.67× at 35 — the extra planes are one invariant
+and one varying, so the varying half grows faster), and 131.7 GiB of 194 G
+leaves room for the checkpoints. `--layout flat` is still there (one branch in
+each file) for a box with the disk to spare and no interest in the per-sample
+copy.
+
+Both MiB/sample columns assume **4 leads per issue**, which is what the current
+store gives every fully-covered issue. Dedup's per-sample cost is
+`inv/leads_per_issue + var`, so it degrades as that ratio falls: a
+`--require-rain-fraction` filter drops individual (issue, lead) samples while
+the issue still pays for its whole invariant block, and at 1 lead/issue dedup
+is 2.11 + 0.42 = 2.53 MiB/sample — no better than flat. Check
+`n_samples / sum(n_issues)` in the manifest after rendering a filtered split.
+
+Fallbacks if even that does not fit, in order: render `--split train` only and
+leave val on the zarr (val is forward-only and 20% of the samples), then
+`--max-samples` to cap the rendered set per split. Note what `--max-samples`
+is: a cap on what gets RENDERED, recorded in the recipe and hashed, so a train
+run cannot mistake a capped store for the full one — it is not a check against
+the full store's sample count, and nothing detects "the store grew since".
 
 **asusprime invocation** (python 3.10 / zarr 2.x there; the renderer only reads
-the store, so no `zarr_format` concern):
+the store, so no `zarr_format` concern). This is the 2.3 ablation render — the
+Lagrangian planes baked in, so the flow estimate is paid once per issue here
+instead of every epoch:
 
 ```
 cd ~/pluvio_v2/research
+df -h ~/pluvio_v2/data              # need ~132 GiB for both splits (dedup, 35 ch)
 python -m tools.render_shards \
     --zarr ~/pluvio_v2/data/timeseries_v3.zarr \
-    --out  ~/pluvio_v2/data/shards_v3 \
-    --split train,val --workers 6 --dtype float16 -v
-# then, same flags as the zarr run apart from the dataset source:
+    --out  ~/pluvio_v2/data/shards_v3_lag2 \
+    --split train,val --workers 6 --dtype float16 \
+    --layout dedup --lagrangian-channels 2 -v
+# then, same flags as the zarr run apart from the dataset source.
+# --zarr is what enables the store-derived recipe + source-fingerprint checks:
 python -m model.train \
-    --shards ~/pluvio_v2/data/shards_v3 \
+    --shards ~/pluvio_v2/data/shards_v3_lag2 \
     --zarr   ~/pluvio_v2/data/timeseries_v3.zarr \
+    --lagrangian-channels 2 \
     --epochs 300 --batch-size 8 --base-channels 64 --num-workers 6
 ```
 
-Check free space first (`df -h ~/pluvio_v2/data`) — 332 GiB. The render is
-resumable, so a disk-full or a dropped session is recoverable by re-running the
-same command. Keep `--val-frac` identical between render and train: it sets the
-split boundary, and train.py compares the boundary recorded in both manifests.
+The 0-channel arm of the ablation is a second render (`--out
+.../shards_v3_lag0`, no `--lagrangian-channels`) — the count is part of the
+recipe, so it cannot be trained out of the lag2 store, and `--force`-ing one
+store into the other would throw away the render.
+
+The render is resumable, so a disk-full or a dropped session is recoverable by
+re-running the same command. Two things not to do between render and train:
+rebuild `timeseries_v3.zarr` in place (the fingerprint will refuse the resume
+and the train run — correctly; re-render with `--force`), and change
+`--val-frac`, which sets the split boundary that train.py compares against the
+boundary recorded in both manifests.
