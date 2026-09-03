@@ -16,13 +16,35 @@ Two things are scored, on the same truth, so they're comparable:
       against the *same* truth values (not a second, independently-rounded
       lookup) via ``external_baselines.score_against_truth``.
 
-Every scored day appends one JSON record to ``<out_root>/scoreboard/
-YYYY/MM/DD.json`` (permanent, like every other archive in this repo — see
+Every scored day appends one JSON record to ``<out_root>/YYYY/MM/DD.json``
+(permanent, like every other archive in this repo — see
 research/docs/ops_schedule.md) and, when ``--html`` is given, renders a
 static page: one table per lead with model rows and bootstrap CI columns, an
 "events yesterday" adequacy line, and a 30-day trend table read back from the
 archive. Honest by construction: every table carries its own ``n`` and an
 inadequate day is labelled, never silently dropped.
+
+Truth geometry is never assumed. ``tools/qpe_archive.py`` composites onto the
+research analysis grid — ``model.geo.bbox()`` used as EDGE bounds by
+``tools/radar_single_site.polar_to_grid`` — at whatever ``PLUVIO_GRID_N`` the
+producer ran with (768 in production, ~1 km). This tool therefore reads the
+store's own ``bounds`` attr when the store carries one and otherwise derives
+it from ``model.grid.Grid.legacy_knmi_analysis(<store array shape>)``, the
+same single source ``model.geo`` wraps; if neither is available it refuses to
+score rather than scoring against a guessed georeference (see
+``QpeGeometryError``). The serving grid a forecast run is archived on (a
+~100x100 Belgium box) is NOT the truth grid, and it is not fully contained in
+it either, so the composite is area-regridded onto each run's grid with the
+non-overlapping part left NaN — i.e. unobserved, hence excluded by the
+validity mask, never scored as observed-dry.
+
+Day boundary: the forecast archive is keyed by ISSUE time while Buienradar's
+archive is keyed by VALID time, so the point join loads the previous UTC day's
+forecast issues too (a row valid 00:05 with a 30-min lead was issued at 23:35
+the day before). The grid path stays keyed by issue day — the leads of a
+23:xx run that fall after midnight are still scored, against the next day's
+truth zarr, and the previous day's late runs are scored on the previous day's
+record, so every run is scored exactly once.
 
 Usage (production defaults from ops_schedule.md — the storagebox mount):
 
@@ -60,12 +82,13 @@ DEFAULT_QPE_ROOT = "/mnt/storagebox/qpe"
 DEFAULT_EXTERNAL_ARCHIVE = "/mnt/storagebox/external_baselines"
 DEFAULT_OUT_ROOT = "/mnt/storagebox/scoreboard"
 
-# Same fixed research-grid bounds QPE day-zarrs carry no attrs for (see
-# backend/src/pluvio_backend/verify.py QPE_BOUNDS — same product, same
-# convention, kept here rather than imported so this tool has no backend
-# dependency).
-DEFAULT_QPE_BOUNDS = (1.5, 48.9, 7.5, 52.5)
 QPE_SLOTS_PER_DAY = 288
+QPE_SLOT_S = 86400 // QPE_SLOTS_PER_DAY          # 300 s, matches qpe_archive
+
+# Fraction of a target cell's source footprint that must be covered by finite
+# composite cells before the cell counts as observed. Below it the regridded
+# value is NaN — unobserved, not dry.
+DEFAULT_MIN_BLOCK_COVERAGE = 0.5
 
 DEFAULT_KINDS = ("forecast", "nowcast")
 DEFAULT_THRESHOLDS = (0.1, 1.0)
@@ -105,82 +128,215 @@ def load_forecast_npz(path: pathlib.Path) -> dict:
 # ─────────────────────────────────────────────────────────────────── truth
 
 
-def _area_resample(a: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
-    """Block-mean resample (downsampling only), no cv2 dependency — mirrors
-    ``backend/src/pluvio_backend/verify.py``'s helper of the same name."""
-    H, W = a.shape
-    oh, ow = out_hw
-    ri = np.clip(np.linspace(0, H, oh + 1).astype(int), 0, H)
-    ci = np.clip(np.linspace(0, W, ow + 1).astype(int), 0, W)
-    rows = np.add.reduceat(a, ri[:-1], axis=0) / np.maximum(np.diff(ri), 1)[:, None]
-    return np.add.reduceat(rows, ci[:-1], axis=1) / np.maximum(np.diff(ci), 1)[None, :]
+class QpeGeometryError(RuntimeError):
+    """A QPE day-zarr whose georeference cannot be established.
+
+    Scoring against a guessed georeference is worse than not scoring: it
+    produces plausible-looking numbers for the wrong place (measured during
+    review: truth for Brussels read 237 km away). Raised instead.
+    """
+
+
+def _legacy_analysis_bounds(shape: tuple[int, int]) -> tuple[float, float, float, float]:
+    """(west, south, east, north) of the research analysis grid at ``shape``,
+    from ``model.grid`` — the same single source ``model.geo.bbox()`` wraps and
+    the value ``tools/qpe_archive.py`` passes to ``polar_to_grid`` as EDGE
+    bounds. Shape-independent in practice (the legacy grid's lat/lon envelope
+    is set by its projected-extent corners, which every resolution shares) but
+    taken from the store's real shape anyway, so a future non-legacy store
+    cannot inherit these numbers by accident."""
+    from model.grid import Grid
+
+    return tuple(float(x) for x in Grid.legacy_knmi_analysis(tuple(shape)).bounds)
+
+
+def _attrs_bounds(attrs) -> tuple[float, float, float, float] | None:
+    """(west, south, east, north) from a store's attrs, or None if it carries
+    no usable bounds. ``tools/wide_archive.py`` writes a plain ``bounds`` attr;
+    stores built through ``model.grid.Grid.to_attrs()`` write ``grid_bounds``."""
+    for key in ("bounds", "grid_bounds"):
+        raw = attrs.get(key)
+        if raw is None:
+            continue
+        try:
+            vals = tuple(float(x) for x in raw)
+        except (TypeError, ValueError):
+            LOG.warning("ignoring unparseable %r attr %r", key, raw)
+            continue
+        if len(vals) == 4 and vals[0] < vals[2] and vals[1] < vals[3]:
+            return vals
+        LOG.warning("ignoring implausible %r attr %r", key, raw)
+    return None
+
+
+def qpe_store_bounds(attrs, shape: tuple[int, int]) -> tuple[float, float, float, float]:
+    """Georeference one QPE day-zarr: its own ``bounds`` attr if it has one,
+    else the analysis-grid derivation for the store's array shape. Raises
+    ``QpeGeometryError`` if neither is available."""
+    from_attrs = _attrs_bounds(dict(attrs or {}))
+    if from_attrs is not None:
+        return from_attrs
+    try:
+        return _legacy_analysis_bounds(shape)
+    except Exception as exc:
+        raise QpeGeometryError(
+            f"QPE store carries no bounds attr and the analysis-grid derivation "
+            f"for shape {tuple(shape)} failed ({exc}) — refusing to score against "
+            "a guessed georeference"
+        ) from exc
+
+
+def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw: tuple[int, int],
+                       min_coverage: float = DEFAULT_MIN_BLOCK_COVERAGE) -> np.ndarray:
+    """Area-average ``src`` (a regular lat/lon field, row 0 = north, both
+    boxes EDGE-referenced) onto ``out_bounds``/``out_hw``.
+
+    NaN-propagating on purpose. A target cell whose source footprint is less
+    than ``min_coverage`` finite — including one that falls wholly outside the
+    source domain, which the serving box does south of the composite — comes
+    back NaN, so the caller's ``isfinite`` mask means "observed" rather than
+    being vacuously true. ``np.nan_to_num`` before the block mean (the earlier
+    behaviour) scored every uncovered composite cell as observed-dry.
+    """
+    H, W = src.shape
+    qw, qs, qe, qn = (float(x) for x in src_bounds)
+    ow_, os_, oe_, on_ = (float(x) for x in out_bounds)
+    oh, owd = int(out_hw[0]), int(out_hw[1])
+
+    # Source index (not cell-centre) edges of every target cell.
+    r_f = (qn - np.linspace(on_, os_, oh + 1)) / (qn - qs) * H     # increasing
+    c_f = (np.linspace(ow_, oe_, owd + 1) - qw) / (qe - qw) * W
+    r_e = np.rint(r_f).astype("int64")
+    c_e = np.rint(c_f).astype("int64")
+    r0, r1 = np.clip(r_e[:-1], 0, H), np.clip(r_e[1:], 0, H)
+    c0, c1 = np.clip(c_e[:-1], 0, W), np.clip(c_e[1:], 0, W)
+    # Target finer than the source: an empty-but-inside span takes the single
+    # source cell that contains it (a wholly-outside span stays empty -> NaN).
+    for lo, hi, f_lo, f_hi, limit in ((r0, r1, r_f[:-1], r_f[1:], H),
+                                      (c0, c1, c_f[:-1], c_f[1:], W)):
+        thin = (hi <= lo) & (f_lo < limit) & (f_hi > 0)
+        lo[thin] = np.minimum(lo[thin], limit - 1)
+        hi[thin] = lo[thin] + 1
+
+    finite = np.isfinite(src)
+    sums = np.zeros((H + 1, W + 1), "float64")
+    counts = np.zeros((H + 1, W + 1), "float64")
+    sums[1:, 1:] = np.where(finite, src, 0.0).cumsum(0).cumsum(1)
+    counts[1:, 1:] = finite.astype("float64").cumsum(0).cumsum(1)
+
+    def _box(a):
+        return (a[np.ix_(r1, c1)] - a[np.ix_(r0, c1)]
+                - a[np.ix_(r1, c0)] + a[np.ix_(r0, c0)])
+
+    total, count = _box(sums), _box(counts)
+    size = ((r1 - r0)[:, None] * (c1 - c0)[None, :]).astype("float64")
+    covered = (size > 0) & (count >= min_coverage * size) & (count > 0)
+    return np.where(covered, total / np.maximum(count, 1.0), np.nan).astype("float32")
 
 
 class QpeTruth:
-    """Composite truth reader over ``tools/qpe_archive.py``'s day-zarrs, with
-    a tiny same-process cache (at most a handful of days touched by one
-    nightly run)."""
+    """Composite truth reader over ``tools/qpe_archive.py``'s day-zarrs.
 
-    def __init__(self, root: pathlib.Path, bounds=DEFAULT_QPE_BOUNDS):
+    Georeference comes from each store (attr, else the analysis-grid
+    derivation for its array shape — see ``qpe_store_bounds``); pass
+    ``bounds`` only to override that, e.g. for a synthetic store in a test.
+
+    Frames are memoised by (day, slot): the nightly point join asks for the
+    same slot once per station row (~138k rows/day over 20 stations), and a
+    768x768 f16 read costs ~5.5 ms — 12 minutes of pure re-reads without the
+    cache.
+    """
+
+    def __init__(self, root: pathlib.Path, bounds=None,
+                 min_block_coverage: float = DEFAULT_MIN_BLOCK_COVERAGE):
         self.root = pathlib.Path(root)
-        self.bounds = tuple(float(x) for x in bounds)
-        self._slots: dict[dt.date, "np.ndarray | None"] = {}
+        self.bounds_override = (tuple(float(x) for x in bounds)
+                                if bounds is not None else None)
+        self.min_block_coverage = float(min_block_coverage)
+        self._days: dict[dt.date, tuple | None] = {}
+        self._frames: dict[tuple[dt.date, int], "np.ndarray | None"] = {}
+        self.resolved_bounds: tuple[float, float, float, float] | None = None
+        self.n_slot_wraps = 0
 
-    def _day_slots(self, day: dt.date):
-        if day not in self._slots:
+    def _day_store(self, day: dt.date):
+        """``(rate_array, bounds)`` for one day, or ``None`` if not archived."""
+        if day not in self._days:
             zp = self.root / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}.zarr"
+            entry = None
             if zp.exists():
                 import zarr
                 root = zarr.open_group(str(zp), mode="r")
-                self._slots[day] = root["rate"] if "rate" in set(root.array_keys()) else None
-            else:
-                self._slots[day] = None
-        return self._slots[day]
+                if "rate" in set(root.array_keys()):
+                    arr = root["rate"]
+                    bounds = (self.bounds_override
+                              or qpe_store_bounds(root.attrs, tuple(arr.shape[-2:])))
+                    entry = (arr, bounds)
+                    self.resolved_bounds = bounds
+            self._days[day] = entry
+        return self._days[day]
 
-    def field(self, valid_epoch: int) -> np.ndarray | None:
-        """Full (H, W) composite frame at ``valid_epoch``, or ``None`` if the
-        day/slot isn't archived."""
-        day = dt.datetime.fromtimestamp(valid_epoch, dt.UTC).date()
-        arr = self._day_slots(day)
-        if arr is None:
-            return None
-        slot = round((valid_epoch % 86400) / 300)
-        if not 0 <= slot < arr.shape[0]:
-            return None
-        rate = np.asarray(arr[slot], dtype="float32")
-        return rate if np.isfinite(rate).any() else None
+    def _slot_of(self, valid_epoch: int) -> tuple[dt.date, int]:
+        """(day, slot) of the 5-min slot nearest ``valid_epoch``. Derived from
+        the SNAPPED epoch, so a valid time in the last 150 s of a day rounds
+        into the next day's slot 0 instead of off the end of this day's
+        array (which silently dropped those samples)."""
+        snapped = int(round(valid_epoch / QPE_SLOT_S)) * QPE_SLOT_S
+        day = dt.datetime.fromtimestamp(snapped, dt.UTC).date()
+        if day != dt.datetime.fromtimestamp(valid_epoch, dt.UTC).date():
+            self.n_slot_wraps += 1
+        return day, (snapped % 86400) // QPE_SLOT_S
 
-    def field_on(self, valid_epoch: int, out_hw: tuple[int, int], out_bounds) -> np.ndarray | None:
-        """Composite frame resampled onto ``out_bounds``/``out_hw`` (a
-        forecast run's grid), NaN outside the composite's own domain."""
-        rate = self.field(valid_epoch)
+    def frame(self, valid_epoch: int):
+        """``(rate, bounds)`` for the slot nearest ``valid_epoch``, or ``None``
+        if that day/slot isn't archived or carries no finite cell."""
+        day, slot = self._slot_of(valid_epoch)
+        key = (day, slot)
+        if key not in self._frames:
+            store = self._day_store(day)
+            rate = None
+            if store is not None:
+                arr, _bounds = store
+                if 0 <= slot < arr.shape[0]:
+                    got = np.asarray(arr[slot], dtype="float32")
+                    rate = got if np.isfinite(got).any() else None
+            self._frames[key] = rate
+        rate = self._frames[key]
         if rate is None:
             return None
-        qb = self.bounds
-        H, W = rate.shape
-        w, s, e, n = out_bounds
-        c0 = int((w - qb[0]) / (qb[2] - qb[0]) * W)
-        c1 = int((e - qb[0]) / (qb[2] - qb[0]) * W)
-        r0 = int((qb[3] - n) / (qb[3] - qb[1]) * H)
-        r1 = int((qb[3] - s) / (qb[3] - qb[1]) * H)
-        if not (0 <= c0 < c1 <= W and 0 <= r0 < r1 <= H):
+        return rate, self._days[day][1]
+
+    def field(self, valid_epoch: int) -> np.ndarray | None:
+        """Full (H, W) composite frame at ``valid_epoch``, or ``None``."""
+        got = self.frame(valid_epoch)
+        return None if got is None else got[0]
+
+    def field_on(self, valid_epoch: int, out_hw: tuple[int, int],
+                 out_bounds) -> np.ndarray | None:
+        """Composite frame area-regridded onto ``out_bounds``/``out_hw`` (a
+        forecast run's grid), NaN wherever the composite does not cover the
+        target cell — including the part of the serving box that lies outside
+        the composite domain entirely."""
+        got = self.frame(valid_epoch)
+        if got is None:
             return None
-        return _area_resample(np.nan_to_num(rate[r0:r1, c0:c1]), out_hw)
+        rate, bounds = got
+        out = _regrid_block_mean(rate, bounds, out_bounds, out_hw,
+                                 min_coverage=self.min_block_coverage)
+        return out if np.isfinite(out).any() else None
 
     def point(self, lat: float, lon: float, valid_epoch: int) -> float | None:
         """Nearest-cell composite value at a lat/lon, or ``None`` if outside
         the domain / not archived / not finite."""
-        rate = self.field(valid_epoch)
-        if rate is None:
+        got = self.frame(valid_epoch)
+        if got is None:
             return None
-        qb = self.bounds
+        rate, bounds = got
         H, W = rate.shape
-        w, s, e, n = qb
+        w, s, e, n = bounds
         if not (w <= lon <= e and s <= lat <= n):
             return None
-        c = int((lon - w) / (e - w) * W)
-        r = int((n - lat) / (n - s) * H)
-        c, r = min(max(c, 0), W - 1), min(max(r, 0), H - 1)
+        c = min(max(int((lon - w) / (e - w) * W), 0), W - 1)
+        r = min(max(int((n - lat) / (n - s) * H), 0), H - 1)
         v = float(rate[r, c])
         return v if np.isfinite(v) else None
 
@@ -268,23 +424,51 @@ def score_grid_day(day: dt.date, forecast_archive: pathlib.Path, truth: QpeTruth
             results[kind][str(lead)] = st.aggregate()
 
     if bootstrap_cfg:
-        for lead in leads_seen:
-            by_kind_stats = {k: stats[k][lead] for k in kinds if lead in stats[k] and len(stats[k][lead])}
-            if len(by_kind_stats) < 1:
+        _merge_bootstrap_cis(results, stats, kinds, leads_seen, thresholds, bootstrap_cfg)
+
+    n_events = sum(1 for v in issue_event_max.values() if v > adequacy_threshold_mm_h)
+    return {"results": results, "n_issues": dict(n_issues), "n_events": n_events}
+
+
+def _merge_bootstrap_cis(results: dict, stats: dict, kinds, leads_seen, thresholds,
+                         bootstrap_cfg: dict) -> None:
+    """Merge block-bootstrap CIs onto the per-lead rows in place.
+
+    ``block_bootstrap`` is a *paired* draw: it requires every model in the
+    dict to carry the same issue-time sequence in the same order, and raises
+    otherwise. ``forecast`` and ``nowcast`` come from separate producers with
+    separate issue cadences, so the default ``--kinds forecast,nowcast`` would
+    always raise. Kinds are therefore grouped by their issue-time sequence:
+    kinds that really were scored on identical samples still get one paired
+    draw (and the paired difference vs ``reference_model``), and kinds that
+    were not each get their own single-model draw instead of nothing.
+    """
+    for lead in leads_seen:
+        groups: dict[tuple[int, ...], dict[str, SampleStats]] = defaultdict(dict)
+        for kind in kinds:
+            st = stats[kind].get(lead)
+            if st is None or len(st) == 0:
                 continue
-            boot = block_bootstrap(by_kind_stats, blocks_h=float(bootstrap_cfg["blocks_h"]),
-                                  n_boot=int(bootstrap_cfg["n"]), ci=float(bootstrap_cfg["ci"]),
-                                  seed=int(bootstrap_cfg["seed"]),
-                                  ref_model=bootstrap_cfg.get("reference_model"))
+            groups[tuple(int(e) for e in st.issue_epochs())][kind] = st
+        ref = bootstrap_cfg.get("reference_model")
+        if len(groups) > 1 and ref is not None:
+            LOG.warning("lead %s: kinds %s have differing issue-time sequences — "
+                        "bootstrapping each group separately, so a paired difference "
+                        "vs %r is only reported within its own group",
+                        lead, sorted(k for g in groups.values() for k in g), ref)
+        for by_kind_stats in groups.values():
+            boot = block_bootstrap(
+                by_kind_stats, blocks_h=float(bootstrap_cfg["blocks_h"]),
+                n_boot=int(bootstrap_cfg["n"]), ci=float(bootstrap_cfg["ci"]),
+                seed=int(bootstrap_cfg["seed"]),
+                ref_model=ref if ref in by_kind_stats else None)
             ci_by_kind = boot.get("ci", {}) if boot else {}
-            for kind, row_by_thr in ((k, results[k].get(str(lead))) for k in by_kind_stats):
+            for kind in by_kind_stats:
+                row_by_thr = results.get(kind, {}).get(str(lead))
                 if row_by_thr is None:
                     continue
                 for thr in thresholds:
                     row_by_thr[str(thr)]["ci"] = ci_by_kind.get(kind, {}).get(str(thr))
-
-    n_events = sum(1 for v in issue_event_max.values() if v > adequacy_threshold_mm_h)
-    return {"results": results, "n_issues": dict(n_issues), "n_events": n_events}
 
 
 # ───────────────────────────────────────────────────────────── point scoring
@@ -330,16 +514,26 @@ def score_points_day(day: dt.date, external_archive: pathlib.Path, forecast_arch
     """Buienradar vs our own forecast, scored at the SAME station points and
     the SAME truth values (a single truth lookup feeds both series), for a
     like-for-like comparison. Returns
-    ``{"buienradar": {...}, "ours": {...}, "n_matched": int}``."""
+    ``{"buienradar": {...}, "ours": {...}, "n_matched": int}``.
+
+    The external archive is keyed by VALID time and the forecast archive by
+    ISSUE time, so the previous UTC day's issues are loaded too — without them
+    every row valid before ~02:00 (issued the day before) loses its "ours"
+    counterpart and drops out of both series.
+    """
     rows = eb.load_archive(external_archive, day, source_name=source_name)
     forecast_index = [(issue_epoch, load_forecast_npz(p))
-                      for issue_epoch, p in iter_forecast_issues(forecast_archive, day, kind)]
+                      for load_day in (day - dt.timedelta(days=1), day)
+                      for issue_epoch, p in iter_forecast_issues(forecast_archive, load_day, kind)]
 
-    truth_by_key: dict[tuple, float] = {}
+    truth_by_key: dict[tuple[float, float, int], float] = {}
     matched: list[dict] = []
     for row in rows:
-        key = (row["station"], row["valid_epoch"])
-        t = truth.point(row["lat"], row["lon"], row["valid_epoch"])
+        key = (row["lat"], row["lon"], row["valid_epoch"])
+        if key in truth_by_key:
+            t = truth_by_key[key]
+        else:
+            t = truth.point(row["lat"], row["lon"], row["valid_epoch"])
         if t is None:
             continue
         ours = _nearest_forecast_point(forecast_index, row["lat"], row["lon"],
@@ -354,15 +548,12 @@ def score_points_day(day: dt.date, external_archive: pathlib.Path, forecast_arch
                 "lead_min": m["lead_min"], "mm_per_h": m[value_key]} for m in matched]
 
     def _truth_lookup(lat, lon, valid_epoch):
-        # Every argument here came straight out of `matched`, keyed exactly
-        # as `truth_by_key` was built, so this can never diverge from the
-        # value the buienradar/ours split used — the two series' scores are
-        # therefore built from bit-identical truth, not two lookups that
-        # happen to usually agree.
-        for m in matched:
-            if m["lat"] == lat and m["lon"] == lon and m["valid_epoch"] == valid_epoch:
-                return m["truth"]
-        return None
+        # Both series read the SAME dict, keyed exactly as it was built while
+        # `matched` was assembled, so the buienradar and "ours" rows can never
+        # be scored against two independently-rounded truth lookups that
+        # merely usually agree. A second `truth.point(...)` call here would be
+        # the bug this indirection exists to prevent.
+        return truth_by_key.get((lat, lon, valid_epoch))
 
     buienradar_scores = eb.score_against_truth(_rows_of("mm_per_h"), _truth_lookup, thresholds=thresholds)
     ours_scores = eb.score_against_truth(_rows_of("ours_mm_per_h"), _truth_lookup, thresholds=thresholds)
@@ -397,7 +588,9 @@ def _nan_to_null(obj):
 
 
 def archive_path(out_root: pathlib.Path, day: dt.date) -> pathlib.Path:
-    return pathlib.Path(out_root) / "scoreboard" / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}.json"
+    """``<out_root>/YYYY/MM/DD.json``. ``out_root`` is already the scoreboard
+    root (``/mnt/storagebox/scoreboard``), so no extra ``scoreboard/`` level."""
+    return pathlib.Path(out_root) / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}.json"
 
 
 def write_record(record: dict, out_root: pathlib.Path) -> pathlib.Path:
@@ -556,11 +749,18 @@ truth &gt; {adq.get('threshold_mm_h')} mm/h (min {adq.get('min_events')} require
 
 
 def run(day: dt.date, *, forecast_archive: pathlib.Path, qpe_root: pathlib.Path,
-       external_archive: pathlib.Path, out_root: pathlib.Path, kinds=DEFAULT_KINDS,
+       external_archive: pathlib.Path, kinds=DEFAULT_KINDS,
        point_kind: str = "forecast", thresholds=DEFAULT_THRESHOLDS,
        fss_scales=DEFAULT_FSS_SCALES, point_thresholds=DEFAULT_POINT_THRESHOLDS,
-       qpe_bounds=DEFAULT_QPE_BOUNDS, bootstrap_cfg: dict | None = None,
+       qpe_bounds=None, bootstrap_cfg: dict | None = None,
        adequacy_threshold_mm_h: float = 5.0, adequacy_min_events: int = 5) -> dict:
+    """Score one UTC day and return the record. Writing it is the caller's job
+    (``write_record``), so this stays a pure function of the archives.
+
+    ``qpe_bounds`` overrides the truth store's own georeference — leave it
+    ``None`` in production so the store's attr (or the analysis-grid
+    derivation for its shape) is used.
+    """
     truth = QpeTruth(qpe_root, bounds=qpe_bounds)
 
     grid = score_grid_day(day, forecast_archive, truth, kinds=kinds, thresholds=thresholds,
@@ -581,9 +781,16 @@ def run(day: dt.date, *, forecast_archive: pathlib.Path, qpe_root: pathlib.Path,
         "thresholds_mm_h": [float(t) for t in thresholds],
         "fss_scales_px": [int(s) for s in fss_scales],
         "point_thresholds_mm_h": [float(t) for t in point_thresholds],
-        "qpe_bounds": [float(x) for x in qpe_bounds],
+        # what was actually scored against, not what was asked for
+        "qpe_bounds_override": ([float(x) for x in qpe_bounds]
+                                if qpe_bounds is not None else None),
+        "qpe_bounds": ([float(x) for x in truth.resolved_bounds]
+                       if truth.resolved_bounds is not None else None),
+        "min_block_coverage": truth.min_block_coverage,
         "bootstrap": bootstrap_cfg,
     }
+    if truth.n_slot_wraps:
+        LOG.info("%d valid times rounded into the next day's slot 0", truth.n_slot_wraps)
     record = build_record(day, grid=grid, points=points, adequacy=adequacy, config=config)
     return record
 
@@ -602,8 +809,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--thresholds-mm-h", default=",".join(str(t) for t in DEFAULT_THRESHOLDS))
     p.add_argument("--fss-scales-px", default=",".join(str(s) for s in DEFAULT_FSS_SCALES))
     p.add_argument("--point-thresholds-mm-h", default=",".join(str(t) for t in DEFAULT_POINT_THRESHOLDS))
-    p.add_argument("--qpe-bounds", default=",".join(str(x) for x in DEFAULT_QPE_BOUNDS),
-                  help="west,south,east,north")
+    p.add_argument("--qpe-bounds", default=None,
+                  help="override the truth store's georeference: west,south,east,north "
+                       "(default: the store's own bounds attr, else the analysis-grid "
+                       "derivation for its array shape)")
     p.add_argument("--bootstrap-n", type=int, default=500)
     p.add_argument("--bootstrap-ci", type=float, default=0.9)
     p.add_argument("--bootstrap-blocks-h", type=float, default=6.0)
@@ -629,13 +838,13 @@ def main(argv: list[str] | None = None) -> int:
         forecast_archive=pathlib.Path(args.forecast_archive),
         qpe_root=pathlib.Path(args.qpe_root),
         external_archive=pathlib.Path(args.external_archive),
-        out_root=pathlib.Path(args.out_root),
         kinds=tuple(args.kinds.split(",")),
         point_kind=args.point_kind,
         thresholds=tuple(float(x) for x in args.thresholds_mm_h.split(",")),
         fss_scales=tuple(int(x) for x in args.fss_scales_px.split(",")),
         point_thresholds=tuple(float(x) for x in args.point_thresholds_mm_h.split(",")),
-        qpe_bounds=tuple(float(x) for x in args.qpe_bounds.split(",")),
+        qpe_bounds=(tuple(float(x) for x in args.qpe_bounds.split(","))
+                    if args.qpe_bounds else None),
         bootstrap_cfg=bootstrap_cfg,
         adequacy_threshold_mm_h=args.adequacy_threshold_mm_h,
         adequacy_min_events=args.adequacy_min_events,

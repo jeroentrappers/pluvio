@@ -172,22 +172,35 @@ on different rulers. Transparency is the only credible route to "reference".
       Open: wire `score_against_truth` to the composite truth in the nightly
       run (3.4); UKMO nowcast over the UK box and OPERA where obtainable.
       Acceptance: nightly rows in the scoreboard. Lane: agent + ops.
-- [x] **3.4 Public scoreboard page** — `research/tools/scoreboard.py`: nightly
+- [~] **3.4 Public scoreboard page** — `research/tools/scoreboard.py`: nightly
       job over the forecast archive (`forecast`/`nowcast` kinds) vs the QPE
       composite truth, reusing `_stats.SampleStats`/`block_bootstrap` for
       CSI@0.1/1 mm/h, FSS, RMSE, mean_error with CIs; Buienradar station rows
       scored against composite-at-station truth alongside our own forecast at
-      those same stations/times (same truth lookup feeds both, so the
+      those same stations/times (one shared truth sample feeds both, so the
       comparison is like-for-like); one JSON record/day appended to
-      `<root>/scoreboard/YYYY/MM/DD.json`, static self-contained HTML with a
-      table per lead, an events-yesterday adequacy line, and a 30-day trend
-      table. 12 tests against a synthetic fixture (hand-computed grid scores,
-      identical-truth-sample point comparison, archive round-trip, HTML
-      render, inadequate-day flag). Open: real forecast-archive/QPE-root
-      mount path inside the backend container (`/storagebox/...`, see
-      `backend/src/pluvio_backend/verify.py`) vs the host path this tool
-      defaults to (`/mnt/storagebox/...`, per ops_schedule.md) — needs an ops
-      check before the timer is wired up on hetz1. Lane: agent.
+      `<out_root>/YYYY/MM/DD.json`, static self-contained HTML with a table
+      per lead, an events-yesterday adequacy line, and a 30-day trend table.
+      25 tests. Review fixes on top of the first cut: the truth georeference
+      is read from the day-zarr's own `bounds` attr, else derived from
+      `model.grid.Grid.legacy_knmi_analysis(<store shape>)` — it was
+      hardcoded to `produce_forecast.BE_BOUNDS`, the 100² serving box, which
+      read Brussels truth 237 km off and squashed the whole 768² composite
+      onto the serving box; the composite is now area-averaged onto each run's
+      grid with the non-overlapping part (the serving box reaches 0.5° south
+      of the composite) left NaN instead of `nan_to_num`'d to observed-dry;
+      the bootstrap groups kinds by issue-time sequence (`forecast` and
+      `nowcast` come from separate producers, so one paired draw over both
+      raised `ValueError`); the point join loads the previous UTC day's issues
+      (Buienradar's archive is keyed by valid time); truth frames are memoised
+      by (day, slot) and the truth lookup is a dict, not a linear scan (~12
+      min/day of re-reads); slot rounding wraps into the next day. Same wrong
+      bounds tuple fixed in `backend/src/pluvio_backend/verify.py` (+7 tests
+      there; its `scores()` now counts only observed cells).
+      Open: the `pluvio-scoreboard` nightly timer is declared in
+      `research/docs/ops_schedule.md` (02:30 UTC, previous day, host paths)
+      but NOT yet installed on hetz1 — ops step, nothing left in the tool.
+      Lane: ops.
 - [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
       sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
       FSS numerator/denominator per threshold/scale), tagged with issue_time
