@@ -110,6 +110,11 @@ class ZarrCorrectionDataset(Dataset):
         self._pid = None
 
         root = self._open()
+        # The working grid comes from the STORE, not the global geo.GRID: a
+        # 192x192 store trained on a box with GRID left at its 100x100 default
+        # crashed on buffer broadcast and silently dropped the static channels
+        # (shape mismatch in _discover). The store is the source of truth.
+        self.grid_hw: tuple[int, int] = tuple(int(x) for x in root["radar"].shape[-2:])
         self._issue_epoch = np.asarray(root["issue_time"][:], dtype="int64")
         self._zarr_leads = [int(x) for x in np.asarray(root["leads_min"][:])]
         self._lead_to_idx = {l: i for i, l in enumerate(self._zarr_leads)}
@@ -156,7 +161,7 @@ class ZarrCorrectionDataset(Dataset):
                 continue
             shape = root[name].shape
             is_per_issue = (len(shape) == 3 and shape[0] == n)
-            is_static = (len(shape) == 2 and tuple(shape) == GRID)
+            is_static = (len(shape) == 2 and tuple(shape) == self.grid_hw)
             if per_issue and is_per_issue and not name.startswith("static_"):
                 out.append(name)
             elif (not per_issue) and is_static:
@@ -257,7 +262,7 @@ class ZarrCorrectionDataset(Dataset):
         radar = root["radar"]
         H = self.history_steps
         lead_idx = self._lead_to_idx[lead_min]
-        chans = np.empty((self.n_channels, *GRID), dtype="float32")
+        chans = np.empty((self.n_channels, *self.grid_hw), dtype="float32")
 
         issue_block = np.asarray(radar[issue_idx])             # (n_lead, H, W)
         for i, hidx in enumerate(history_idx):
