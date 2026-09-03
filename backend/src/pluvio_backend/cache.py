@@ -54,9 +54,40 @@ DEFAULT_BOUNDS: dict[str, float] = {"west": 1.5, "east": 7.5, "south": 48.9, "no
 DEFAULT_GRID_SHAPE: tuple[int, int] = (100, 100)
 
 
+def edge_bounds(
+    bounds: tuple[float, float, float, float], shape: tuple[int, int]
+) -> tuple[float, float, float, float]:
+    """(west, south, east, north) pixel-EDGE bounds for a CELL-CENTRE bounds
+    envelope + shape — `bounds` inflated by half a cell in each direction.
+
+    Every array this backend serves (`GridSpec.bounds`, an npz's `bounds`,
+    `Grid.bounds` in research/model/grid.py) is the envelope of the CELL
+    CENTRES of the first/last row/col, not the raster's outer edge. Painters
+    that treat those bounds as pixel EDGES (colormap.draw_fiducials, any
+    PNG/tile renderer) must use this — or `GridSpec.edge_bounds()` — instead,
+    or the painted content shifts by half a cell (see research/model/grid.py
+    `Grid.edge_bounds()`, the same convention, ported here so the backend
+    doesn't depend on the research package at runtime).
+    """
+    w, s, e, n = bounds
+    h, wid = shape
+    dlon = (e - w) / (wid - 1) if wid > 1 else 0.0
+    dlat = (n - s) / (h - 1) if h > 1 else 0.0
+    return (w - dlon / 2, s - dlat / 2, e + dlon / 2, n + dlat / 2)
+
+
 @dataclasses.dataclass(frozen=True)
 class GridSpec:
-    """Static description of the spatial grid every cache uses."""
+    """Static description of the spatial grid every cache uses.
+
+    `bounds` is the envelope of the CELL CENTRES of the first/last row/col
+    (matches research/model/grid.py `Grid.bounds`) — the raster's actual
+    footprint extends half a cell further in each direction. Use
+    `edge_bounds()` (not `bounds`) wherever pixel EDGES are needed (painters,
+    tile renderers). `cell_center_latlon()` returns a cell's own centre and
+    `latlon_to_cell()` inverts it — both on the one convention below, the
+    same one `Grid.cell_of()`/`Grid.bounds_of_cell()` use in research.
+    """
 
     bounds: dict[str, float]  # keys: west, east, south, north (degrees)
     shape: tuple[int, int]  # (height, width)
@@ -64,21 +95,52 @@ class GridSpec:
     def to_dict(self) -> dict:
         return {"bounds": dict(self.bounds), "shape": list(self.shape)}
 
-    def latlon_to_cell(self, lat: float, lon: float) -> tuple[int, int]:
-        """Convert (lat, lon) → (row, col) on the grid, clamped to bounds."""
+    def edge_bounds(self) -> tuple[float, float, float, float]:
+        """(west, south, east, north) pixel-EDGE bounds — `bounds` inflated
+        by half a cell in each direction. Feed to painters/tile renderers,
+        never `bounds` itself (see module-level `edge_bounds()`)."""
+        b = self.bounds
+        return edge_bounds((b["west"], b["south"], b["east"], b["north"]), self.shape)
+
+    def cell_center_latlon(self, row: int, col: int) -> tuple[float, float]:
+        """(lat, lon) of cell (row, col)'s own centre — the point
+        `latlon_to_cell` would map back to this cell. Row 0 = north."""
         h, w = self.shape
-        if lon < self.bounds["west"] or lon > self.bounds["east"]:
-            raise ValueError(f"lon={lon} outside [{self.bounds['west']}, {self.bounds['east']}]")
-        if lat < self.bounds["south"] or lat > self.bounds["north"]:
-            raise ValueError(f"lat={lat} outside [{self.bounds['south']}, {self.bounds['north']}]")
-        # row 0 = north, row h-1 = south.
-        col = int(
-            (lon - self.bounds["west"]) / (self.bounds["east"] - self.bounds["west"]) * (w - 1)
-        )
-        row = int(
-            (self.bounds["north"] - lat) / (self.bounds["north"] - self.bounds["south"]) * (h - 1)
-        )
-        return row, col
+        if not (0 <= row < h and 0 <= col < w):
+            raise ValueError(f"cell ({row}, {col}) out of range for shape {self.shape}")
+        b = self.bounds
+        dlon = (b["east"] - b["west"]) / (w - 1) if w > 1 else 0.0
+        dlat = (b["north"] - b["south"]) / (h - 1) if h > 1 else 0.0
+        return b["north"] - row * dlat, b["west"] + col * dlon
+
+    def latlon_to_cell(self, lat: float, lon: float) -> tuple[int, int]:
+        """Convert (lat, lon) → (row, col): the cell whose FOOTPRINT contains
+        the point. Row 0 = north.
+
+        One convention, shared with research/model/grid.py `Grid.cell_of()`
+        and with the painters: the floor of the fractional index measured
+        from the pixel EDGE (`edge_bounds()`), which is identical to rounding
+        the fractional cell-CENTRE index. A cell therefore owns the half-cell
+        margin on every side of its own centre, and `colormap.draw_fiducials`
+        fed `edge_bounds()` computes exactly this index — so a value painted
+        at (row, col) reads back at (row, col) here (tests/test_gridspec.py).
+
+        Raises ValueError for a point outside the footprint; a point past a
+        boundary cell's own centre but still inside its footprint resolves to
+        that cell rather than raising.
+        """
+        h, w = self.shape
+        ew, es, ee, en = self.edge_bounds()
+        # Same tolerance as Grid.cell_of(): a lat/lon reconstructed from this
+        # grid's own cell centres can land a float hair outside the footprint.
+        eps = 1e-6 * max(abs(ee - ew), abs(en - es), 1.0)
+        if not (ew - eps <= lon <= ee + eps):
+            raise ValueError(f"lon={lon} outside [{ew}, {ee}]")
+        if not (es - eps <= lat <= en + eps):
+            raise ValueError(f"lat={lat} outside [{es}, {en}]")
+        col = 0 if w == 1 else int((lon - ew) / (ee - ew) * w)
+        row = 0 if h == 1 else int((en - lat) / (en - es) * h)  # row 0 = north
+        return min(max(row, 0), h - 1), min(max(col, 0), w - 1)
 
 
 DEFAULT_GRID = GridSpec(bounds=DEFAULT_BOUNDS, shape=DEFAULT_GRID_SHAPE)
@@ -101,10 +163,18 @@ class ForecastCache:
         return d
 
     def write_grid_metadata(
-        self, snapshot_dir: pathlib.Path, model_version: str, extras: dict | None = None
+        self,
+        snapshot_dir: pathlib.Path,
+        model_version: str,
+        extras: dict | None = None,
+        grid: GridSpec | None = None,
     ) -> None:
+        """`grid` overrides `self.grid` for the recorded bounds/shape — pass
+        the actual GridSpec a band was served on (e.g. read from a v3/full-
+        Benelux npz's own `bounds`, model.py) so the API response reports
+        that band's real footprint instead of the cache's default grid."""
         body = {
-            "grid": self.grid.to_dict(),
+            "grid": (grid or self.grid).to_dict(),
             "model_version": model_version,
             "issued_at": self._stamp_from_dir(snapshot_dir),
             **(extras or {}),
@@ -116,10 +186,17 @@ class ForecastCache:
         snapshot_dir: pathlib.Path,
         band_name: schedules.BandName,
         rates_mm_per_h: np.ndarray,
+        grid: GridSpec | None = None,
     ) -> pathlib.Path:
-        """Persist a (n_leads, H, W) tensor as zarr."""
+        """Persist a (n_leads, H, W) tensor as zarr.
+
+        `grid` overrides `self.grid` for the expected shape — pass it when
+        the array was produced on its own grid (e.g. a v3 npz), not the
+        cache's default.
+        """
+        g = grid or self.grid
         band = schedules.band(band_name)
-        expected = (band.n_leads, *self.grid.shape)
+        expected = (band.n_leads, *g.shape)
         if rates_mm_per_h.shape != expected:
             raise ValueError(
                 f"band {band_name}: expected shape {expected}, got {rates_mm_per_h.shape}"
@@ -130,7 +207,7 @@ class ForecastCache:
             store=str(path),
             mode="w",
             shape=expected,
-            chunks=(1, *self.grid.shape),
+            chunks=(1, *g.shape),
             dtype="float32",
         )
         z[:] = rates_mm_per_h.astype("float32", copy=False)
@@ -138,7 +215,7 @@ class ForecastCache:
         z.attrs["band"] = band_name
         return path
 
-    def _render_shape(self) -> tuple[int, int]:
+    def _render_shape(self, grid: GridSpec | None = None) -> tuple[int, int]:
         """Overlay render resolution: the radar composite's angular pixel
         density (wide serving grid: 1907 px / 41 deg lon, 2627 px / 35.5 deg
         lat) applied to this grid's bounds — so forecast frames match the
@@ -152,23 +229,30 @@ class ForecastCache:
                               os.environ.get("PLUVIO_OVERLAY_PXDEG", "46.51,74.0").split(","))
         except ValueError:
             px_lon, px_lat = 46.51, 74.0
-        b = self.grid.bounds
+        g = grid or self.grid
+        b = g.bounds
         th = round((b["north"] - b["south"]) * px_lat)
         tw = round((b["east"] - b["west"]) * px_lon)
-        return max(th, self.grid.shape[0]), max(tw, self.grid.shape[1])
+        return max(th, g.shape[0]), max(tw, g.shape[1])
 
     def write_overlays(
         self,
         snapshot_dir: pathlib.Path,
         band_name: schedules.BandName,
         rates_mm_per_h: np.ndarray,
+        grid: GridSpec | None = None,
     ) -> int:
-        """Render one PNG per lead step. Returns the number of files written."""
+        """Render one PNG per lead step. Returns the number of files written.
+
+        `grid` overrides `self.grid` for render resolution + fiducials — pass
+        it when `rates_mm_per_h` was produced on its own grid, not the
+        cache's default.
+        """
         from .tiler import render_overlay_to_path
 
         band = schedules.band(band_name)
-        shape = self._render_shape()
-        fid = self._fiducial_bounds()
+        shape = self._render_shape(grid)
+        fid = self._fiducial_bounds(grid)
         n_written = 0
         for i, lead in enumerate(band.leads_min):
             target = snapshot_dir / "overlays" / band_name / f"{lead}.png"
@@ -177,14 +261,14 @@ class ForecastCache:
             n_written += 1
         return n_written
 
-    def _fiducial_bounds(self):
-        """Bounds tuple when crop-mark QC is enabled, else None."""
+    def _fiducial_bounds(self, grid: GridSpec | None = None):
+        """EDGE bounds tuple (painter convention — see `GridSpec.edge_bounds()`)
+        when crop-mark QC is enabled, else None."""
         import os
 
         if os.environ.get("PLUVIO_DEBUG_FIDUCIALS") != "1":
             return None
-        b = self.grid.bounds
-        return (b["west"], b["south"], b["east"], b["north"])
+        return (grid or self.grid).edge_bounds()
 
     def write_point_shards(
         self,
@@ -337,6 +421,25 @@ class ForecastCache:
         if not target.exists():
             return None
         return target
+
+    def snapshot_grid(self, snapshot_dir: pathlib.Path) -> GridSpec | None:
+        """The GridSpec already recorded in a snapshot's grid.json, if any.
+
+        A band tick that reuses an existing snapshot must not overwrite the
+        footprint an earlier band recorded there (pre-1.9, bands can sit on
+        different grids) — see inference_worker.run_tick.
+        """
+        meta_path = snapshot_dir / "grid.json"
+        if not meta_path.exists():
+            return None
+        try:
+            grid = json.loads(meta_path.read_text(encoding="utf-8"))["grid"]
+            h, w = (int(x) for x in grid["shape"])
+            return GridSpec(bounds={k: float(v) for k, v in grid["bounds"].items()},
+                            shape=(h, w))
+        except Exception as exc:
+            LOG.warning("snapshot %s has unreadable grid metadata (%s)", snapshot_dir.name, exc)
+            return None
 
     def latest_metadata(self) -> dict | None:
         snap = self.latest_snapshot()

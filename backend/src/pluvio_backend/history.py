@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+from .cache import GridSpec, edge_bounds
 from .colormap import draw_fiducials, rgba_for_array
 from .tiler import render_sprite
 
@@ -162,12 +163,17 @@ def point_frames(lat: float, lon: float, span_min: int):
     data = _load_hi() or _load()
     if data is None:
         return None
-    b = data["bounds"]
-    if not (b["west"] <= lon <= b["east"] and b["south"] <= lat <= b["north"]):
-        raise ValueError(f"location ({lat}, {lon}) outside observed bounds")
     n, h, w = data["rates"].shape
-    row = min(h - 1, max(0, int((b["north"] - lat) / (b["north"] - b["south"]) * h)))
-    col = min(w - 1, max(0, int((lon - b["west"]) / (b["east"] - b["west"]) * w)))
+    # The cube's `bounds` are CELL-CENTRE bounds (see _load/_load_hi) — go
+    # through GridSpec so this uses the one backend pixel convention (1.13)
+    # instead of mixing centre bounds with a whole-pixel-count index, which
+    # shifted the sampled cell by half a cell (a whole cell at the south/east
+    # edge). GridSpec also raises for a point outside the cell footprint.
+    grid = GridSpec(bounds=data["bounds"], shape=(h, w))
+    try:
+        row, col = grid.latlon_to_cell(lat, lon)
+    except ValueError as exc:
+        raise ValueError(f"location ({lat}, {lon}) outside observed bounds") from exc
     newest = int(data["times"][-1])
     out = []
     for i in range(n):
@@ -221,8 +227,9 @@ def sprite_png_path() -> pathlib.Path | None:
 
 def overlay_png(epoch: int) -> bytes | None:
     """One frame as PNG (fallback for clients that don't use the sprite)."""
-    from PIL import Image
     import io
+
+    from PIL import Image
 
     data = _load()
     if data is None:
@@ -230,12 +237,16 @@ def overlay_png(epoch: int) -> bytes | None:
     idx = {int(t): i for i, t in enumerate(data["times"])}
     if epoch not in idx:
         return None
-    rgba = rgba_for_array(data["rates"][idx[epoch]])
+    field = data["rates"][idx[epoch]]
+    rgba = rgba_for_array(field)
     import os as _os
     if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
-        b = data["bounds"]  # dict(west, south, east, north) — see _load_hi
-        draw_fiducials(rgba, (float(b["west"]), float(b["south"]),
-                              float(b["east"]), float(b["north"])))
+        b = data["bounds"]  # dict(west, south, east, north), CELL-CENTRE — see _load_hi
+        centre = (float(b["west"]), float(b["south"]), float(b["east"]), float(b["north"]))
+        # draw_fiducials paints against pixel EDGES — inflate by half a cell
+        # (the same centre→edge convention as GridSpec.edge_bounds()) or the
+        # cross lands up to a cell off, worst at the south/east edge.
+        draw_fiducials(rgba, edge_bounds(centre, field.shape))
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

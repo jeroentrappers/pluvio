@@ -31,10 +31,13 @@ LOG = logging.getLogger("pluvio.worker")
 
 # A reference to the inference function for each band. `model_band` serves the
 # trained UNet for the nowcast band and transparently falls back to the KMI stub
-# (for the longer bands, and whenever the model field is missing/stale).
+# (for the longer bands, and whenever the model field is missing/stale). The
+# third return value is the GridSpec the rates were actually produced on —
+# an npz's own `bounds`/shape when it carries one (1.13), else the `grid`
+# argument it was called with.
 BandInference = Callable[
     [httpx.Client, str, GridSpec, schedules.BandName],
-    tuple[np.ndarray, datetime],
+    tuple[np.ndarray, datetime, GridSpec],
 ]
 
 
@@ -46,12 +49,12 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
 
     LOG.info("tick band=%s starting", band_name)
     with httpx.Client() as client:
-        rates, issued_at = infer(client, settings.kmi_base_url, grid, band_name)
+        rates, issued_at, used_grid = infer(client, settings.kmi_base_url, grid, band_name)
 
     snap = _reuse_or_new_snapshot(cache, issued_at, band_name)
 
-    cache.write_band(snap, band_name, rates)
-    cache.write_overlays(snap, band_name, rates)
+    cache.write_band(snap, band_name, rates, grid=used_grid)
+    cache.write_overlays(snap, band_name, rates, grid=used_grid)
 
     # Fold the freshest data for *every* band into this snapshot's point index:
     # the band we just wrote, plus the most recent prior snapshot for the others
@@ -64,11 +67,31 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
         arr = cache.read_band_any(b.name)
         if arr is not None:
             all_bands[b.name] = arr
-    cache.write_point_shards(snap, all_bands)
+
+    # write_point_shards/write_sprite fold every band into one array/index
+    # keyed by the cache's default grid — a band produced on its OWN, larger
+    # grid (a v3/full-Benelux npz, before 1.9 aligns the cache's default to
+    # match) can't be mixed in there without a shape mismatch. Serve it as
+    # its own band + overlays (already written above, on `used_grid`) but
+    # leave the uniform-grid point/sprite folding to bands that actually
+    # share the cache's grid; full multi-grid folding is 1.9's job.
+    shard_bands = {
+        name: arr for name, arr in all_bands.items() if arr.shape[-2:] == cache.grid.shape
+    }
+    skipped = sorted(set(all_bands) - set(shard_bands))
+    if skipped:
+        LOG.warning(
+            "tick band=%s: %s not on the cache grid %s — excluded from point shards/sprite",
+            band_name,
+            skipped,
+            cache.grid.shape,
+        )
+    if shard_bands:
+        cache.write_point_shards(snap, shard_bands)
 
     # One sprite-sheet PNG of every frame so the client animates the whole
     # horizon with a single download (no per-frame requests).
-    sprite = cache.write_sprite(snap, all_bands)
+    sprite = cache.write_sprite(snap, shard_bands) if shard_bands else None
 
     # Fold per-band provenance (source tag + confidence, from the forecast cube)
     # into grid.json so the product can honestly label each horizon and widen
@@ -77,7 +100,16 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
     extras: dict = {"sprite": sprite}
     if provenance:
         extras["provenance"] = provenance
-    cache.write_grid_metadata(snap, model_version=settings.model_version, extras=extras)
+    # grid.json carries ONE footprint, and the client places every overlay by
+    # it, so record the nowcast band's — the band a published snapshot must
+    # carry, and the one served from the npz's own grid. A later tick for
+    # another band keeps whatever this snapshot already recorded rather than
+    # stamping the cache's default over it (1.9 collapses the difference by
+    # widening the cache grid to match).
+    meta_grid = used_grid if band_name == "nowcast" else (cache.snapshot_grid(snap) or cache.grid)
+    cache.write_grid_metadata(
+        snap, model_version=settings.model_version, extras=extras, grid=meta_grid
+    )
     cache.mark_complete(snap, summary={"refreshed_band": band_name, "bands": sorted(all_bands)})
 
     # Only publish once the snapshot carries the nowcast band — the only

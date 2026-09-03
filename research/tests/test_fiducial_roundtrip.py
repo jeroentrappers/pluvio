@@ -6,7 +6,9 @@ Convention note (the actual contract, not an assumption): the zarr store's
 ``bounds`` attr (and build_store_v3's BOX) are CELL-CENTRE bounds — cell 0's
 centre sits exactly on the west/north edge, cell N-1's centre on the
 east/south edge (``np.linspace(edge, edge, N)``), and that's also the
-convention backend.cache.GridSpec.latlon_to_cell assumes. Painters
+convention backend.cache.GridSpec's bounds carry — its latlon_to_cell resolves
+a point to the cell whose footprint contains it, exactly like
+Grid.cell_of (1.13). Painters
 (colormap.draw_fiducials, and any PNG/tile renderer) instead take EDGE
 bounds — the outer boundary of the rendered image, half a cell further out
 on every side. Converting cell-centre bounds to edge bounds means inflating
@@ -64,9 +66,9 @@ def test_fiducial_survives_build_input_and_both_display_conventions(synthetic_st
         "store attrs['grid_n'] disagrees with the radar array's own shape"
     )
 
-    # Pick a point strictly inside one cell (not exactly on a cell-centre
-    # coordinate — GridSpec.latlon_to_cell truncates, so a point sitting
-    # exactly on a boundary is at the mercy of float rounding either way).
+    # Pick a point strictly inside one cell, off the cell boundary — a point
+    # sitting exactly on a boundary is at the mercy of float rounding either
+    # way, in the painter's floor() as much as in GridSpec.
     dlon = (east - west) / (grid_n - 1)
     dlat = (north - south) / (grid_n - 1)
     # Near the south/east edge: there the half-cell edge-vs-centre error

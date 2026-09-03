@@ -74,9 +74,21 @@ below every metric. Make eyes unnecessary.
       backend nowcast path never reads the npz `bounds` and hard-crashes on
       any rates shape ≠ DEFAULT_GRID_SHAPE — backend must land before or with
       the `infer_latest` switch; painters use EDGE bounds, Grid.bounds are
-      cell-centre bounds → use Grid.edge_bounds(). Acceptance: forecast
+      cell-centre bounds → use Grid.edge_bounds(). The backend half is done
+      (1.13): the nowcast path reads the npz `bounds`/shape and serves a 192²
+      artifact on its own footprint. Remaining for 1.9:
+      (a) `cache.DEFAULT_BOUNDS`/`DEFAULT_GRID_SHAPE` → the full-Benelux box,
+      so point shards, the sprite and `/v1/forecast`'s location check cover it
+      (until then `inference_worker` logs and excludes an off-grid band from
+      the shards/sprite, and a location outside the legacy box still 400s);
+      (b) the web client treats the API's `bounds` as pixel EDGES —
+      `web/src/api.ts` `DEFAULT_BOUNDS` (a hardcoded copy of the legacy box),
+      `RadarMap.tsx` `maxBounds`/overlay box/`visibleTiles()` tile split — while
+      the API serves CENTRE bounds, so it must either inflate by half a cell
+      itself or the API must publish an explicit edge-bounds field;
+      (c) the same for Flutter `Env.radarBounds*`. Acceptance: forecast
       overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
-      Depends: v3 convergence, 1.1
+      Depends: v3 convergence, 1.1, 1.13
 
 - [ ] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
@@ -95,11 +107,23 @@ below every metric. Make eyes unnecessary.
       n-length 3-D array as input → raise on shape-contract mismatch, log the
       resolved channel list, allow an expected-channel-count assert; assert
       `issue_time` units (seconds) at store creation. Lane: agent.
-- [ ] **1.13 Backend pixel conventions** — `cache.GridSpec.latlon_to_cell`
-      (centre, `*(h-1)`, `round`) vs `history.py` and `colormap.draw_fiducials`
-      (edge, `*h`, `int`) disagree by up to a cell; unify on Grid semantics
-      (centre bounds from the store, `edge_bounds()` for painters). Depends 1.1.
-      Lane: agent + ops.
+- [x] **1.13 Backend pixel conventions** (merged 2026-09-03) — one convention
+      in the backend, matching `Grid`: every `bounds` is a CELL-CENTRE
+      envelope; `cache.edge_bounds()`/`GridSpec.edge_bounds()` inflate by half
+      a cell for painters; `GridSpec.latlon_to_cell` floors the EDGE-based
+      index (identical to `Grid.cell_of`'s rounded centre index) and accepts
+      the half-cell margin; `GridSpec.cell_center_latlon` inverts it. Painters
+      and crops converted: `colormap.draw_fiducials` callers
+      (`cache._fiducial_bounds`, `history.overlay_png`),
+      `history.point_frames`, `model._lagrangian_blend`'s observed-cube crop,
+      `verify.observed_on`'s QPE crop. `model.model_band` now returns the grid
+      it served on — the npz's own `bounds` (centre; `infer_latest` writes
+      `Grid.bounds`, or the BE_* serving constants on its legacy branch) plus
+      its rates shape — falling back to `DEFAULT_BOUNDS` for a legacy npz with
+      no `bounds` key, and `inference_worker` writes the band/overlays/grid.json
+      on that grid. Tests: `backend/tests/test_gridspec.py`,
+      `test_history_points.py`, plus 192² cases in `test_model_cube.py` and
+      `test_api.py`. Web client untouched — see 1.9. Lane: agent + ops.
 - [ ] **1.14 Dead code / small debts** — `morph.py` unused `gy`; `zarr_dataset`
       unused `src`; `torch` missing from `research/pyproject.toml` deps;
       `research/tests` needs a pytest path config. Lane: agent.
