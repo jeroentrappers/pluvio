@@ -42,6 +42,8 @@ import zarr
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from model.grid import Grid  # noqa: E402
+
 LOG = logging.getLogger("pluvio.build_store_v3")
 
 BOX = (1.5, 48.9, 7.5, 54.2)          # west, south, east, north
@@ -203,6 +205,10 @@ def main(argv=None) -> int:
         dst.attrs.update(dict(src.attrs))
         dst.attrs.update({"grid_n": N_OUT, "bounds": list(BOX), "store_version": 3,
                           "grid": "regular lat/lon, row 0 = north"})
+        # Grid contract (1.1): every store carries its own georeference, so
+        # consumers read it instead of assuming a box. Written last so it
+        # always wins if the legacy `bounds`/`grid_n` keys above ever drift.
+        dst.attrs.update(Grid.regular(BOX, (N_OUT, N_OUT)).to_attrs())
         for k in names:
             a = src[k]
             if k not in per_issue:
