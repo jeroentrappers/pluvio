@@ -73,6 +73,32 @@ below every metric. Make eyes unnecessary.
       overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
       Depends: v3 convergence, 1.1
 
+- [ ] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
+      analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
+      `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
+      overlay bounds, Flutter `Env.radarBounds*`) — same blast radius as the
+      trim bug. Lane: agent. Found by review of 1.2.
+- [ ] **1.11 Env-latched geometry** — `geo.GRID` resolves `PLUVIO_GRID_N` at
+      import and `grid_latlon` caches the bias env inside `lru_cache`; later
+      changes are silently ignored (mechanism of the 192² incident). Read env
+      into named constants at module scope, log resolved values once, or pass
+      the bias explicitly. Lane: agent.
+- [ ] **1.12 Store builders fail loudly** — `build_store_v3` dispatches the
+      trimmed/untrimmed mapping by ndim + one name (any new 3-D array silently
+      gets the aux extent) → explicit name→extent table with a hard raise;
+      `zarr_dataset._discover` silently drops mis-shaped statics and admits any
+      n-length 3-D array as input → raise on shape-contract mismatch, log the
+      resolved channel list, allow an expected-channel-count assert; assert
+      `issue_time` units (seconds) at store creation. Lane: agent.
+- [ ] **1.13 Backend pixel conventions** — `cache.GridSpec.latlon_to_cell`
+      (centre, `*(h-1)`, `round`) vs `history.py` and `colormap.draw_fiducials`
+      (edge, `*h`, `int`) disagree by up to a cell; unify on Grid semantics
+      (centre bounds from the store, `edge_bounds()` for painters). Depends 1.1.
+      Lane: agent + ops.
+- [ ] **1.14 Dead code / small debts** — `morph.py` unused `gy`; `zarr_dataset`
+      unused `src`; `torch` missing from `research/pyproject.toml` deps;
+      `research/tests` needs a pytest path config. Lane: agent.
+
 ## Epic 2 — Model objective & inputs (days 31–60)
 
 Why: a deterministic Huber loss rewards hedging; fields blur with lead and
