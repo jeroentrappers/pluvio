@@ -100,6 +100,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         glat, glon = grid_latlon()
         H, W = glat.shape
+        if (H, W) != tuple(ds.grid_hw):
+            raise GridContractError(
+                f"legacy fallback assumes geo.GRID {(H, W)} but store radar is "
+                f"{tuple(ds.grid_hw)} — rebuild the store with a Grid contract"
+            )
 
     rates = np.zeros((len(LEADS) + 1, H, W), dtype="float32")
     # lead 0 = current radar analysis (anchor); read from the issue block

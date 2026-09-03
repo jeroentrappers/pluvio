@@ -203,6 +203,7 @@ def main(argv=None) -> int:
     if args.create:
         dst = zarr.open_group(args.out, mode="w", zarr_format=2)
         dst.attrs.update(dict(src.attrs))
+        # legacy keys — remove once zarr_dataset/backend read Grid (1.9)
         dst.attrs.update({"grid_n": N_OUT, "bounds": list(BOX), "store_version": 3,
                           "grid": "regular lat/lon, row 0 = north"})
         # Grid contract (1.1): every store carries its own georeference, so

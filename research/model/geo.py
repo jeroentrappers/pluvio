@@ -1,16 +1,21 @@
 """Geometry of the analysis grid.
 
-The radar product is a polar-stereographic grid (KNMI proj4 below). To place
-auxiliary sources (AWS point stations, Meteosat / ALARO rasters) onto the
-same 100×100 analysis grid the model uses, we need each grid cell's lat/lon.
+The radar product is a polar-stereographic grid. To place auxiliary sources
+(AWS point stations, Meteosat / ALARO rasters) onto the same 100x100 analysis
+grid the model uses, we need each grid cell's lat/lon.
 
 The native grid is regular in *projected* (km) space, so we:
   1. project the 4 corner lat/lons to stereographic x/y,
-  2. lay a 100×100 regular grid across that x/y bounding box (cell centres),
+  2. lay a 100x100 regular grid across that x/y bounding box (cell centres),
   3. inverse-project back to lat/lon.
 
-This is exact for a regular projected grid (our 100×100 is the block-mean of
-the native 765×700, which shares the same projected extent).
+This is exact for a regular projected grid (our 100x100 is the block-mean of
+the native 765x700, which shares the same projected extent).
+
+The geometry itself (proj4, corners, the 700/765 trim, the empirical
+registration bias) lives in `model.grid` as the single source — this module
+is now a thin, cached wrapper around `Grid.legacy_knmi_analysis()` so there
+is exactly one place that can get the trim or the bias wrong.
 """
 
 from __future__ import annotations
@@ -21,12 +26,13 @@ import pathlib
 import sys
 
 import numpy as np
-import pyproj
 
-# The analysis grid default is 100×100 over the ~707×773 km KNMI radar domain —
-# i.e. an effective resolution of ~7–8 km/cell (see grid_resolution_km()), NOT
+from .grid import Grid, _LEGACY_CORNERS_LONLAT, _LEGACY_PROJ4, _legacy_trimmed_extent
+
+# The analysis grid default is 100x100 over the ~707x773 km KNMI radar domain —
+# i.e. an effective resolution of ~7-8 km/cell (see grid_resolution_km()), NOT
 # the "2 km" some design notes claimed. That is **coarser than a convective
-# cell** (1–5 km), which directly bounds the heavy-rain/convective claim
+# cell** (1-5 km), which directly bounds the heavy-rain/convective claim
 # (docs/seamless_model_plan.md §1). To train/serve at a finer resolution, set
 #     PLUVIO_GRID_N=256     # → ~2.8 km/cell
 # and rebuild the zarr; everything reprojects from the same projected extent, so
@@ -48,21 +54,10 @@ def _default_grid() -> tuple[int, int]:
 
 GRID = _default_grid()
 
-# KNMI radar stereographic projection (from the HDF5 map_projection group).
-# The HDF5 gives the ellipsoid radii in km (a=6378.14, b=6356.75); pyproj
-# rejects those as a non-Earth body, so we express the same ellipsoid in
-# metres. Forward/inverse stay self-consistent, which is all we need to map
-# the regular projected grid back to lat/lon.
-_PROJ4 = "+proj=stere +lat_0=90 +lon_0=0 +lat_ts=60 +a=6378140 +b=6356750 +x_0=0 +y_0=0"
-
-# Corner lon/lat pairs from `geographic/geo_product_corners`
-# order: LL, UL, UR, LR (each lon, lat).
-_CORNERS_LONLAT = [
-    (0.0, 49.362064),
-    (0.0, 55.973602),
-    (10.856453, 55.388973),
-    (9.0093, 48.8953),
-]
+# Kept for any external code that still imports geo._PROJ4 / geo._CORNERS_LONLAT
+# directly; model.grid is the source of truth for both.
+_PROJ4 = _LEGACY_PROJ4
+_CORNERS_LONLAT = _LEGACY_CORNERS_LONLAT
 
 
 @functools.lru_cache(maxsize=1)
@@ -70,43 +65,12 @@ def grid_latlon() -> tuple[np.ndarray, np.ndarray]:
     """Return (lat, lon) arrays of shape GRID for the analysis grid.
 
     Row 0 is the north edge, row H-1 the south edge (matching how the radar
-    field is stored, DISPLAY_ORIGIN=UL).
+    field is stored, DISPLAY_ORIGIN=UL). Delegates to
+    `Grid.legacy_knmi_analysis(GRID).latlon()` — see model.grid for the trim
+    (northern 700/765 of the corner-derived projected extent) and the
+    empirical registration bias (PLUVIO_GRID_LATLON_BIAS, default (0, 0.07)).
     """
-    h, w = GRID
-    to_xy = pyproj.Transformer.from_crs("EPSG:4326", _PROJ4, always_xy=True)
-    to_ll = pyproj.Transformer.from_crs(_PROJ4, "EPSG:4326", always_xy=True)
-
-    xs, ys = [], []
-    for lon, lat in _CORNERS_LONLAT:
-        x, y = to_xy.transform(lon, lat)
-        xs.append(x)
-        ys.append(y)
-    xmin, xmax = min(xs), max(xs)
-    ymin, ymax = min(ys), max(ys)
-
-    # THE TRIM (root-caused 2026-09-02): the native KNMI product is 765x700;
-    # notebooks/_lib._resample block-means to (100,100) via integer factors —
-    # yh = 765//100 = 7 — and TRIMS to field[:700, :700]: the analysis fields
-    # only cover the NORTHERN 700/765 of the domain (columns untrimmed,
-    # 700//100 = 7 exactly). Mapping 100 rows across the full corner extent
-    # stretched content southward, linearly worse toward the south edge:
-    # ~0.5 deg = ~50 km at Belgium — user-visible at the timeline seam.
-    y_south = ymax - (700.0 / 765.0) * (ymax - ymin)
-    cx = np.linspace(xmin, xmax, w)
-    cy = np.linspace(ymax, y_south, h)
-    gx, gy = np.meshgrid(cx, cy)  # (h, w)
-    lon, lat = to_ll.transform(gx, gy)
-    # Residual calibration: multi-issue cross-correlation fit vs the
-    # ground-truthed composite (2026-09-02, 6 wet issues, median corr 0.728)
-    # leaves (dlat, dlon) = (-0.02, +0.07); dlat is within fit noise, the
-    # +0.07 lon (~0.6 grid column) looks like a corner centre-vs-edge
-    # convention. Applied as default; PLUVIO_GRID_LATLON_BIAS overrides.
-    try:
-        _b = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0,0.07")
-        _dlat, _dlon = (float(x) for x in _b.split(","))
-    except ValueError:
-        _dlat, _dlon = 0.0, 0.07
-    return (lat + _dlat).astype("float32"), (lon + _dlon).astype("float32")
+    return Grid.legacy_knmi_analysis(GRID).latlon()
 
 
 def bbox() -> tuple[float, float, float, float]:
@@ -120,22 +84,15 @@ def analysis_grid_dst():
     """Destination for reprojecting any source onto the analysis grid: returns
     (proj4, affine_transform, (h, w)) in the KNMI stereographic CRS. Use with
     rasterio.warp.reproject — handles arbitrary source CRS (OPERA LAEA, AIFS
-    lat/lon, MTG EPSG:4326) onto our regular projected grid."""
+    lat/lon, MTG EPSG:4326) onto our regular projected grid.
+
+    The trimmed extent comes from `model.grid._legacy_trimmed_extent()` — the
+    same trim `grid_latlon()` uses, so aux stays aligned with radar/truth.
+    """
     from rasterio.transform import from_origin
 
     h, w = GRID
-    to_xy = pyproj.Transformer.from_crs("EPSG:4326", _PROJ4, always_xy=True)
-    xs, ys = [], []
-    for lon, lat in _CORNERS_LONLAT:
-        x, y = to_xy.transform(lon, lat)
-        xs.append(x)
-        ys.append(y)
-    xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
-    # Same 765->700 row trim as grid_latlon: the radar/truth fields the aux
-    # are meant to align with only cover the northern 700/765 of the domain.
-    # (Before this fix aux was regridded to the FULL extent — internally
-    # misaligned with radar/truth by up to ~0.5 deg in the south.)
-    ymin = ymax - (700.0 / 765.0) * (ymax - ymin)
+    xmin, ymin, xmax, ymax = _legacy_trimmed_extent()
     px = (xmax - xmin) / (w - 1)
     py = (ymax - ymin) / (h - 1)
     transform = from_origin(xmin - px / 2, ymax + py / 2, px, py)  # north-up
@@ -148,7 +105,7 @@ def grid_resolution_km() -> tuple[float, float]:
 
     The stereographic extent is fixed by the radar domain corners, so the
     resolution is purely a function of ``GRID``. Use this to gate convective
-    claims honestly: at the 100×100 default this returns ~(7.7, 7.1) km — much
+    claims honestly: at the 100x100 default this returns ~(7.7, 7.1) km — much
     coarser than a convective cell, so heavy-rain structure below the cell scale
     is averaged away and should not be claimed at face value.
     """

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 import zarr
@@ -119,3 +121,95 @@ def test_cell_of_outside_bounds_returns_none():
     g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(100, 100))
     assert g.cell_of(lat=0.0, lon=0.0) is None
     assert g.cell_of(lat=90.0, lon=100.0) is None
+
+
+def test_edge_bounds_spans_exact_cell_footprint():
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
+    h, wid = g.shape
+    w, s, e, n = g.bounds
+    dlon = (e - w) / (wid - 1)
+    dlat = (n - s) / (h - 1)
+
+    ew, es, ee, en = g.edge_bounds()
+    assert (ee - ew) == pytest.approx(wid * dlon)
+    assert (en - es) == pytest.approx(h * dlat)
+
+
+def test_transform_matches_edge_bounds_origin():
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
+    ew, es, ee, en = g.edge_bounds()
+    x0, y0, dx, dy = g.transform()
+    assert x0 == pytest.approx(ew)
+    assert y0 == pytest.approx(en)
+    assert dx > 0 and dy > 0
+
+
+def test_cell_of_accepts_point_inside_boundary_cells_own_footprint():
+    # bounds_of_cell(191, 0)'s south edge sits half a cell below the centre
+    # envelope's south bound (48.9) — a point there is still inside cell
+    # (191, 0)'s own footprint and must resolve to it, not None.
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
+    w, s, e, n = g.bounds_of_cell(191, 0)
+    assert s < 48.9  # south edge is below the centre-envelope bound
+    assert g.cell_of(lat=48.895, lon=1.5) == (191, 0)
+
+
+def test_bounds_of_cell_tiles_exactly():
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192))
+    h, wid = g.shape
+    w, s, e, n = g.bounds
+    dlon = (e - w) / (wid - 1)
+    for r, c in [(0, 0), (10, 10), (191, 190)]:
+        _, _, east0, _ = g.bounds_of_cell(r, c)
+        west1, _, _, _ = g.bounds_of_cell(r, c + 1)
+        assert east0 == pytest.approx(west1)
+        assert (east0 - g.bounds_of_cell(r, c)[0]) == pytest.approx(dlon)
+
+
+def test_bias_override_recomputes_agreement(monkeypatch):
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "0.05,-0.03")
+    geo.grid_latlon.cache_clear()
+    try:
+        geo_lat, geo_lon = geo.grid_latlon()
+        g = Grid.legacy_knmi_analysis(geo.GRID)
+        assert g.latlon_bias == (0.05, -0.03)
+        lat, lon = g.latlon()
+        np.testing.assert_allclose(lat, geo_lat, atol=1e-4)
+        np.testing.assert_allclose(lon, geo_lon, atol=1e-4)
+    finally:
+        geo.grid_latlon.cache_clear()
+
+
+def test_legacy_grid_records_active_bias_for_reproducibility(monkeypatch):
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "0.11,0.22")
+    g = Grid.legacy_knmi_analysis((10, 10))
+    attrs = g.to_attrs()
+    assert attrs["grid_latlon_bias"] == [0.11, 0.22]
+
+    # a serialised Grid reproduces its own latlon() regardless of a later,
+    # different environment bias.
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "-9,-9")
+    g2 = Grid.from_attrs(attrs)
+    lat1, lon1 = g.latlon()
+    lat2, lon2 = g2.latlon()
+    np.testing.assert_array_equal(lat1, lat2)
+    np.testing.assert_array_equal(lon1, lon2)
+
+
+def test_to_attrs_emits_no_numpy_scalars():
+    for g in (Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(192, 192)),
+              Grid.legacy_knmi_analysis((100, 100))):
+        attrs = g.to_attrs()
+        for key, value in attrs.items():
+            values = value if isinstance(value, list) else [value]
+            for v in values:
+                assert type(v) in (int, float, str), (key, v, type(v))
+        json.dumps(attrs)  # must be plain-JSON-serialisable
+
+
+def test_from_attrs_rejects_newer_grid_version():
+    g = Grid.regular(bounds=(1.5, 48.9, 7.5, 54.2), shape=(10, 10))
+    attrs = g.to_attrs()
+    attrs["grid_version"] = 999
+    with pytest.raises(GridContractError, match="newer than"):
+        Grid.from_attrs(attrs)
