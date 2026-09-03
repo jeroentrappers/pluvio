@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import zarr
-from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split
 
+from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split
 from tests._store_spec import BOUNDS, CADENCE_MIN, GRID_N, LEADS_MIN, N_ISSUES, NAN_ISSUE_IDX
 
 

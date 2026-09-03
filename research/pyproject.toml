@@ -74,3 +74,11 @@ target-version = "py311"
 [tool.ruff.lint]
 extend-select = ["I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+# isort's first-party detection is relative to the invocation's working
+# directory, so `ruff check --config research/pyproject.toml research/tests`
+# classified these as third-party from the repo root and first-party from
+# research/ — the same file passed or failed I001 depending on where CI ran
+# it. Name them explicitly so the answer is the same from either cwd.
+known-first-party = ["model", "tools", "tests", "collectors", "notebooks"]

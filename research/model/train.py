@@ -138,7 +138,12 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
       rendered with (the filter is baked into the rendered sample set);
     * with ``--zarr`` also given, the recipe is re-derived from the store and
       compared field by field — that catches a store rebuild, a changed lead
-      set, an added aux channel, or a bumped ``NORMALISE_VERSION``.
+      set, an added aux channel, a bumped ``NORMALISE_VERSION``, or a
+      ``--lagrangian-channels`` count the shards were not rendered with.
+
+    Without ``--zarr`` there is no store to re-derive from, so the shards'
+    own recipe is authoritative: ``--lagrangian-channels`` is then checked
+    against what they were rendered with rather than silently ignored.
     """
     root = pathlib.Path(args.shards)
     train_dir, val_dir = root / "train", root / "val"
@@ -156,6 +161,10 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
         probe = ZarrCorrectionDataset(
             args.zarr, build_index=False,
             require_rain_fraction=args.require_rain_fraction,
+            # so `--shards --lagrangian-channels 2` against shards rendered
+            # without the planes is a named recipe mismatch, not a run that
+            # silently trains on the wrong channel set (2.3/2.6).
+            lagrangian_channels=args.lagrangian_channels,
         )
         common = {
             "split_boundary_epoch": int(boundary.timestamp()),
@@ -177,6 +186,14 @@ def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
         raise ShardRecipeMismatch(
             f"--shards {root}: train and val shards disagree ({len(diffs)} field(s)):\n  "
             + "\n  ".join(diffs) + "\nRe-render both splits from the same store."
+        )
+    rendered_lagrangian = train_set.recipe.get("lagrangian_channels", 0)
+    if int(rendered_lagrangian or 0) != int(args.lagrangian_channels):
+        raise SystemExit(
+            f"--shards {root}: train shards were rendered with "
+            f"--lagrangian-channels {rendered_lagrangian!r} but this run asks for "
+            f"{args.lagrangian_channels!r}. The planes are baked into the rendered "
+            "input; re-render the shards with the count you want, or drop the flag."
         )
     rendered_filter = train_set.recipe.get("require_rain_fraction")
     if rendered_filter != args.require_rain_fraction:
@@ -242,6 +259,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sharpness-weight", type=float, default=0.0,
                         help="Weight on the gradient-energy sharpness loss "
                              "(0 = disabled, matching the pre-existing Huber-only objective).")
+    parser.add_argument("--lagrangian-channels", type=int, default=0,
+                        choices=(0, 1, 2),
+                        help="Append Lagrangian-persistence input channels (2.3): 1 = the "
+                             "latest radar analysis advected to the sample's lead by the "
+                             "flow between the two newest history frames, 2 = that plus the "
+                             "per-step flow magnitude. 0 (default) keeps the input identical "
+                             "to every existing checkpoint. Recorded in the checkpoint's "
+                             "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (val RMSE plateau)")
     parser.add_argument("--max-minutes", type=float, default=None,
@@ -286,9 +311,16 @@ def main(argv: list[str] | None = None) -> int:
         train_set = ZarrCorrectionDataset(
             args.zarr, time_range=(_DT_MIN, split),
             require_rain_fraction=args.require_rain_fraction,
+            lagrangian_channels=args.lagrangian_channels,
         )
-        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX))
+        val_set = ZarrCorrectionDataset(args.zarr, time_range=(split, _DT_MAX),
+                                        lagrangian_channels=args.lagrangian_channels)
     else:
+        if args.lagrangian_channels:
+            raise SystemExit(
+                "--lagrangian-channels needs the zarr store (--zarr); the legacy "
+                "radar-HDF5 dataset does not assemble channels through "
+                "ZarrCorrectionDataset.build_input")
         split = _time_split(args.data, args.val_frac)
         LOG.info("Time split: train < %s ≤ val", split.isoformat())
         train_set = PluvioCorrectionDataset(
@@ -352,6 +384,29 @@ def main(argv: list[str] | None = None) -> int:
         "sharpness_weight": args.sharpness_weight,
     }
 
+    # The exact channel layout this run trained on, so infer_latest/benchmark
+    # rebuild it rather than re-deriving it from a store that may have gained
+    # channels since (2.3). None for the legacy HDF5 dataset, which has no
+    # build_input recipe.
+    if isinstance(train_set, ZarrCorrectionDataset):
+        channel_recipe = train_set.channel_recipe()
+    elif isinstance(train_set, ShardDataset):
+        # The shards' recipe already records the layout they were rendered
+        # with; carry the build_input half of it so a shard-trained checkpoint
+        # serves through the same dataset_for_checkpoint path as a zarr one.
+        r = train_set.recipe
+        channel_recipe = {
+            "history_steps": r["history_steps"],
+            "history_step_min": r["history_step_min"],
+            "history_tolerance_s": r["history_tolerance_s"],
+            "aux_channels": r["aux_channels"],
+            "static_channels": r["static_channels"],
+            "lagrangian_channels": r.get("lagrangian_channels", 0),
+            "n_channels": r["n_channels"],
+        }
+    else:
+        channel_recipe = None   # legacy HDF5 dataset: no build_input recipe
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
     # Val RMSE at a fixed LR oscillates around an early best without ever
@@ -397,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                     "arch": "PluvioUNet",
                     "epoch": epoch,
                     "loss_config": loss_config,
+                    "channel_recipe": channel_recipe,
                 },
                 checkpoint_path,
             )

@@ -47,6 +47,32 @@ def max_shift_px(km_per_px: float, step_min: float, *, max_kmh: float = 100.0,
     return int(min(max_px, max(min_px, shift)))
 
 
+def km_per_px_from_bounds(bounds, grid_n: int) -> float | None:
+    """Grid spacing (km) along the FINER axis of a square regular lat/lon grid
+    described by ``bounds`` (west, south, east, north) and ``grid_n`` cells per
+    side — the v3 store attrs. Returns None when the attrs are missing or
+    unusable, so each caller applies its own fallback rather than inheriting a
+    silent default from here.
+
+    The finer axis matters: on a regular lat/lon grid at Benelux latitudes the
+    E-W spacing is ~30 % smaller than N-S, and a search radius sized off the
+    coarser axis would not cover the target speed along the finer one.
+    """
+    if not grid_n or bounds is None or len(bounds) != 4:
+        return None
+    try:
+        west, south, east, north = (float(x) for x in bounds)
+        n = int(grid_n)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0 or not (east > west and north > south):
+        return None
+    lat_mid = (south + north) / 2.0
+    lat_km = (north - south) * 111.0
+    lon_km = (east - west) * 111.0 * math.cos(math.radians(lat_mid))
+    return float(min(lat_km, lon_km) / n)
+
+
 def _ncc_score(ref: np.ndarray, cand: np.ndarray) -> float:
     """Mean-subtracted, std-normalised cross correlation over the whole
     block — invariant to the overall mass/offset of either block (unlike a

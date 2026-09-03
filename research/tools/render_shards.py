@@ -144,6 +144,7 @@ def _open_dataset(args: argparse.Namespace, split: str, boundary: datetime | Non
         # would not be the one the loss curve was measured on.
         require_rain_fraction=args.require_rain_fraction if split == "train" else None,
         build_index=build_index,
+        lagrangian_channels=args.lagrangian_channels,
     )
 
 
@@ -324,7 +325,7 @@ def render_split(args: argparse.Namespace, split: str, boundary: datetime | None
         "n_channels": recipe["n_channels"],
         "dtype": args.dtype,
         "samples_per_shard": args.samples_per_shard,
-        "channel_recipe": _channel_recipe(ds),
+        "channel_recipe": ds.channel_recipe(),
         "recipe": recipe,
         "recipe_hash": recipe_hash(recipe),
         "source_store": source_store_hash(args.zarr),
@@ -370,21 +371,13 @@ def render_split(args: argparse.Namespace, split: str, boundary: datetime | None
     return out_dir
 
 
-def _channel_recipe(ds: ZarrCorrectionDataset) -> list[str]:
-    """The channel list, in build_input's exact order — the human-readable half
-    of the recipe (the machine-checked half is ``recipe``)."""
-    names = [f"radar_history_{i}" for i in range(ds.history_steps)]
-    names += ["nowcast_at_lead", "lead_over_120", "tod_sin", "tod_cos"]
-    names += list(ds.aux_channels) + list(ds.static_channels)
-    return names
-
-
 def _worker_args(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "zarr": str(args.zarr),
         "leads": list(args.leads),
         "history_steps": args.history_steps,
         "no_static": args.no_static,
+        "lagrangian_channels": args.lagrangian_channels,
         "require_rain_fraction": None,   # index-time only; workers never index
     }
 
@@ -423,6 +416,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="comma-separated forecast leads in minutes")
     p.add_argument("--history-steps", type=int, default=RADAR_HISTORY_STEPS)
     p.add_argument("--no-static", action="store_true", help="drop the static channels")
+    p.add_argument("--lagrangian-channels", type=int, default=0, choices=(0, 1, 2),
+                   help="Bake the Lagrangian-persistence planes (2.3) into the shards: 1 = "
+                        "the latest analysis advected to each sample's lead, 2 = that plus "
+                        "the per-step flow magnitude. Recorded in the recipe, so a train run "
+                        "asking for a different count is refused. This is also where the "
+                        "flow estimate stops being a per-epoch cost — it is computed once "
+                        "per issue here.")
     p.add_argument("--require-rain-fraction", type=float, default=None,
                    help="train-split dry-sample filter, same meaning as train.py's flag")
     p.add_argument("--max-samples", type=int, default=None,

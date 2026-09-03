@@ -35,7 +35,6 @@ import argparse
 import hashlib
 import json
 import logging
-import math
 import pathlib
 import subprocess
 import sys
@@ -48,6 +47,7 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from model.metrics import fss_components  # noqa: E402
+from model.motion import km_per_px_from_bounds  # noqa: E402
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from tools._advection import advect_forecast, flow_for_pair, max_shift_px  # noqa: E402
 from tools._stats import SampleStats, block_bootstrap  # noqa: E402
@@ -254,18 +254,8 @@ def _km_per_px(root) -> float:
     attrs (v3+ stores); falls back to the legacy ~6 km KNMI-stereo grid
     spacing when those attrs aren't present."""
     attrs = dict(root.attrs)
-    grid_n = attrs.get("grid_n")
-    bounds = attrs.get("bounds")
-    if not grid_n or not bounds or len(bounds) != 4:
-        return 6.0
-    west, south, east, north = (float(x) for x in bounds)
-    lat_mid = (south + north) / 2.0
-    lat_km = (north - south) * 111.0
-    lon_km = (east - west) * 111.0 * math.cos(math.radians(lat_mid))
-    # Finer axis: on a regular lat/lon grid the E-W spacing is ~30% smaller
-    # than N-S at Benelux latitudes, and the search radius must still cover
-    # the target speed along that axis.
-    return float(min(lat_km, lon_km) / grid_n)
+    spacing = km_per_px_from_bounds(attrs.get("bounds"), attrs.get("grid_n"))
+    return 6.0 if spacing is None else spacing
 
 
 def _sample_stat_record(s, pred_sel: np.ndarray, obs_sel: np.ndarray, pred_fss: np.ndarray,

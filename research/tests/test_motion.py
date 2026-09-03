@@ -8,6 +8,7 @@ import math
 
 import numpy as np
 import pytest
+
 from model import motion
 from model.motion import block_flow, flow_field, warp
 

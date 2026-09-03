@@ -14,6 +14,7 @@ import pathlib
 
 import numpy as np
 import pytest
+
 from tools import scoreboard as sb
 
 DAY = dt.date(2026, 9, 2)

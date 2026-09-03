@@ -90,6 +90,7 @@ RECIPE_KEYS: tuple[str, ...] = (
     "leads_min",
     "aux_channels",
     "static_channels",
+    "lagrangian_channels",
     "has_truth",
     "require_rain_fraction",
     "normalise_version",
@@ -159,6 +160,11 @@ def recipe_from_dataset(
         "leads_min": [int(v) for v in ds.leads_min if int(v) in ds._lead_to_idx],
         "aux_channels": list(ds.aux_channels),
         "static_channels": list(ds.static_channels),
+        # The Lagrangian planes (2.3) are assembled per sample from the flow
+        # between two history frames, so shards rendered with them are NOT
+        # interchangeable with shards rendered without — and the channel count
+        # alone does not separate the two once an aux channel differs too.
+        "lagrangian_channels": int(ds.lagrangian_channels),
         "has_truth": bool(ds._has_truth),
         "require_rain_fraction": ds.require_rain_fraction,
         "normalise_version": int(NORMALISE_VERSION),

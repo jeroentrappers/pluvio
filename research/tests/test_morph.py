@@ -13,6 +13,7 @@ import pathlib
 
 import numpy as np
 import pytest
+
 from model import motion
 
 _MORPH_PATH = (

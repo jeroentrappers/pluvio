@@ -10,6 +10,7 @@ import pathlib
 import urllib.error
 
 import pytest
+
 from tools import external_baselines as eb
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
