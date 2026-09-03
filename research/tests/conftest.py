@@ -1,26 +1,23 @@
 """Shared test fixtures.
 
-Puts ``research/`` on sys.path so tests can ``import model...`` / ``import
-tools...`` the same way the scripts under research/ do (they all
-``sys.path.insert`` their own parent directory), and provides a tiny
-synthetic zarr v2 store that mirrors the array names/attrs/dtype conventions
-of ``tools/build_store_v3.py`` (regular lat/lon grid, row 0 = north, float16
-arrays, ``bounds`` + ``grid_n`` attrs) so dataset/geo tests don't need a real
-(multi-GB) store. The store's own geometry constants live in
-``tests/_store_spec.py`` — this file holds only the fixture.
+``research/`` goes on sys.path via pyproject's ``[tool.pytest.ini_options]``
+(``pythonpath = ["."]``, rootdir = research/) so tests can ``import model...``
+/ ``import tools...`` the same way the scripts under research/ do (they all
+``sys.path.insert`` their own parent directory) — not duplicated here. This
+file provides a tiny synthetic zarr v2 store that mirrors the array
+names/attrs/dtype conventions of ``tools/build_store_v3.py`` (regular
+lat/lon grid, row 0 = north, float16 arrays, ``bounds`` + ``grid_n`` attrs)
+so dataset/geo tests don't need a real (multi-GB) store. The store's own
+geometry constants live in ``tests/_store_spec.py`` — this file holds only
+the fixture.
 """
 
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 import pytest
-
-RESEARCH_ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(RESEARCH_ROOT) not in sys.path:
-    sys.path.insert(0, str(RESEARCH_ROOT))
 
 from tests._store_spec import (
     BOUNDS,

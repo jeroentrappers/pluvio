@@ -56,6 +56,47 @@ _PROJ4 = "+proj=stere +lat_0=90 +lon_0=0 +lat_ts=60 +a=6378140 +b=6356750 +x_0=0
 _CORNERS_LONLAT = [(0.0, 49.362064), (0.0, 55.973602),
                    (10.856453, 55.388973), (9.0093, 48.8953)]
 
+# issue_time must be Unix epoch seconds (year 2000-2100 sanity range) — a
+# milliseconds mixup silently shifts every issue by ~1000x downstream.
+_EPOCH_SECONDS_MIN = 946684800   # 2000-01-01T00:00:00Z
+_EPOCH_SECONDS_MAX = 4102444800  # 2100-01-01T00:00:00Z
+
+_TRIMMED = "trimmed"     # radar/truth extent (analysis rows, 700/765 trim)
+_UNTRIMMED = "untrimmed"  # aux extent (regridded before the trim fix)
+
+# Which legacy extent each per-issue source array lives on. Replaces the old
+# ndim + one name ("truth") dispatch (1.12): any array not listed/matched
+# here is refused rather than guessed at, so a new 3-D source doesn't
+# silently inherit the wrong extent.
+_EXTENT_BY_NAME = {"radar": _TRIMMED, "truth": _TRIMMED}
+_UNTRIMMED_PREFIXES = ("msg_", "alaro_", "aws_")
+_UNTRIMMED_EXACT = {"sst"}
+
+
+def _extent_for(name: str) -> str:
+    if name in _EXTENT_BY_NAME:
+        return _EXTENT_BY_NAME[name]
+    if name in _UNTRIMMED_EXACT or name.startswith(_UNTRIMMED_PREFIXES):
+        return _UNTRIMMED
+    raise ValueError(
+        f"build_store_v3: array {name!r} is not in the trimmed/untrimmed "
+        "extent table (_EXTENT_BY_NAME / _UNTRIMMED_PREFIXES / "
+        "_UNTRIMMED_EXACT) — add it explicitly before building; refusing to "
+        "guess by ndim"
+    )
+
+
+def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
+    if t.size == 0:
+        return
+    lo, hi = int(t.min()), int(t.max())
+    if not (lo >= _EPOCH_SECONDS_MIN and hi <= _EPOCH_SECONDS_MAX):
+        raise ValueError(
+            f"{context}: issue_time does not look like Unix epoch seconds "
+            f"(min={lo}, max={hi}); expected roughly [{_EPOCH_SECONDS_MIN}, "
+            f"{_EPOCH_SECONDS_MAX}]"
+        )
+
 
 def _legacy_index_maps(h: int, w: int):
     """(row, col) float index maps from the new grid's lat/lon into the legacy
@@ -197,10 +238,13 @@ def main(argv=None) -> int:
         t = np.asarray(src["issue_time"][:n]).astype("int64")
         if t.max() > 10**12:
             t //= 1000
+        _assert_epoch_seconds(t, "build_store_v3 --prefetch")
         prefetch_tars(t)
         return 0
 
     if args.create:
+        _assert_epoch_seconds(np.asarray(src["issue_time"][:n]).astype("int64"),
+                              "build_store_v3 --create (source store)")
         dst = zarr.open_group(args.out, mode="w", zarr_format=2)
         dst.attrs.update(dict(src.attrs))
         # legacy keys — remove once zarr_dataset/backend read Grid (1.9)
@@ -238,6 +282,7 @@ def main(argv=None) -> int:
     t = np.asarray(src["issue_time"][:n]).astype("int64")
     if t.max() > 10**12:
         t //= 1000
+    _assert_epoch_seconds(t, "build_store_v3 --range")
     qpe_root = pathlib.Path(args.qpe)
     B = 16
     done = 0
@@ -260,19 +305,26 @@ def main(argv=None) -> int:
                         rac[use_q] = q[use_q]
                     block.append(rac)
                 block = np.stack(block)
-            elif a.ndim == 3:
-                # every 3-D per-issue array is an aux channel: they were
-                # regridded to the UNTRIMMED extent (their real georeference)
-                block = np.stack([_remap(np.asarray(a[i], dtype="float32"), rr_u, cc_u)
-                                  for i in range(s0, s1)])
             elif a.ndim == 4:
+                if k != "radar":
+                    raise ValueError(
+                        f"build_store_v3: unexpected 4-D per-issue array {k!r} "
+                        "(only 'radar' is known); refusing to guess its extent"
+                    )
                 block = np.stack([
                     np.stack([_remap(np.asarray(a[i, j], dtype="float32"), rr_t, cc_t)
                               for j in range(a.shape[1])])
                     for i in range(s0, s1)
                 ])
+            elif a.ndim == 3:
+                rr, cc = (rr_t, cc_t) if _extent_for(k) == _TRIMMED else (rr_u, cc_u)
+                block = np.stack([_remap(np.asarray(a[i], dtype="float32"), rr, cc)
+                                  for i in range(s0, s1)])
             else:
-                continue
+                raise ValueError(
+                    f"build_store_v3: array {k!r} has unsupported ndim {a.ndim} "
+                    "for a per-issue source"
+                )
             dst[k][s0:s1] = block.astype(F16)
         done += s1 - s0
         if done % 320 == 0 or s1 >= hi:

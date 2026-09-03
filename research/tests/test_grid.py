@@ -166,17 +166,16 @@ def test_bounds_of_cell_tiles_exactly():
 
 
 def test_bias_override_recomputes_agreement(monkeypatch):
+    # geo.grid_latlon()'s memoisation is keyed on the resolved bias (1.11),
+    # so a fresh env value is picked up on the very next call — no
+    # cache_clear() needed.
     monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "0.05,-0.03")
-    geo.grid_latlon.cache_clear()
-    try:
-        geo_lat, geo_lon = geo.grid_latlon()
-        g = Grid.legacy_knmi_analysis(geo.GRID)
-        assert g.latlon_bias == (0.05, -0.03)
-        lat, lon = g.latlon()
-        np.testing.assert_allclose(lat, geo_lat, atol=1e-4)
-        np.testing.assert_allclose(lon, geo_lon, atol=1e-4)
-    finally:
-        geo.grid_latlon.cache_clear()
+    geo_lat, geo_lon = geo.grid_latlon()
+    g = Grid.legacy_knmi_analysis(geo.GRID)
+    assert g.latlon_bias == (0.05, -0.03)
+    lat, lon = g.latlon()
+    np.testing.assert_allclose(lat, geo_lat, atol=1e-4)
+    np.testing.assert_allclose(lon, geo_lon, atol=1e-4)
 
 
 def test_legacy_grid_records_active_bias_for_reproducibility(monkeypatch):

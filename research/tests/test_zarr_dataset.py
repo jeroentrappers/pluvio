@@ -3,9 +3,32 @@
 from __future__ import annotations
 
 import numpy as np
-from model.zarr_dataset import ZarrCorrectionDataset
+import pytest
+import zarr
+from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split
 
-from tests._store_spec import GRID_N, LEADS_MIN, NAN_ISSUE_IDX
+from tests._store_spec import BOUNDS, CADENCE_MIN, GRID_N, LEADS_MIN, N_ISSUES, NAN_ISSUE_IDX
+
+
+def _broken_store(tmp_path, *, mutate):
+    """A minimal valid store (radar/truth/issue_time/leads_min only), then
+    `mutate(root)` adds/breaks one array before returning the path."""
+    rng = np.random.default_rng(0)
+    n, leads, g = N_ISSUES, len(LEADS_MIN), GRID_N
+    issue_time = (1_700_000_000 + np.arange(n) * CADENCE_MIN * 60).astype("int64")
+
+    path = tmp_path / "broken.zarr"
+    root = zarr.open_group(str(path), mode="w", zarr_format=2)
+    root.attrs.update({"grid_n": g, "bounds": list(BOUNDS), "store_version": 3,
+                       "grid": "regular lat/lon, row 0 = north"})
+    root.create_array("issue_time", data=issue_time, chunks="auto")
+    root.create_array("leads_min", data=np.asarray(LEADS_MIN, dtype="int32"), chunks="auto")
+    root.create_array("radar", data=(rng.random((n, leads, g, g)) * 5.0).astype("float16"),
+                      chunks=(16, leads, g, g))
+    root.create_array("truth", data=(rng.random((n, g, g)) * 5.0).astype("float16"),
+                      chunks=(16, g, g))
+    mutate(root)
+    return path
 
 
 def test_grid_hw_from_store(synthetic_store):
@@ -49,3 +72,72 @@ def test_nan_truth_issue_excluded_as_target_but_usable_as_history(synthetic_stor
     sample = next(s for s in ds.index if NAN_ISSUE_IDX in s.history_idx)
     chans = ds.build_input(sample.issue_idx, sample.lead_min, sample.history_idx)
     assert np.isfinite(chans).all()
+
+
+def test_discover_raises_on_mis_shaped_static(tmp_path):
+    g = GRID_N
+
+    def mutate(root):
+        # named like a static channel but the wrong footprint — must not be
+        # silently dropped.
+        root.create_array("static_bad", data=np.zeros((g + 1, g), dtype="float16"))
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="static_bad"):
+        ZarrCorrectionDataset(path, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+
+
+def test_discover_raises_on_wrong_shaped_aux(tmp_path):
+    n, g = N_ISSUES, GRID_N
+
+    def mutate(root):
+        # 3-D with the right issue count but the wrong grid footprint.
+        root.create_array("msg_bad", data=np.zeros((n, g + 1, g), dtype="float16"))
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="msg_bad"):
+        ZarrCorrectionDataset(path, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+
+
+def test_discover_raises_on_unsupported_ndim(tmp_path):
+    n, g = N_ISSUES, GRID_N
+
+    def mutate(root):
+        root.create_array("weird_4d", data=np.zeros((n, 2, g, g), dtype="float16"))
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="weird_4d"):
+        ZarrCorrectionDataset(path, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+
+
+def test_expected_channels_mismatch_raises(synthetic_store):
+    with pytest.raises(ValueError, match="channels"):
+        ZarrCorrectionDataset(
+            synthetic_store,
+            leads_min=tuple(lead for lead in LEADS_MIN if lead),
+            expected_channels=999,
+        )
+
+
+def test_expected_channels_env_mismatch_raises(synthetic_store, monkeypatch):
+    monkeypatch.setenv("PLUVIO_EXPECTED_CHANNELS", "999")
+    with pytest.raises(ValueError, match="channels"):
+        ZarrCorrectionDataset(synthetic_store, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+
+
+def test_open_raises_on_millisecond_issue_time(tmp_path):
+    def mutate(root):
+        root["issue_time"][:] = root["issue_time"][:] * 1000  # ms, not s
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="epoch seconds"):
+        ZarrCorrectionDataset(path, leads_min=tuple(lead for lead in LEADS_MIN if lead))
+
+
+def test_issue_time_split_raises_on_millisecond_issue_time(tmp_path):
+    def mutate(root):
+        root["issue_time"][:] = root["issue_time"][:] * 1000
+
+    path = _broken_store(tmp_path, mutate=mutate)
+    with pytest.raises(ValueError, match="epoch seconds"):
+        issue_time_split(path, val_frac=0.2)

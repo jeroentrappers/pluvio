@@ -53,6 +53,26 @@ RAIN_THRESHOLD = 0.1  # mm/h, for the optional dry-sample filter
 # input would leak the label into the features.
 _NON_AUX = {"radar", "issue_time", "leads_min", "truth"}
 
+# issue_time must be Unix EPOCH SECONDS (build_store_v3, build_zarr both write
+# it that way; a milliseconds mixup silently shifts every issue by ~1000x and
+# corrupts every epoch-arithmetic lookup downstream). Sanity range: roughly
+# year 2000 to year 2100 as seconds.
+_EPOCH_SECONDS_MIN = 946684800   # 2000-01-01T00:00:00Z
+_EPOCH_SECONDS_MAX = 4102444800  # 2100-01-01T00:00:00Z
+
+
+def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
+    if t.size == 0:
+        return
+    lo, hi = int(t.min()), int(t.max())
+    if not (lo >= _EPOCH_SECONDS_MIN and hi <= _EPOCH_SECONDS_MAX):
+        raise ValueError(
+            f"{context}: issue_time does not look like Unix epoch seconds "
+            f"(min={lo}, max={hi}); expected roughly [{_EPOCH_SECONDS_MIN}, "
+            f"{_EPOCH_SECONDS_MAX}] — a milliseconds/other-unit store would "
+            "silently corrupt every history/lead lookup"
+        )
+
 
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
     """Bring each channel family to ~O(1). aws_* are already normalised in the
@@ -99,6 +119,7 @@ class ZarrCorrectionDataset(Dataset):
         require_rain_fraction: float | None = None,
         history_tolerance_s: int = 150,
         build_index: bool = True,   # False → inference mode (helpers only, no sample index)
+        expected_channels: int | None = None,  # None → also check PLUVIO_EXPECTED_CHANNELS
     ):
         self.zarr_path = str(zarr_path)
         self.time_range = time_range
@@ -116,6 +137,7 @@ class ZarrCorrectionDataset(Dataset):
         # (shape mismatch in _discover). The store is the source of truth.
         self.grid_hw: tuple[int, int] = tuple(int(x) for x in root["radar"].shape[-2:])
         self._issue_epoch = np.asarray(root["issue_time"][:], dtype="int64")
+        _assert_epoch_seconds(self._issue_epoch, f"zarr_dataset: opening {self.zarr_path!r}")
         self._zarr_leads = [int(x) for x in np.asarray(root["leads_min"][:])]
         self._lead_to_idx = {l: i for i, l in enumerate(self._zarr_leads)}
 
@@ -137,6 +159,19 @@ class ZarrCorrectionDataset(Dataset):
                                 if include_static else [])
         self._static_cache: dict[str, np.ndarray] | None = None
 
+        LOG.info("zarr_dataset: resolved channels — aux=%s static=%s (%d total)",
+                 self.aux_channels, self.static_channels, self.n_channels)
+        expected = expected_channels
+        if expected is None:
+            env_expected = os.environ.get("PLUVIO_EXPECTED_CHANNELS")
+            expected = int(env_expected) if env_expected else None
+        if expected is not None and self.n_channels != expected:
+            raise ValueError(
+                f"zarr_dataset: store {self.zarr_path!r} resolves to "
+                f"{self.n_channels} channels, expected {expected} "
+                f"(aux={self.aux_channels}, static={self.static_channels})"
+            )
+
         self.index: list[_Sample] = []
         if build_index:
             self._build_index(root)
@@ -154,18 +189,46 @@ class ZarrCorrectionDataset(Dataset):
         return self._store
 
     def _discover(self, root, *, per_issue: bool) -> list[str]:
+        """Classify every array in the store as a per-issue aux channel (3-D,
+        shape (n_issues, *grid_hw)) or a static channel (2-D, shape
+        grid_hw) — anything that doesn't match one of those two shapes is a
+        contract violation, not something to silently drop or misfile (1.12:
+        `_discover` used to admit any n-length 3-D array as aux and drop any
+        mis-shaped static without a word)."""
         n = len(self._issue_epoch)
         out = []
-        for name in root.array_keys():
+        for name in sorted(root.array_keys()):
             if name in _NON_AUX:
                 continue
-            shape = root[name].shape
-            is_per_issue = (len(shape) == 3 and shape[0] == n)
-            is_static = (len(shape) == 2 and tuple(shape) == self.grid_hw)
-            if per_issue and is_per_issue and not name.startswith("static_"):
-                out.append(name)
-            elif (not per_issue) and is_static:
-                out.append(name)
+            shape = tuple(root[name].shape)
+            if name.startswith("static_") and len(shape) != 2:
+                raise ValueError(
+                    f"zarr_dataset: {name!r} looks static (name prefix) but has "
+                    f"{len(shape)}-D shape {shape}; expected 2-D {self.grid_hw}"
+                )
+            if len(shape) == 3:
+                if shape != (n, *self.grid_hw):
+                    raise ValueError(
+                        f"zarr_dataset: aux array {name!r} has shape {shape}, "
+                        f"expected ({n}, {self.grid_hw[0]}, {self.grid_hw[1]}) "
+                        "for a per-issue channel"
+                    )
+                if per_issue:
+                    out.append(name)
+            elif len(shape) == 2:
+                if shape != self.grid_hw:
+                    raise ValueError(
+                        f"zarr_dataset: static array {name!r} has shape {shape}, "
+                        f"expected {self.grid_hw}"
+                    )
+                if not per_issue:
+                    out.append(name)
+            else:
+                raise ValueError(
+                    f"zarr_dataset: array {name!r} has unsupported ndim "
+                    f"{len(shape)} (shape {shape}); expected a 2-D static "
+                    "channel or a 3-D per-issue channel"
+                )
         return sorted(out)
 
     @property
@@ -312,7 +375,6 @@ class ZarrCorrectionDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         s = self.index[idx]
         chans = self.build_input(s.issue_idx, s.lead_min, s.history_idx)
-        src = "truth" if self._has_truth else "radar"
         y = (np.asarray(self._open()["truth"][s.target_idx])
              if self._has_truth
              else np.asarray(self._open()["radar"][s.target_idx, 0]))[None, ...].astype("float32")
@@ -325,5 +387,6 @@ def issue_time_split(zarr_path: str | pathlib.Path, val_frac: float) -> datetime
     import zarr
     root = zarr.open_group(str(zarr_path), mode="r")
     epochs = np.sort(np.asarray(root["issue_time"][:], dtype="int64"))
+    _assert_epoch_seconds(epochs, f"zarr_dataset: opening {zarr_path!r}")
     cut = epochs[int(len(epochs) * (1.0 - val_frac))]
     return datetime.fromtimestamp(int(cut), tz=timezone.utc)

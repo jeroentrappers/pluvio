@@ -17,12 +17,15 @@ to this module instead of keeping a second copy of the corners/trim/bias.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pyproj
+
+LOG = logging.getLogger("pluvio.grid")
 
 GRID_VERSION = 1
 
@@ -70,6 +73,17 @@ def _legacy_bias() -> tuple[float, float]:
         return float(dlat_s), float(dlon_s)
     except ValueError:
         return 0.0, 0.07
+
+
+# Resolved once at import purely for visibility (what did this process start
+# with) — `Grid.legacy_knmi_analysis()` and `geo.grid_latlon()` still call
+# `_legacy_bias()` fresh on every call rather than reading this constant, so a
+# later `PLUVIO_GRID_LATLON_BIAS` change (e.g. via monkeypatch in a test, or a
+# long-running process) takes effect on the next call instead of being served
+# from a stale value (1.11: the mechanism of the 192² incident was exactly a
+# cache that *did* freeze an env read like this).
+_LATLON_BIAS_AT_IMPORT = _legacy_bias()
+LOG.info("model.grid: PLUVIO_GRID_LATLON_BIAS resolved to %s at import", _LATLON_BIAS_AT_IMPORT)
 
 
 class GridContractError(ValueError):
@@ -170,13 +184,19 @@ class Grid:
                     row_order="north_first")
 
     @staticmethod
-    def legacy_knmi_analysis(shape: tuple[int, int] = (100, 100)) -> "Grid":
+    def legacy_knmi_analysis(
+        shape: tuple[int, int] = (100, 100),
+        bias: tuple[float, float] | None = None,
+    ) -> "Grid":
         """The legacy KNMI-stereographic analysis grid (geo.py), including its
         700/765 north-only trim of the corner-derived projected extent and
-        the current empirical registration bias (recorded on the Grid so it
-        reproduces itself later regardless of the environment)."""
+        the empirical registration bias (recorded on the Grid so it
+        reproduces itself later regardless of the environment). `bias`
+        defaults to the current `PLUVIO_GRID_LATLON_BIAS` env value — pass it
+        explicitly to bypass the env entirely."""
         proj_extent = _legacy_trimmed_extent()
-        bias = _legacy_bias()
+        if bias is None:
+            bias = _legacy_bias()
         lat, lon = _legacy_latlon(shape, proj_extent, bias=bias)
         bounds = (float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max()))
         return Grid(crs=_LEGACY_PROJ4, bounds=bounds, shape=tuple(shape),
