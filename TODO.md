@@ -172,8 +172,22 @@ on different rulers. Transparency is the only credible route to "reference".
       Open: wire `score_against_truth` to the composite truth in the nightly
       run (3.4); UKMO nowcast over the UK box and OPERA where obtainable.
       Acceptance: nightly rows in the scoreboard. Lane: agent + ops.
-- [ ] **3.4 Public scoreboard page** — nightly job over the Verify archive →
-      static page (per lead, per model, yesterday vs what fell). Lane: agent.
+- [x] **3.4 Public scoreboard page** — `research/tools/scoreboard.py`: nightly
+      job over the forecast archive (`forecast`/`nowcast` kinds) vs the QPE
+      composite truth, reusing `_stats.SampleStats`/`block_bootstrap` for
+      CSI@0.1/1 mm/h, FSS, RMSE, mean_error with CIs; Buienradar station rows
+      scored against composite-at-station truth alongside our own forecast at
+      those same stations/times (same truth lookup feeds both, so the
+      comparison is like-for-like); one JSON record/day appended to
+      `<root>/scoreboard/YYYY/MM/DD.json`, static self-contained HTML with a
+      table per lead, an events-yesterday adequacy line, and a 30-day trend
+      table. 12 tests against a synthetic fixture (hand-computed grid scores,
+      identical-truth-sample point comparison, archive round-trip, HTML
+      render, inadequate-day flag). Open: real forecast-archive/QPE-root
+      mount path inside the backend container (`/storagebox/...`, see
+      `backend/src/pluvio_backend/verify.py`) vs the host path this tool
+      defaults to (`/mnt/storagebox/...`, per ops_schedule.md) — needs an ops
+      check before the timer is wired up on hetz1. Lane: agent.
 - [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
       sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
       FSS numerator/denominator per threshold/scale), tagged with issue_time
