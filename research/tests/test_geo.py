@@ -1,76 +1,103 @@
-"""geo.grid_latlon() and notebooks/_lib._resample: the 765x700 trim.
+"""geo.grid_latlon()/analysis_grid_dst() and notebooks/_lib._resample: the
+765x700 trim, on BOTH sides of the store.
 
 The native KNMI radar product is 765x700. notebooks/_lib._resample block-means
 it down to the 100x100 analysis grid via integer factors (yh = 765//100 = 7,
 xw = 700//100 = 7) and, before reshaping, trims to field[:700, :700] — i.e.
-the analysis grid only ever sees the NORTHERN 700 of the native 765 rows. That
-trim is exactly what geo.grid_latlon() has to reproduce when it lays its
-100x100 lat/lon grid across the projected corner extent (see geo.py's
-"THE TRIM" comment) — otherwise the two 100x100 grids (radar pixels vs. their
-claimed lat/lon) disagree about which row is which.
+the analysis grid only ever sees the NORTHERN 700 of the native 765 rows.
+geo.grid_latlon() (radar/truth side) and geo.analysis_grid_dst() (aux/reproject
+side) each carry their OWN independent copy of that same 700/765 trim
+constant — the 2026-09-02 input-validation incident was exactly these two
+copies drifting apart. Both are exercised here.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pyproj
-
+import pytest
 from model import geo
 from notebooks._lib import ANALYSIS_GRID, _resample
 
 
-def test_grid_latlon_row0_is_north():
-    lat, lon = geo.grid_latlon()
-    assert lat.shape == geo.GRID
-    assert lat[0].mean() > lat[-1].mean()
+@pytest.fixture()
+def zero_bias(monkeypatch):
+    """Isolate tests from geo.py's residual lat/lon calibration bias
+    (PLUVIO_GRID_LATLON_BIAS) and from grid_latlon()'s process-wide
+    lru_cache, which would otherwise silently keep serving whatever bias was
+    in effect the first time any test (or import) called grid_latlon()."""
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "0,0")
+    geo.grid_latlon.cache_clear()
+    yield
+    geo.grid_latlon.cache_clear()
 
 
-def test_grid_latlon_south_edge_matches_700_of_765_trim():
-    lat, lon = geo.grid_latlon()
-
-    # Reproduce geo.py's own corner-projection + trim math independently.
+def _corner_xy() -> tuple[float, float, float, float]:
     to_xy = pyproj.Transformer.from_crs("EPSG:4326", geo._PROJ4, always_xy=True)
     xs, ys = [], []
     for lon_c, lat_c in geo._CORNERS_LONLAT:
         x, y = to_xy.transform(lon_c, lat_c)
         xs.append(x)
         ys.append(y)
-    xmax, ymin, ymax = max(xs), min(ys), max(ys)
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def test_grid_latlon_row0_is_north(zero_bias):
+    lat, _lon = geo.grid_latlon()
+    assert lat.shape == geo.GRID
+    assert lat[0].mean() > lat[-1].mean()
+
+
+def test_grid_latlon_south_row_matches_700_of_765_trim(zero_bias):
+    lat, _lon = geo.grid_latlon()
+    _h, w = geo.GRID
+
+    xmin, xmax, ymin, ymax = _corner_xy()
     y_south = ymax - (700.0 / 765.0) * (ymax - ymin)
 
-    # The corner quadrilateral is a rectangle in projected space, but its
-    # LR corner (east, south) has the lowest latitude of the four (the
-    # domain isn't symmetric about the projection's central meridian), so
-    # the grid's global lat-minimum sits on the south row's EAST edge, not
-    # the west one — check that edge, at the row the 700/765 trim puts there.
+    # The whole south row, not just its extremum: the stereographic grid's
+    # south row latitude varies ~0.475 deg west->east (the domain isn't
+    # symmetric about the projection's central meridian, so its SE corner —
+    # not the SW one — carries the grid's global-minimum latitude). Checking
+    # only one column would miss a per-column bug in the trim.
     to_ll = pyproj.Transformer.from_crs(geo._PROJ4, "EPSG:4326", always_xy=True)
-    _, lat_expected_south = to_ll.transform(xmax, y_south)
+    cx = np.linspace(xmin, xmax, w)
+    expected_row = np.array([to_ll.transform(x, y_south)[1] for x in cx])
 
-    # geo.grid_latlon() applies a small residual calibration bias on top of
-    # the raw trim (PLUVIO_GRID_LATLON_BIAS, default dlat=0). Undo it before
-    # comparing to the raw-trim expectation so this test isolates the trim.
-    import os
-    dlat_s, _dlon_s = os.environ.get("PLUVIO_GRID_LATLON_BIAS", "0,0.07").split(",")
-    dlat = float(dlat_s)
+    np.testing.assert_allclose(lat[-1], expected_row, atol=0.01)
 
-    assert abs(float(lat.min()) - dlat - lat_expected_south) < 0.01
+
+def test_analysis_grid_dst_aux_trim_matches_radar_trim(zero_bias):
+    """analysis_grid_dst() (used to reproject aux sources onto the analysis
+    grid) carries its own copy of the 765->700 trim, independent of
+    grid_latlon()'s. Pin the two to agree: the aux grid's south pixel EDGE
+    (from its affine transform) must sit exactly half a cell south of the
+    radar grid's south row CENTRE (from grid_latlon()) — both trims apply the
+    same 700/765 ratio to the same corner extent. If analysis_grid_dst's copy
+    were ever dropped (falling back to the untrimmed native ymin), this
+    would be off by ~50 km, not half a cell.
+    """
+    _xmin, _xmax, ymin, ymax = _corner_xy()
+    y_south_radar_centre = ymax - (700.0 / 765.0) * (ymax - ymin)
+
+    _, transform, (h, _w) = geo.analysis_grid_dst()
+    py = abs(transform.e)
+    y_south_aux_edge = transform.f + h * transform.e
+
+    assert abs((y_south_radar_centre - y_south_aux_edge) - py / 2) < 0.05 * py
 
 
 def test_resample_last_row_averages_source_rows_693_to_699():
-    # 765x700 field of row indices: column j is constant, row i == i, so the
-    # block-mean of any block of rows is just the mean of those row indices.
-    field = np.tile(np.arange(765, dtype="float64")[:, None], (1, 700))
+    th, tw = ANALYSIS_GRID
+    native_h, native_w = 765, 700
+    yh = native_h // th
+    xw = native_w // tw
+    assert th * yh == 700  # the trim: 100 * 7 == 700, not the native 765
+    assert tw * xw == 700  # columns aren't trimmed (700 // 100 == 7 exactly)
+
+    field = np.tile(np.arange(native_h, dtype="float64")[:, None], (1, native_w))
     out = _resample(field, ANALYSIS_GRID)
     assert out.shape == ANALYSIS_GRID
 
-    expected_last_row = np.arange(693, 700).mean()  # trimmed at 700: last block is rows 693..699
-    assert np.allclose(out[-1], expected_last_row)
-
-    # Row 700 (and beyond) never contributes — confirm the trim, not just the
-    # last block's arithmetic, by checking that a full 700-average (which
-    # would include row 699 differently only if untrimmed) matches the
-    # source's own trimmed reshape directly.
-    yh = 765 // 100
-    trimmed = field[: 100 * yh, :700]
-    manual = trimmed.reshape(100, yh, 100, 7).mean(axis=(1, 3))
-    assert np.allclose(out, manual)
+    last_block_rows = np.arange((th - 1) * yh, th * yh)
+    assert np.allclose(out[-1], last_block_rows.mean())

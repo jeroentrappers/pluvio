@@ -70,8 +70,21 @@ def test_morph_pair_halfway_centroid_and_peak():
 
 def test_flow_for_pair_positive_fx_for_eastward_motion():
     a = _block((40, 40), (20, 15))
-    b = _block((40, 40), (20, 21))  # moved east (+x)
+    b = _block((40, 40), (20, 21))  # moved east (+x), same row
 
-    flow = morph.flow_for_pair(a, b)
-    fy, fx = flow
+    fy, fx = morph.flow_for_pair(a, b)
     assert fx.mean() > 0
+    assert abs(fy.mean()) < 0.5  # pure x-motion: fy should stay ~0, not soak up fx
+
+
+def test_flow_for_pair_positive_fy_for_southward_motion():
+    # Mirror of the eastward case, on the y axis: row 0 = north (geo.py,
+    # zarr_dataset), so motion toward higher row indices is southward and
+    # must show up as positive fy — catches an fy/fx axis swap that the
+    # x-only case above can't.
+    a = _block((40, 40), (15, 20))
+    b = _block((40, 40), (21, 20))  # moved south (+y), same column
+
+    fy, fx = morph.flow_for_pair(a, b)
+    assert fy.mean() > 0
+    assert abs(fx.mean()) < 0.5
