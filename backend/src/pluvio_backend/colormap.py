@@ -131,7 +131,12 @@ FIDUCIALS: list[tuple[str, float, float]] = [
 def draw_fiducials(rgba: np.ndarray, bounds: tuple[float, float, float, float]) -> np.ndarray:
     """Stamp magenta crosses at FIDUCIALS onto an RGBA overlay in place.
 
-    bounds = (west, south, east, north); row 0 = north.
+    `bounds` = (west, south, east, north) pixel EDGES of the image — the
+    outer boundary of the rendered raster, NOT the cell-centre envelope that
+    `GridSpec.bounds` / a store's `bounds` attr / an npz's `bounds` carry.
+    Callers convert with `GridSpec.edge_bounds()` (or `cache.edge_bounds()`);
+    passing the centre envelope straight through shifts every cross by half a
+    cell — a whole cell at the south/east edge. Row 0 = north.
     """
     h, w = rgba.shape[:2]
     wst, sth, est, nth = bounds

@@ -166,6 +166,15 @@ def point_frames(lat: float, lon: float, span_min: int):
     if not (b["west"] <= lon <= b["east"] and b["south"] <= lat <= b["north"]):
         raise ValueError(f"location ({lat}, {lon}) outside observed bounds")
     n, h, w = data["rates"].shape
+    # The observed cube's bounds are pixel EDGES, not the cell-centre envelope
+    # a forecast grid uses (see the convention table in cache.GridSpec):
+    # produce_observed.py rasterises with rasterio `from_bounds`, and the
+    # composite binning in radar_single_site._polar_geometry is edge-based
+    # (`col = ((lon - w) / (e - w) * wd).astype(int)`). So index off these
+    # bounds directly over the whole pixel count — floor of the fractional
+    # EDGE index, as below. Do NOT route this through
+    # GridSpec.latlon_to_cell: that reads its bounds as cell CENTRES and
+    # would move a quarter of all lookups by one cell.
     row = min(h - 1, max(0, int((b["north"] - lat) / (b["north"] - b["south"]) * h)))
     col = min(w - 1, max(0, int((lon - b["west"]) / (b["east"] - b["west"]) * w)))
     newest = int(data["times"][-1])
@@ -221,8 +230,9 @@ def sprite_png_path() -> pathlib.Path | None:
 
 def overlay_png(epoch: int) -> bytes | None:
     """One frame as PNG (fallback for clients that don't use the sprite)."""
-    from PIL import Image
     import io
+
+    from PIL import Image
 
     data = _load()
     if data is None:
@@ -233,7 +243,12 @@ def overlay_png(epoch: int) -> bytes | None:
     rgba = rgba_for_array(data["rates"][idx[epoch]])
     import os as _os
     if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
-        b = data["bounds"]  # dict(west, south, east, north) — see _load_hi
+        # draw_fiducials wants pixel EDGES, and the observed cube's bounds
+        # already ARE pixel edges (see point_frames, and the convention table
+        # in cache.GridSpec) — pass them straight through. Inflating them by
+        # half a cell, the way a forecast grid's centre bounds must be, would
+        # move every cross off its cell.
+        b = data["bounds"]  # dict(west, south, east, north), EDGES — see _load_hi
         draw_fiducials(rgba, (float(b["west"]), float(b["south"]),
                               float(b["east"]), float(b["north"])))
     img = Image.fromarray(rgba, mode="RGBA")

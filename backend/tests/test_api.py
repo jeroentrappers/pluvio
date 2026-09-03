@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from pluvio_backend import schedules
 from pluvio_backend.api import create_app
-from pluvio_backend.cache import ForecastCache
+from pluvio_backend.cache import ForecastCache, GridSpec
 from pluvio_backend.config import Settings
 
 
@@ -128,3 +128,43 @@ def test_ws_on_empty_cache_connects_without_snapshot(empty_client: TestClient) -
     hang)."""
     with empty_client.websocket_connect("/v1/ws"):
         pass
+
+
+# -- 1.13/1.9: the API reports the grid a band was actually served on -------
+
+FULL_BENELUX = GridSpec(
+    bounds={"west": 1.0, "east": 8.5, "south": 47.5, "north": 53.5},
+    shape=(192, 192),
+)
+
+
+def test_manifest_reports_the_grid_the_band_was_served_on(tmp_path) -> None:
+    """A band produced on a 192x192 full-Benelux footprint (what a v3 npz
+    carries in its own `bounds`, see model._grid_from_npz) is written and
+    rendered on that grid, and the API hands the client those bounds — not
+    the cache's still-legacy DEFAULT_GRID. The client places the overlay by
+    exactly this field, so it is the thing 1.9 turns on.
+
+    Uses the "short" band purely to keep the test cheap (9 leads instead of
+    the nowcast's 61); the manifest's `bounds` come from grid.json either way.
+    """
+    band: schedules.BandName = "short"
+    n_leads = schedules.band(band).n_leads
+    arr = np.zeros((n_leads, *FULL_BENELUX.shape), dtype="float32")
+    arr[:, 90:100, 90:100] = 2.0
+
+    cache = ForecastCache(tmp_path)
+    snap = cache.new_snapshot_dir()
+    cache.write_band(snap, band, arr, grid=FULL_BENELUX)
+    assert cache.write_overlays(snap, band, arr, grid=FULL_BENELUX) == n_leads
+    cache.write_grid_metadata(snap, model_version="test-api", grid=FULL_BENELUX)
+    cache.mark_complete(snap)
+    cache.swap_latest(snap)
+
+    client = TestClient(create_app(Settings(cache_root=tmp_path)))
+    r = client.get("/v1/animation/manifest.json", params={"band": band})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["bounds"] == FULL_BENELUX.bounds
+    assert body["bounds"] != cache.grid.bounds  # the legacy default, still in place
+    assert len(body["frames"]) == n_leads

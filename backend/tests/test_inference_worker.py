@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from pluvio_backend import schedules
-from pluvio_backend.cache import ForecastCache
+from pluvio_backend.cache import ForecastCache, GridSpec
 from pluvio_backend.config import Settings
 from pluvio_backend.inference_worker import run_tick
 
@@ -17,7 +17,7 @@ def _const_infer(value: float):
     def infer(client, base_url, grid, band_name):
         band = schedules.band(band_name)
         arr = np.full((band.n_leads, *grid.shape), value, dtype="float32")
-        return arr, datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        return arr, datetime(2026, 6, 15, 12, 0, tzinfo=UTC), grid
 
     return infer
 
@@ -85,3 +85,61 @@ def test_later_short_tick_folds_in_nowcast_and_serves_full_horizon(_settings) ->
     assert {"nowcast", "short"} <= set(df["band"])
     # Long-range leads are present and ordered past the nowcast horizon.
     assert df["lead_min"].max() >= schedules.band("short").lead_min_start
+
+
+# -- 1.13/1.9: a band served on its own grid keeps its footprint -----------
+
+FULL_BENELUX = GridSpec(
+    bounds={"west": 1.0, "east": 8.5, "south": 47.5, "north": 53.5},
+    shape=(192, 192),
+)
+
+
+def _infer_on(spec: GridSpec, value: float):
+    """A BandInference stub that ignores the caller's grid and reports its
+    own — exactly what model_band does with a v3 npz's `bounds`."""
+
+    def infer(client, base_url, grid, band_name):
+        band = schedules.band(band_name)
+        arr = np.full((band.n_leads, *spec.shape), value, dtype="float32")
+        return arr, datetime(2026, 6, 15, 12, 0, tzinfo=UTC), spec
+
+    return infer
+
+
+def test_off_grid_nowcast_band_is_served_and_records_its_own_footprint(_settings) -> None:
+    """A nowcast band on a 192x192 full-Benelux grid, while the cache is still
+    at the legacy DEFAULT_GRID: the band and its overlays are written on that
+    grid and grid.json reports it, so the client places the overlay correctly.
+    Point shards and the sprite still key off the cache grid, so they are
+    skipped with a warning rather than crashing on the shape mismatch — 1.9
+    removes the divergence by widening the cache grid."""
+    import json
+
+    summary = run_tick("nowcast", infer=_infer_on(FULL_BENELUX, 1.0))
+    assert summary["published"] is True
+    cache = ForecastCache(_settings.cache_root)
+    snap = cache.latest_snapshot()
+    assert snap is not None
+    served = cache.read_band("nowcast")
+    assert served is not None and served.shape[-2:] == FULL_BENELUX.shape
+
+    meta = json.loads((snap / "grid.json").read_text())
+    assert meta["grid"]["bounds"] == FULL_BENELUX.bounds
+    assert meta["grid"]["shape"] == list(FULL_BENELUX.shape)
+    assert meta["sprite"] is None  # no uniform-grid band to fold into a sheet
+    assert not (snap / "points").exists()
+
+
+def test_a_later_band_tick_keeps_the_recorded_footprint(_settings) -> None:
+    """A short-band tick reusing the same snapshot must not stamp the cache's
+    legacy default over the footprint the nowcast band recorded."""
+    import json
+
+    run_tick("nowcast", infer=_infer_on(FULL_BENELUX, 1.0))
+    run_tick("short", infer=_const_infer(0.2))
+    cache = ForecastCache(_settings.cache_root)
+    snap = cache.latest_snapshot()
+    assert snap is not None
+    meta = json.loads((snap / "grid.json").read_text())
+    assert meta["grid"]["bounds"] == FULL_BENELUX.bounds

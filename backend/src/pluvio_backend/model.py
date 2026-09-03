@@ -34,7 +34,7 @@ import httpx
 import numpy as np
 
 from . import schedules
-from .cache import GridSpec
+from .cache import DEFAULT_BOUNDS, GridSpec
 from .stubs import stub_band
 
 LOG = logging.getLogger("pluvio.model")
@@ -62,6 +62,48 @@ def _interp_lead(src: np.ndarray, src_leads: list[int], lead: int) -> np.ndarray
             w = (lead - a) / (b - a)
             return src[j] * (1 - w) + src[j + 1] * w
     return src[-1]
+
+
+def _grid_from_npz(d, fallback: GridSpec) -> GridSpec:
+    """The GridSpec `d["rates"]` actually lives on — read from the artifact,
+    never assumed to be the caller's grid.
+
+    The npz's `bounds` are CELL-CENTRE bounds: research/model/infer_latest.py
+    writes either `Grid.bounds` of the store it ran on (the Grid contract's
+    centre-of-first/last-cell envelope, 1.1) or, on its legacy branch, the
+    BE_W/S/E/N serving constants, which are the same centre convention as
+    `cache.DEFAULT_BOUNDS`. So they go into `GridSpec.bounds` verbatim; only
+    painters inflate them, via `GridSpec.edge_bounds()`.
+
+    An npz with no `bounds` key at all predates the Grid contract: fall back
+    to the legacy constants (`DEFAULT_BOUNDS`) paired with the artifact's own
+    rates shape — `fallback` itself when that shape matches it, which is the
+    only case seen in production.
+
+    This is what lets a full-Benelux (192x192) npz be served on its own
+    footprint instead of assuming every artifact matches the backend's
+    still-legacy default grid (1.9 prerequisite) — and what stops
+    `_lagrangian_blend` from cropping the observed cube to the wrong window
+    for any rates shape other than DEFAULT_GRID_SHAPE.
+    """
+    rates_h, rates_w = (int(x) for x in d["rates"].shape[-2:])
+    shape: tuple[int, int] = (rates_h, rates_w)
+    bounds: tuple[float, float, float, float] | None = None
+    if "bounds" in d.files:
+        try:
+            west, south, east, north = (float(x) for x in d["bounds"])
+            bounds = (west, south, east, north)
+        except Exception as exc:
+            LOG.warning("npz bounds unreadable (%s) — assuming the legacy grid", exc)
+    if bounds is None:
+        if shape == fallback.shape:
+            return fallback
+        LOG.warning("npz carries no bounds and its shape %s is not the caller's %s — "
+                    "assuming the legacy DEFAULT_BOUNDS footprint", shape, fallback.shape)
+        return GridSpec(bounds=dict(DEFAULT_BOUNDS), shape=shape)
+    west, south, east, north = bounds
+    return GridSpec(bounds={"west": west, "east": east, "south": south, "north": north},
+                    shape=shape)
 
 
 def _load_fresh(path: pathlib.Path):
@@ -165,13 +207,34 @@ def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime
         return out
     if len(times) < 12:
         return out
-    b = grid.bounds
     gh, gw = rates.shape[1:]
-    c0 = int((b["west"] - W0) / (E0 - W0) * gw)
-    c1 = int((b["east"] - W0) / (E0 - W0) * gw)
-    r0 = int((N0 - b["north"]) / (N0 - S0) * gh)
-    r1 = int((N0 - b["south"]) / (N0 - S0) * gh)
-    if not (0 <= c0 < c1 <= gw and 0 <= r0 < r1 <= gh):
+    # Crop the observed cube to `grid`'s footprint. The two sides use
+    # DIFFERENT bounds conventions (see the table in cache.GridSpec): the
+    # observed cube's bounds are pixel EDGES — produce_observed.py builds the
+    # raster with rasterio `from_bounds`, and the composite binning in
+    # radar_single_site._polar_geometry is edge-referenced — while the
+    # forecast grid's bounds are cell CENTRES, so only the target side is
+    # inflated to edges here.
+    tw, ts, te, tn = grid.edge_bounds()
+    c0 = round((tw - W0) / (E0 - W0) * gw)
+    c1 = round((te - W0) / (E0 - W0) * gw)
+    r0 = round((N0 - tn) / (N0 - S0) * gh)
+    r1 = round((N0 - ts) / (N0 - S0) * gh)
+    # CLAMP, don't reject. The live configuration has the target box equal to
+    # the observed box (legacy 100², and the 192² npz), so the target's edge
+    # frame sticks half a target cell outside the observed raster and c0/r0
+    # come out at -1: the old `0 <= c0 < c1 <= gw` guard then returned the
+    # unblended field silently, disabling the seam anchor entirely.
+    win = (r0, r1, c0, c1)
+    r0, r1 = max(0, min(r0, gh)), max(0, min(r1, gh))
+    c0, c1 = max(0, min(c0, gw)), max(0, min(c1, gw))
+    if (r0, r1, c0, c1) != win:
+        LOG.info("lagrangian blend: target box %s clamped to the observed raster "
+                 "%s -> rows %d:%d cols %d:%d", grid.edge_bounds(), (gh, gw), r0, r1, c0, c1)
+    if not (c0 < c1 and r0 < r1):
+        LOG.warning("lagrangian blend: target box %s does not overlap the observed "
+                    "raster (%d x %d over %s) — serving the model field unblended",
+                    grid.edge_bounds(), gh, gw, (W0, S0, E0, N0))
         return out
 
     from .morph import _warp, flow_for_pair
@@ -215,7 +278,11 @@ def model_band(
     base_url: str,
     grid: GridSpec,
     band_name: schedules.BandName,
-) -> tuple[np.ndarray, datetime]:
+) -> tuple[np.ndarray, datetime, GridSpec]:
+    """Returns (rates, issued_at, grid_used) — `grid_used` is the artifact's
+    own GridSpec (npz `bounds` + rates shape) when it carries one, else the
+    caller-supplied `grid` (legacy npz / stub). Never assume `grid_used ==
+    grid`: a v3/full-Benelux npz reports its own, larger footprint."""
     # 1) The nowcast band prefers the dedicated nowcast artifact (the v2
     #    correction UNet, refreshed every 15 min by the infer_latest cron).
     #    Measured 2026-09-02: it tracks observed light-rain coverage almost
@@ -226,26 +293,29 @@ def model_band(
         loaded = _load_fresh(NPZ_PATH)
         if loaded is not None:
             d, issued_at = loaded
+            npz_grid = _grid_from_npz(d, grid)
             out, _ = _band_from_cube(d, issued_at, band_name)
             out = _lagrangian_blend(out, schedules.band(band_name).leads_min,
-                                    issued_at, grid)
-            LOG.info("nowcast served from v2 npz + observed blend: issued=%s max=%.2f mm/h",
-                     issued_at.isoformat(), float(out.max()))
-            return out, issued_at
+                                    issued_at, npz_grid)
+            LOG.info("nowcast served from v2 npz + observed blend: issued=%s max=%.2f mm/h "
+                     "grid=%s", issued_at.isoformat(), float(out.max()), npz_grid.shape)
+            return out, issued_at, npz_grid
 
     # 2) full-horizon cube serves every band (and the nowcast as fallback).
     loaded = _load_fresh(FORECAST_NPZ_PATH)
     if loaded is not None:
         d, issued_at = loaded
+        npz_grid = _grid_from_npz(d, grid)
         out, _ = _band_from_cube(d, issued_at, band_name)
-        LOG.info("forecast(%s) served from cube: producer=%s issued=%s max=%.2f mm/h",
+        LOG.info("forecast(%s) served from cube: producer=%s issued=%s max=%.2f mm/h grid=%s",
                  band_name, str(d["producer"]) if "producer" in d else "?",
-                 issued_at.isoformat(), float(out.max()))
-        return out, issued_at
+                 issued_at.isoformat(), float(out.max()), npz_grid.shape)
+        return out, issued_at, npz_grid
 
-    # 3) stub keeps the API alive.
+    # 3) stub keeps the API alive — always on the caller's grid.
     LOG.warning("no fresh forecast artifact for band=%s — falling back to stub", band_name)
-    return stub_band(client, base_url, grid, band_name)
+    rates, issued_at = stub_band(client, base_url, grid, band_name)
+    return rates, issued_at, grid
 
 
 def band_provenance(band_name: schedules.BandName) -> dict | None:

@@ -74,9 +74,29 @@ below every metric. Make eyes unnecessary.
       backend nowcast path never reads the npz `bounds` and hard-crashes on
       any rates shape ≠ DEFAULT_GRID_SHAPE — backend must land before or with
       the `infer_latest` switch; painters use EDGE bounds, Grid.bounds are
-      cell-centre bounds → use Grid.edge_bounds(). Acceptance: forecast
+      cell-centre bounds → use Grid.edge_bounds(). The backend half is done
+      (1.13): the nowcast path reads the npz `bounds`/shape and serves a 192²
+      artifact on its own footprint. Remaining for 1.9:
+      (a) `cache.DEFAULT_BOUNDS`/`DEFAULT_GRID_SHAPE` → the full-Benelux box,
+      so point shards, the sprite and `/v1/forecast`'s location check cover it
+      (until then `inference_worker` logs and excludes an off-grid band from
+      the shards/sprite, and a location outside the legacy box still 400s);
+      (b) the web client treats the API's `bounds` as pixel EDGES —
+      `web/src/api.ts` `DEFAULT_BOUNDS` (a hardcoded copy of the legacy box),
+      `RadarMap.tsx` `maxBounds`/overlay box/`visibleTiles()` tile split — while
+      the API serves CENTRE bounds, so it must either inflate by half a cell
+      itself or the API must publish an explicit edge-bounds field;
+      (c) the same for Flutter `Env.radarBounds*`;
+      (d) the mixed-grid transition is not safe to ship as-is: grid.json holds
+      ONE footprint, so with a 192² nowcast and a 100² short band the short
+      band's overlays are mislabelled by the 192² bounds (~35 km W, ~111 km N)
+      — and because point shards/the sprite only cover bands on the cache
+      grid, `/v1/forecast` loses leads 0-120 (or 503s outright when the
+      nowcast is the off-grid band). Either widen the cache grid in the same
+      change as the `infer_latest` switch, or make grid.json/overlay URLs
+      per-band. Acceptance: forecast
       overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
-      Depends: v3 convergence, 1.1
+      Depends: v3 convergence, 1.1, 1.13
 
 - [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
@@ -126,10 +146,34 @@ below every metric. Make eyes unnecessary.
       qc_inputs. Also: the hetz1 research checkout is not git — the first
       deploy of the repo's `build_zarr.py` exposed a latent NameError
       (fixed e32148a); diff remote files before overwriting (see 1.8).
-- [ ] **1.13 Backend pixel conventions** — `cache.GridSpec.latlon_to_cell`
-      (centre, `*(h-1)`, `round`) vs `history.py` and `colormap.draw_fiducials`
-      (edge, `*h`, `int`) disagree by up to a cell; unify on Grid semantics
-      (centre bounds from the store, `edge_bounds()` for painters). Depends 1.1.
+- [x] **1.13 Backend pixel conventions** (merged 2026-09-03) — the backend
+      now says, in one place, which of the TWO conventions each array carries
+      (table in `cache.GridSpec`): forecast npz / zarr store attrs /
+      grid.json / `GridSpec.bounds` are CELL-CENTRE envelopes; the observed
+      cube (produce_observed's rasterio `from_bounds` raster) and the QPE day
+      stores (`bounds_convention="outer_edges"`) are PIXEL EDGES.
+      `cache.edge_bounds()`/`GridSpec.edge_bounds()` inflate a centre
+      envelope by half a cell; `GridSpec.latlon_to_cell` floors the EDGE-based
+      index (same as `Grid.cell_of`'s rounded centre index, except exactly on
+      a cell boundary — floor-on-edge is south/east-inclusive) and accepts the
+      half-cell margin; `GridSpec.cell_center_latlon` inverts it. Painters:
+      `colormap.draw_fiducials` documents that it takes EDGE bounds, and
+      `cache._fiducial_bounds` (overlays + sprite) converts — `history.py`'s
+      observed-cube painting and point lookups are already edge-referenced and
+      stay as they were, with the reason spelled out. `model._lagrangian_blend`
+      inflates only its forecast-grid side and now CLAMPS the crop window to
+      the observed raster instead of rejecting it: with the target box equal
+      to the observed box (every live configuration) the old guard saw c0=-1
+      and silently disabled the seam anchor. `model.model_band` returns the
+      grid it served on — the npz's own `bounds` (centre; `infer_latest`
+      writes `Grid.bounds`, or the BE_* constants on its legacy branch) plus
+      its rates shape, falling back to `DEFAULT_BOUNDS` for a legacy npz with
+      no `bounds` — and `inference_worker` writes the band, its overlays and
+      grid.json on that grid. Tests: `backend/tests/test_gridspec.py`,
+      `test_history_points.py`, plus blend-active and 192² cases in
+      `test_model_cube.py`, `test_inference_worker.py`, `test_api.py`.
+      `verify.py`'s QPE crop is left to the scoreboard branch (attrs-driven
+      edge bounds + NaN-aware regrid). Web client untouched — see 1.9.
       Lane: agent + ops.
 - [x] **1.14 Dead code / small debts** — `morph.py` unused `gy` (with 2.7),
       `zarr_dataset` unused `src`, `torch` in `research/pyproject.toml`,
