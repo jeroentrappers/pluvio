@@ -21,7 +21,7 @@ Why: three defects a human caught by eye in five minutes each (reversed
 advection, a 50 km projection stretch, cross-fade instead of motion) lived
 below every metric. Make eyes unnecessary.
 
-- [~] **1.1 `Grid` data contract** — `research/model/grid.py`: CRS, bounds,
+- [x] **1.1 `Grid` data contract** (merged 2026-09-03; adoption in zarr_dataset/train/backend tracked under 1.9/1.12) — `research/model/grid.py`: CRS, bounds,
       shape, row order; serialised into zarr attrs by every store builder and
       read (never assumed) by every consumer (`build_store_v3`, `infer_latest`,
       `zarr_dataset`, composite producer, backend cache). Acceptance: a store
