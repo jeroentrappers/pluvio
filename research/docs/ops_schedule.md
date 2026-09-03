@@ -25,7 +25,7 @@ is the single place that says what runs, when, and why.
 | pluvio-observed | every 5 min | composite producer (produce_observed) — the serving cube |
 | pluvio-qc | hourly :25 | temporal-consistency watchdog on the served cube |
 | pluvio-qc-inputs | hourly :40 | store registration / aux alignment / channel health |
-| pluvio-qpe-archive | every 10 min | 768-grid QPE day-zarr archive (permanent) |
+| pluvio-qpe-archive | every 10 min | 768-grid QPE day-zarr archive (permanent). Each day-store states its own georeference in attrs (`bounds` [w,s,e,n] outer edges, `grid_shape`, `grid_crs`, `grid_row_order`, `bounds_convention`, `bounds_source`) since 1b6f023; existing stores backfilled. Readers (scoreboard, backend Verify) treat the attr as mandatory and refuse a store without it — the archiver runs from the `/opt/pluvio/radarproc` checkout, whose `model/geo.py` resolves a different extent/bias than the repo's, so a reader-side derivation is ~60 km out at the south edge |
 | pluvio-qpe-prune | daily 04:30 | prunes RAW volumes (3 d) + OPERA (7 d) — never day-zarrs |
 | pluvio-wide-archive | hourly :37 | continental 3-km composite archive (permanent) |
 | pluvio-forecast-archive | every 5 min | every forecast/nowcast run → storagebox (permanent, feeds Verify) |

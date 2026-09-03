@@ -24,19 +24,29 @@ static page: one table per lead with model rows and bootstrap CI columns, an
 archive. Honest by construction: every table carries its own ``n`` and an
 inadequate day is labelled, never silently dropped.
 
-Truth geometry is never assumed. ``tools/qpe_archive.py`` composites onto the
-research analysis grid — ``model.geo.bbox()`` used as EDGE bounds by
-``tools/radar_single_site.polar_to_grid`` — at whatever ``PLUVIO_GRID_N`` the
-producer ran with (768 in production, ~1 km). This tool therefore reads the
-store's own ``bounds`` attr when the store carries one and otherwise derives
-it from ``model.grid.Grid.legacy_knmi_analysis(<store array shape>)``, the
-same single source ``model.geo`` wraps; if neither is available it refuses to
-score rather than scoring against a guessed georeference (see
-``QpeGeometryError``). The serving grid a forecast run is archived on (a
-~100x100 Belgium box) is NOT the truth grid, and it is not fully contained in
-it either, so the composite is area-regridded onto each run's grid with the
-non-overlapping part left NaN — i.e. unobserved, hence excluded by the
-validity mask, never scored as observed-dry.
+Truth geometry is never derived, only read. A QPE day-zarr MUST carry a
+``bounds`` attr (``[w, s, e, n]``, outer edges, row 0 = north — written by
+``tools/qpe_archive.py`` since 1b6f023, and backfilled onto the existing
+stores); a store without one raises ``QpeGeometryError`` naming the path.
+Re-deriving the bounds from this repo's ``model.geo``/``model.grid`` is NOT a
+safe fallback: the production archiver runs from the ``/opt/pluvio/radarproc``
+checkout, whose ``model/geo.py`` predates both the 700/765 trim and the
+registration bias, so every archived day-store is binned onto
+``(0.0, 48.8953, 10.8565, 55.9736)`` while a fresh derivation here returns
+``(0.07, 49.4387, 10.9265, 55.9736)`` — 60 km out at the south edge, which is
+exactly the class of silent, plausible-looking error this tool exists to
+measure. ``--qpe-bounds`` stays available as an explicit override and is
+logged when used.
+
+The serving grid a forecast run is archived on (a ~100x100 Belgium box) is a
+different grid from the truth grid — about 1/50th of its area — so the
+composite is area-averaged over that window rather than stretched onto it, and
+every target cell whose source footprint is not sufficiently covered by finite
+composite cells stays NaN: unobserved, hence excluded by the validity mask,
+never scored as observed-dry. That includes the composite's own uncovered
+region (no radar echo reaches the south of the serving box) and, should the
+two boxes ever stop being nested, any target cell outside the composite
+domain.
 
 Day boundary: the forecast archive is keyed by ISSUE time while Buienradar's
 archive is keyed by VALID time, so the point join loads the previous UTC day's
@@ -129,61 +139,39 @@ def load_forecast_npz(path: pathlib.Path) -> dict:
 
 
 class QpeGeometryError(RuntimeError):
-    """A QPE day-zarr whose georeference cannot be established.
+    """A QPE day-zarr that does not state its own georeference.
 
     Scoring against a guessed georeference is worse than not scoring: it
     produces plausible-looking numbers for the wrong place (measured during
-    review: truth for Brussels read 237 km away). Raised instead.
+    review: truth for Brussels read 237 km away with the serving box's bounds,
+    and 60 km away with this repo's own analysis-grid derivation, because the
+    production archiver runs an older ``model/geo.py``). Raised instead.
     """
 
 
-def _legacy_analysis_bounds(shape: tuple[int, int]) -> tuple[float, float, float, float]:
-    """(west, south, east, north) of the research analysis grid at ``shape``,
-    from ``model.grid`` — the same single source ``model.geo.bbox()`` wraps and
-    the value ``tools/qpe_archive.py`` passes to ``polar_to_grid`` as EDGE
-    bounds. Shape-independent in practice (the legacy grid's lat/lon envelope
-    is set by its projected-extent corners, which every resolution shares) but
-    taken from the store's real shape anyway, so a future non-legacy store
-    cannot inherit these numbers by accident."""
-    from model.grid import Grid
-
-    return tuple(float(x) for x in Grid.legacy_knmi_analysis(tuple(shape)).bounds)
+BACKFILL_HINT = ("re-run tools/qpe_archive.py (>= 1b6f023) for that day, or backfill the "
+                 "attr from the archiver's own model.geo — never from this checkout's, "
+                 "which resolves a different extent/bias")
 
 
-def _attrs_bounds(attrs) -> tuple[float, float, float, float] | None:
-    """(west, south, east, north) from a store's attrs, or None if it carries
-    no usable bounds. ``tools/wide_archive.py`` writes a plain ``bounds`` attr;
-    stores built through ``model.grid.Grid.to_attrs()`` write ``grid_bounds``."""
-    for key in ("bounds", "grid_bounds"):
-        raw = attrs.get(key)
-        if raw is None:
-            continue
-        try:
-            vals = tuple(float(x) for x in raw)
-        except (TypeError, ValueError):
-            LOG.warning("ignoring unparseable %r attr %r", key, raw)
-            continue
-        if len(vals) == 4 and vals[0] < vals[2] and vals[1] < vals[3]:
-            return vals
-        LOG.warning("ignoring implausible %r attr %r", key, raw)
-    return None
-
-
-def qpe_store_bounds(attrs, shape: tuple[int, int]) -> tuple[float, float, float, float]:
-    """Georeference one QPE day-zarr: its own ``bounds`` attr if it has one,
-    else the analysis-grid derivation for the store's array shape. Raises
-    ``QpeGeometryError`` if neither is available."""
-    from_attrs = _attrs_bounds(dict(attrs or {}))
-    if from_attrs is not None:
-        return from_attrs
-    try:
-        return _legacy_analysis_bounds(shape)
-    except Exception as exc:
+def qpe_store_bounds(attrs, path: pathlib.Path) -> tuple[float, float, float, float]:
+    """The store's own ``bounds`` attr — ``[west, south, east, north]``, outer
+    edges. Mandatory: no derivation, no fallback. Raises
+    ``QpeGeometryError`` (naming ``path``) if it is missing or unusable."""
+    raw = dict(attrs or {}).get("bounds")
+    if raw is None:
         raise QpeGeometryError(
-            f"QPE store carries no bounds attr and the analysis-grid derivation "
-            f"for shape {tuple(shape)} failed ({exc}) — refusing to score against "
-            "a guessed georeference"
-        ) from exc
+            f"{path} carries no 'bounds' attr, so its georeference is unknown — "
+            f"refusing to score against a guessed one. Fix: {BACKFILL_HINT}.")
+    try:
+        vals = tuple(float(x) for x in raw)
+    except (TypeError, ValueError) as exc:
+        raise QpeGeometryError(f"{path}: unparseable 'bounds' attr {raw!r}") from exc
+    if len(vals) != 4 or not (vals[0] < vals[2] and vals[1] < vals[3]):
+        raise QpeGeometryError(
+            f"{path}: implausible 'bounds' attr {raw!r} — expected "
+            "[west, south, east, north] with west < east and south < north")
+    return vals
 
 
 def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw: tuple[int, int],
@@ -192,11 +180,13 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw: tuple[in
     boxes EDGE-referenced) onto ``out_bounds``/``out_hw``.
 
     NaN-propagating on purpose. A target cell whose source footprint is less
-    than ``min_coverage`` finite — including one that falls wholly outside the
-    source domain, which the serving box does south of the composite — comes
-    back NaN, so the caller's ``isfinite`` mask means "observed" rather than
-    being vacuously true. ``np.nan_to_num`` before the block mean (the earlier
-    behaviour) scored every uncovered composite cell as observed-dry.
+    than ``min_coverage`` finite comes back NaN, so the caller's ``isfinite``
+    mask means "observed" rather than being vacuously true. ``np.nan_to_num``
+    before the block mean (the earlier behaviour) scored every uncovered
+    composite cell as observed-dry.
+
+    The two boxes need not be nested: a target cell with no source footprint
+    at all is NaN too, not an edge value stretched to fill it.
     """
     H, W = src.shape
     qw, qs, qe, qn = (float(x) for x in src_bounds)
@@ -221,7 +211,10 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw: tuple[in
     finite = np.isfinite(src)
     sums = np.zeros((H + 1, W + 1), "float64")
     counts = np.zeros((H + 1, W + 1), "float64")
-    sums[1:, 1:] = np.where(finite, src, 0.0).cumsum(0).cumsum(1)
+    # float64 before the cumsum: a 768^2 composite runs the running total to
+    # ~1.2e6, where float32 spacing is ~0.06 — up to ~1e-2 mm/h of error in a
+    # block mean, on a metric reported to 3 decimals.
+    sums[1:, 1:] = np.where(finite, src.astype("float64"), 0.0).cumsum(0).cumsum(1)
     counts[1:, 1:] = finite.astype("float64").cumsum(0).cumsum(1)
 
     def _box(a):
@@ -237,9 +230,9 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw: tuple[in
 class QpeTruth:
     """Composite truth reader over ``tools/qpe_archive.py``'s day-zarrs.
 
-    Georeference comes from each store (attr, else the analysis-grid
-    derivation for its array shape — see ``qpe_store_bounds``); pass
-    ``bounds`` only to override that, e.g. for a synthetic store in a test.
+    Georeference comes from each store's own mandatory ``bounds`` attr (see
+    ``qpe_store_bounds``); pass ``bounds`` only to override that explicitly —
+    it is logged when it is used.
 
     Frames are memoised by (day, slot): the nightly point join asks for the
     same slot once per station row (~138k rows/day over 20 stations), and a
@@ -252,6 +245,9 @@ class QpeTruth:
         self.root = pathlib.Path(root)
         self.bounds_override = (tuple(float(x) for x in bounds)
                                 if bounds is not None else None)
+        if self.bounds_override is not None:
+            LOG.warning("QPE georeference OVERRIDDEN to %s — the stores' own "
+                        "'bounds' attrs are being ignored", self.bounds_override)
         self.min_block_coverage = float(min_block_coverage)
         self._days: dict[dt.date, tuple | None] = {}
         self._frames: dict[tuple[dt.date, int], "np.ndarray | None"] = {}
@@ -269,7 +265,7 @@ class QpeTruth:
                 if "rate" in set(root.array_keys()):
                     arr = root["rate"]
                     bounds = (self.bounds_override
-                              or qpe_store_bounds(root.attrs, tuple(arr.shape[-2:])))
+                              or qpe_store_bounds(root.attrs, zp))
                     entry = (arr, bounds)
                     self.resolved_bounds = bounds
             self._days[day] = entry
@@ -440,8 +436,14 @@ def _merge_bootstrap_cis(results: dict, stats: dict, kinds, leads_seen, threshol
     separate issue cadences, so the default ``--kinds forecast,nowcast`` would
     always raise. Kinds are therefore grouped by their issue-time sequence:
     kinds that really were scored on identical samples still get one paired
-    draw (and the paired difference vs ``reference_model``), and kinds that
-    were not each get their own single-model draw instead of nothing.
+    draw, and kinds that were not each get their own single-model draw instead
+    of nothing.
+
+    Each row gets ``ci`` and — for a kind drawn together with
+    ``reference_model``, so the difference really is paired —
+    ``ci_vs_reference``, same shape ``tools/benchmark.py`` writes. A kind in
+    another group gets ``ci_vs_reference: None``: an unpaired difference
+    interval would not mean what the column says.
     """
     for lead in leads_seen:
         groups: dict[tuple[int, ...], dict[str, SampleStats]] = defaultdict(dict)
@@ -463,12 +465,19 @@ def _merge_bootstrap_cis(results: dict, stats: dict, kinds, leads_seen, threshol
                 seed=int(bootstrap_cfg["seed"]),
                 ref_model=ref if ref in by_kind_stats else None)
             ci_by_kind = boot.get("ci", {}) if boot else {}
+            diff_by_kind = boot.get("diff_vs_ref", {}) if boot else {}
+            paired_ref = ref if ref in by_kind_stats else None
             for kind in by_kind_stats:
                 row_by_thr = results.get(kind, {}).get(str(lead))
                 if row_by_thr is None:
                     continue
                 for thr in thresholds:
-                    row_by_thr[str(thr)]["ci"] = ci_by_kind.get(kind, {}).get(str(thr))
+                    row = row_by_thr[str(thr)]
+                    row["ci"] = ci_by_kind.get(kind, {}).get(str(thr))
+                    vs_ref = (diff_by_kind.get(kind, {}).get(str(thr))
+                              if paired_ref is not None and kind != paired_ref else None)
+                    row["ci_vs_reference"] = ({"reference_model": paired_ref, **vs_ref}
+                                              if vs_ref else None)
 
 
 # ───────────────────────────────────────────────────────────── point scoring
@@ -757,9 +766,8 @@ def run(day: dt.date, *, forecast_archive: pathlib.Path, qpe_root: pathlib.Path,
     """Score one UTC day and return the record. Writing it is the caller's job
     (``write_record``), so this stays a pure function of the archives.
 
-    ``qpe_bounds`` overrides the truth store's own georeference — leave it
-    ``None`` in production so the store's attr (or the analysis-grid
-    derivation for its shape) is used.
+    ``qpe_bounds`` overrides the truth stores' own georeference — leave it
+    ``None`` in production so each store's mandatory ``bounds`` attr is used.
     """
     truth = QpeTruth(qpe_root, bounds=qpe_bounds)
 
@@ -810,9 +818,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fss-scales-px", default=",".join(str(s) for s in DEFAULT_FSS_SCALES))
     p.add_argument("--point-thresholds-mm-h", default=",".join(str(t) for t in DEFAULT_POINT_THRESHOLDS))
     p.add_argument("--qpe-bounds", default=None,
-                  help="override the truth store's georeference: west,south,east,north "
-                       "(default: the store's own bounds attr, else the analysis-grid "
-                       "derivation for its array shape)")
+                  help="explicitly override the truth stores' georeference: "
+                       "west,south,east,north (outer edges). Default and correct "
+                       "behaviour is to read each day-store's own mandatory 'bounds' "
+                       "attr; an override is logged loudly")
     p.add_argument("--bootstrap-n", type=int, default=500)
     p.add_argument("--bootstrap-ci", type=float, default=0.9)
     p.add_argument("--bootstrap-blocks-h", type=float, default=6.0)

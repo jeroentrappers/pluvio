@@ -53,7 +53,10 @@ def _write_forecast_npz(root: pathlib.Path, kind: str, issue_epoch: int,
 
 
 def _write_qpe_day(root: pathlib.Path, day: dt.date, truth_full: np.ndarray,
-                   fill_slot: int, bounds=None) -> pathlib.Path:
+                   fill_slot, bounds=QPE_BOUNDS) -> pathlib.Path:
+    """A synthetic day-zarr. `bounds` is written as the store's `bounds` attr
+    (mandatory in production, so a fixture without one is not a realistic
+    store); pass None only to build the attr-less store that must be refused."""
     import zarr
 
     path = root / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}.zarr"
@@ -346,10 +349,17 @@ QPE_N = 768                                # PLUVIO_GRID_N the archiver runs at
 BRUSSELS = (50.85, 4.35)                   # lat, lon
 BE_BOUNDS = (1.5, 48.9, 7.5, 52.5)         # produce_forecast.BE_BOUNDS, W S E N
 BE_N = 100
+# Measured on hetz1: the archive is written by the /opt/pluvio/radarproc
+# checkout, whose model/geo.py predates both the 700/765 trim and the
+# registration bias, so the day-stores are binned onto THIS box — not the
+# (0.07, 49.4387, 10.9265, 55.9736) a derivation from this checkout returns.
+# 60 km apart at the south edge, hence the mandatory attr.
+PROD_QPE_BOUNDS = (0.0, 48.895301818847656, 10.856452941894531, 55.973602294921875)
+DERIVED_FROM_THIS_CHECKOUT = (0.07, 49.4386863708, 10.9264535904, 55.9736022949)
 
 
 def _sparse_qpe_day(root: pathlib.Path, day: dt.date, shape, fill_slot: int,
-                    frame: np.ndarray, bounds=None) -> pathlib.Path:
+                    frame: np.ndarray, bounds=PROD_QPE_BOUNDS) -> pathlib.Path:
     """A day-zarr of the real (288, N, N) shape with only one slot chunk
     materialised, so a 768-grid fixture costs ~1 MB rather than 340 MB."""
     import zarr
@@ -367,52 +377,89 @@ def _sparse_qpe_day(root: pathlib.Path, day: dt.date, shape, fill_slot: int,
 
 @pytest.fixture()
 def real_grid_root(tmp_path):
-    """768-grid composite: 0 mm/h everywhere (measured dry) with an 11x11
-    patch of 8 mm/h centred on the cell that holds Brussels."""
-    bounds = sb._legacy_analysis_bounds((QPE_N, QPE_N))
-    w, s, e, n = bounds
+    """768-grid composite on the PRODUCTION bounds: 0 mm/h everywhere
+    (measured dry) with a 9x9 patch of 8 mm/h centred on the cell that holds
+    Brussels."""
+    w, s, e, n = PROD_QPE_BOUNDS
     lat, lon = BRUSSELS
     row = int((n - lat) / (n - s) * QPE_N)
     col = int((lon - w) / (e - w) * QPE_N)
-    # The georeference this fixture asserts against, measured during review.
-    assert (row, col) == (602, 302)
+    # The georeference this fixture asserts against, measured on hetz1.
+    assert (row, col) == (555, 307)
 
     frame = np.zeros((QPE_N, QPE_N), dtype="float32")
     frame[row - 4:row + 5, col - 4:col + 5] = 8.0
+    # No radar coverage south of ~49.5 deg: NaN, not dry. That region is
+    # inside the serving box, so the target grid's validity mask has to catch
+    # it — this is the half of the fix `nan_to_num` used to defeat.
+    frame[int((n - 49.5) / (n - s) * QPE_N):, :] = np.nan
 
     qpe_root = tmp_path / "qpe"
     slot = round((VALID_EPOCH % 86400) / 300)
-    _sparse_qpe_day(qpe_root, DAY, (QPE_N, QPE_N), slot, frame)   # no bounds attr
-    return {"qpe_root": qpe_root, "bounds": bounds, "cell": (row, col),
+    _sparse_qpe_day(qpe_root, DAY, (QPE_N, QPE_N), slot, frame)
+    return {"qpe_root": qpe_root, "bounds": PROD_QPE_BOUNDS, "cell": (row, col),
             "tmp_path": tmp_path}
 
 
-def test_truth_bounds_derived_from_store_shape(real_grid_root):
+def test_truth_bounds_read_from_the_store_attr(real_grid_root):
     truth = sb.QpeTruth(real_grid_root["qpe_root"])
     got = truth.frame(VALID_EPOCH)
     assert got is not None
     rate, bounds = got
     assert rate.shape == (QPE_N, QPE_N)
-    assert bounds == pytest.approx(real_grid_root["bounds"])
-    # not the serving box, which is what the defect used
+    assert bounds == pytest.approx(PROD_QPE_BOUNDS)
+    # neither the serving box (the original defect) nor a derivation from this
+    # checkout's model.geo, which is 60 km out at the south edge
     assert bounds != pytest.approx(BE_BOUNDS)
+    assert bounds != pytest.approx(DERIVED_FROM_THIS_CHECKOUT)
 
 
 def test_truth_point_hits_the_station_cell(real_grid_root):
     truth = sb.QpeTruth(real_grid_root["qpe_root"])
     lat, lon = BRUSSELS
     assert truth.point(lat, lon, VALID_EPOCH) == pytest.approx(8.0)
-    # 237 km away (the cell the BE_BOUNDS defect read) is dry in this fixture
-    row, col = real_grid_root["cell"]
-    assert row != 351 and col != 365
+    # a derivation from this checkout would read row 602 instead of 555 —
+    # 47 rows, ~48 km north of the patch, where this fixture is dry
+    _w, s, _e, n = DERIVED_FROM_THIS_CHECKOUT
+    wrong_row = int((n - lat) / (n - s) * QPE_N)
+    assert wrong_row == 602
+    assert abs(wrong_row - real_grid_root["cell"][0]) > 8
 
 
-def test_truth_bounds_attr_wins_over_derivation(tmp_path):
+def test_store_without_bounds_attr_is_refused(tmp_path):
+    """A day-store that does not state its own georeference must stop the run,
+    not fall back to a derivation: the archiver's model/geo.py is not this
+    checkout's, so any derivation here is 60 km out at the south edge."""
+    frame = np.zeros((16, 16), dtype="float32")
+    slot = round((VALID_EPOCH % 86400) / 300)
+    path = _sparse_qpe_day(tmp_path / "qpe", DAY, (16, 16), slot, frame, bounds=None)
+    truth = sb.QpeTruth(tmp_path / "qpe")
+    with pytest.raises(sb.QpeGeometryError) as exc:
+        truth.frame(VALID_EPOCH)
+    assert str(path) in str(exc.value)
+    assert "bounds" in str(exc.value)
+
+
+@pytest.mark.parametrize("bad", [[1.0, 2.0], [5.0, 1.0, 1.0, 2.0], "nope"])
+def test_unusable_bounds_attr_is_refused(tmp_path, bad):
+    frame = np.zeros((16, 16), dtype="float32")
+    slot = round((VALID_EPOCH % 86400) / 300)
+    _sparse_qpe_day(tmp_path / "qpe", DAY, (16, 16), slot, frame, bounds=None)
+    import zarr
+    g = zarr.open_group(str(tmp_path / "qpe" / f"{DAY:%Y}" / f"{DAY:%m}" / f"{DAY:%d}.zarr"),
+                        mode="a")
+    g.attrs["bounds"] = bad
+    with pytest.raises(sb.QpeGeometryError):
+        sb.QpeTruth(tmp_path / "qpe").frame(VALID_EPOCH)
+
+
+def test_explicit_override_beats_the_store_attr(tmp_path):
     attr_bounds = (0.0, 45.0, 10.0, 55.0)
     frame = np.zeros((16, 16), dtype="float32")
     frame[3, 4] = 7.0
     slot = round((VALID_EPOCH % 86400) / 300)
     _sparse_qpe_day(tmp_path / "qpe", DAY, (16, 16), slot, frame, bounds=attr_bounds)
+
     truth = sb.QpeTruth(tmp_path / "qpe")
     _rate, bounds = truth.frame(VALID_EPOCH)
     assert bounds == pytest.approx(attr_bounds)
@@ -421,11 +468,17 @@ def test_truth_bounds_attr_wins_over_derivation(tmp_path):
     lon = 0.0 + (4 + 0.5) * 10.0 / 16
     assert truth.point(lat, lon, VALID_EPOCH) == pytest.approx(7.0)
 
+    override = (0.0, 40.0, 20.0, 60.0)
+    forced = sb.QpeTruth(tmp_path / "qpe", bounds=override)
+    _rate, got = forced.frame(VALID_EPOCH)
+    assert got == pytest.approx(override)
+
 
 def test_grid_path_scores_on_the_serving_box_without_squashing(real_grid_root):
-    """The serving box is neither the truth grid nor contained in it (its
-    south edge, 48.9, is below the composite's 49.44): the overlap must be
-    area-averaged in place and the rest left NaN, not stretched to fit."""
+    """The serving box is a different, much smaller grid than the truth grid:
+    the composite must be area-averaged in place over that window, not
+    stretched to fit it, and the composite's own uncovered region must arrive
+    as NaN rather than as measured-dry."""
     truth = sb.QpeTruth(real_grid_root["qpe_root"])
     obs = truth.field_on(VALID_EPOCH, (BE_N, BE_N), BE_BOUNDS)
     assert obs is not None
@@ -438,9 +491,12 @@ def test_grid_path_scores_on_the_serving_box_without_squashing(real_grid_root):
     # the 8 mm/h patch is wide enough to fill this target cell's whole
     # footprint, so an honest area mean is exactly 8.0
     assert obs[frow, fcol] == pytest.approx(8.0)
-    # rows entirely south of the composite domain are unobserved, not dry
-    south_row = int((bn - 49.4387) / (bn - bs) * BE_N) + 1
-    assert np.isnan(obs[south_row:, :]).all()
+    # away from the patch the composite measured dry, so 0.0 — not NaN
+    assert obs[10, 10] == pytest.approx(0.0)
+    # rows wholly inside the composite's uncovered region stay unobserved
+    # (lat 49.5 is target row ~83.3, so row 85 down is entirely below it)
+    assert np.isnan(obs[85:, :]).all()
+    assert np.isfinite(obs[80, :]).all()
     # ... and the validity mask is therefore not vacuous
     assert np.isfinite(obs).sum() < BE_N * BE_N
 
@@ -505,16 +561,25 @@ def test_partial_block_coverage_threshold(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_slot_rounding_wraps_to_next_day(tmp_path):
+    """A valid time in the last 150 s of a day belongs to the NEXT day's slot
+    0. Rounding within the day gave slot 288, off the end of the array, and
+    those samples were silently dropped."""
     next_day = DAY + dt.timedelta(days=1)
     qpe_root = tmp_path / "qpe"
-    _write_qpe_day(qpe_root, DAY, np.zeros((4, 4), dtype="float32"), fill_slot=0)
+    # distinguishable values: only the next day's store has 6.0
+    _write_qpe_day(qpe_root, DAY, np.full((4, 4), 1.0, dtype="float32"),
+                   fill_slot=[0, 287])
     _write_qpe_day(qpe_root, next_day, np.full((4, 4), 6.0, dtype="float32"), fill_slot=0)
 
     truth = sb.QpeTruth(qpe_root, bounds=QPE_BOUNDS)
     late = int(dt.datetime(2026, 9, 2, 23, 59, tzinfo=dt.UTC).timestamp())
     assert truth._slot_of(late) == (next_day, 0)
+    # the value proves which store/slot was actually read
     assert truth.point(2.0, 2.0, late) == pytest.approx(6.0)
-    assert truth.n_slot_wraps == 2
+    # ... and a time that does not need to wrap still resolves within the day
+    early = int(dt.datetime(2026, 9, 2, 23, 55, tzinfo=dt.UTC).timestamp())
+    assert truth._slot_of(early) == (DAY, 287)
+    assert truth.point(2.0, 2.0, early) == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -647,3 +712,90 @@ def test_both_point_series_share_one_truth_sample(fixture_root, monkeypatch):
 def test_archive_path_has_no_duplicate_scoreboard_level(tmp_path):
     out_root = tmp_path / "scoreboard"
     assert sb.archive_path(out_root, DAY) == out_root / "2026" / "09" / "02.json"
+
+
+# ---------------------------------------------------------------------------
+# _regrid_block_mean: the two boxes need not be nested
+# ---------------------------------------------------------------------------
+
+def test_regrid_handles_a_target_box_hanging_off_the_source():
+    """The truth and serving boxes happen to be nested today, but nothing
+    guarantees it (they were not under the reviewed defect's bounds, and a
+    wider serving box is a config change away). A target cell with no source
+    footprint must be NaN, never an edge value stretched to fill it."""
+    src = np.ones((4, 4), dtype="float32")
+    # target box shifted 4 degrees east: only its western half overlaps
+    out = sb._regrid_block_mean(src, (0.0, 0.0, 4.0, 4.0), (2.0, 0.0, 6.0, 4.0), (2, 2))
+    assert out[:, 0] == pytest.approx([1.0, 1.0])
+    assert np.isnan(out[:, 1]).all()
+    # entirely disjoint -> all NaN
+    away = sb._regrid_block_mean(src, (0.0, 0.0, 4.0, 4.0), (10.0, 0.0, 14.0, 4.0), (2, 2))
+    assert np.isnan(away).all()
+
+
+def test_regrid_accumulates_in_float64():
+    """The integral image is a running total over the whole 768^2 field. In
+    float32 it reaches ~1e6 where the representable spacing is ~0.06 mm/h, so
+    a block mean taken near the far corner drifts into the third decimal the
+    report prints. Measured below: ~6e-3 mm/h.
+    """
+    rng = np.random.default_rng(0)
+    src = (rng.random((768, 768)).astype("float32") * 3.0)
+    src[300:500, 300:500] = 60.0                     # a heavy core to load the sum
+    src = src.astype("float16").astype("float32")     # as the store holds it
+    box = (0.0, 0.0, 8.0, 8.0)
+
+    # 192x192 target over the same box -> each target cell is exactly 4x4
+    # source cells, so the expected value is a plain mean of a known window.
+    out = sb._regrid_block_mean(src, box, box, (192, 192))
+    expected = float(src[760:764, 760:764].astype("float64").mean())
+    assert out[190, 190] == pytest.approx(expected, abs=1e-9)
+
+    # the same accumulation in float32, to show the guard is not vacuous
+    f32 = np.zeros((769, 769), "float32")
+    f32[1:, 1:] = src.cumsum(0).cumsum(1)
+    naive = float(f32[764, 764] - f32[760, 764] - f32[764, 760] + f32[760, 760]) / 16
+    assert abs(naive - expected) > 1e-3
+
+
+# ---------------------------------------------------------------------------
+# paired difference vs the reference model
+# ---------------------------------------------------------------------------
+
+def test_paired_difference_surfaced_for_kinds_drawn_together(fixture_root):
+    _write_forecast_npz(fixture_root["forecast_archive"], "nowcast", ISSUE_EPOCH,
+                        [LEAD_MIN], (PRED_2X2 * 0.5)[None, :, :])
+    truth = sb.QpeTruth(fixture_root["qpe_root"], bounds=QPE_BOUNDS)
+    boot_cfg = {"n": 20, "ci": 0.9, "blocks_h": 6.0, "seed": 1,
+                "reference_model": "forecast"}
+    out = sb.score_grid_day(DAY, fixture_root["forecast_archive"], truth,
+                            kinds=("forecast", "nowcast"), thresholds=(0.1,),
+                            fss_scales=(1,), bootstrap_cfg=boot_cfg)
+    now_row = out["results"]["nowcast"][str(LEAD_MIN)]["0.1"]
+    ref_row = out["results"]["forecast"][str(LEAD_MIN)]["0.1"]
+    assert now_row["ci_vs_reference"] is not None
+    assert now_row["ci_vs_reference"]["reference_model"] == "forecast"
+    assert "ci_lo" in now_row["ci_vs_reference"]["csi"]
+    # the reference model has no difference against itself
+    assert ref_row["ci_vs_reference"] is None
+
+
+def test_no_paired_difference_across_issue_sequence_groups(fixture_root):
+    """An unpaired difference interval would not mean what the column says, so
+    a kind bootstrapped in its own group reports None rather than a number."""
+    _write_forecast_npz(fixture_root["forecast_archive"], "nowcast", ISSUE_EPOCH,
+                        [LEAD_MIN], PRED_2X2[None, :, :])
+    _write_forecast_npz(fixture_root["forecast_archive"], "nowcast",
+                        ISSUE_EPOCH + 1800, [LEAD_MIN], PRED_2X2[None, :, :])
+    _write_qpe_day(fixture_root["qpe_root"], DAY, TRUTH_FULL, fill_slot=[6, 12])
+
+    truth = sb.QpeTruth(fixture_root["qpe_root"], bounds=QPE_BOUNDS)
+    boot_cfg = {"n": 20, "ci": 0.9, "blocks_h": 6.0, "seed": 1,
+                "reference_model": "forecast"}
+    out = sb.score_grid_day(DAY, fixture_root["forecast_archive"], truth,
+                            kinds=("forecast", "nowcast"), thresholds=(0.1,),
+                            fss_scales=(1,), bootstrap_cfg=boot_cfg)
+    for kind in ("forecast", "nowcast"):
+        row = out["results"][kind][str(LEAD_MIN)]["0.1"]
+        assert row["ci"] is not None
+        assert row["ci_vs_reference"] is None

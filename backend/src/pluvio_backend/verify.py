@@ -6,15 +6,20 @@ leads x 100x100, f16) and the observed QPE daily zarrs. Observed frames are
 area-averaged from the research grid onto the forecast grid/bounds; the
 difference is forecast - observed in mm/h (positive = we over-forecast).
 
-⚠️ The QPE day zarrs are NOT on the forecast serving box. tools/qpe_archive.py
-composites onto the research analysis grid (model.geo.bbox(), used as EDGE
-bounds by tools/radar_single_site.polar_to_grid) at PLUVIO_GRID_N — 768 in
-production. Treating the serving box (1.5, 48.9, 7.5, 52.5) as the composite's
-bounds, as this module did, squashed the whole 768² composite onto the 100²
-serving box and read station truth ~237 km from the station. The two boxes
-also only partly overlap (the serving box reaches 0.5° further south than the
-composite), so the overlap is averaged in place and the rest left NaN —
-unobserved, not dry.
+⚠️ The QPE day zarrs are NOT on the forecast serving box, and their bounds are
+not derivable here. tools/qpe_archive.py composites onto its own analysis grid
+at PLUVIO_GRID_N (768 in production) and states the result in the store's
+`bounds` attr; that attr is the only source this module accepts. Treating the
+serving box (1.5, 48.9, 7.5, 52.5) as the composite's bounds, as this module
+did, squashed the whole 768² composite onto the 100² serving box and read
+station truth ~237 km from the station. Re-deriving the bounds from the
+research package instead would be ~60 km out at the south edge, because the
+production archiver runs an older model/geo.py (untrimmed extent, zero bias) —
+which is why there is no fallback: a store without the attr is an error.
+
+The serving box is a small window on the composite, so the composite is
+area-averaged over it rather than stretched onto it, and any target cell the
+composite does not sufficiently cover comes back NaN — unobserved, not dry.
 """
 
 from __future__ import annotations
@@ -35,35 +40,39 @@ ARCHIVE_ROOT = pathlib.Path(os.environ.get("PLUVIO_FORECAST_ARCHIVE",
                                            "/storagebox/forecast_archive"))
 QPE_ROOT = pathlib.Path(os.environ.get("PLUVIO_QPE_ROOT", "/storagebox/qpe"))
 
-# Fallback georeference (W, S, E, N) for a QPE day zarr that carries no bounds
-# attr: the lon/lat envelope of the research analysis grid
-# (research/model/grid.py Grid.legacy_knmi_analysis(...).bounds, i.e. what
-# model.geo.bbox() returns and what the archiver hands polar_to_grid as edge
-# bounds). The envelope is set by the legacy grid's projected-extent corners,
-# which every PLUVIO_GRID_N shares, so it is resolution-independent — but it
-# does include the default PLUVIO_GRID_LATLON_BIAS (0, 0.07) the archiver runs
-# with. Duplicated rather than imported: the backend image does not ship the
-# research package (nor pyproj). A store that carries its own bounds attr wins.
-RESEARCH_GRID_BOUNDS = (0.07, 49.4386863708, 10.9264535904, 55.9736022949)
+class QpeGeometryError(RuntimeError):
+    """A QPE day zarr that does not state its own georeference."""
 
 
-def _store_bounds(root) -> tuple[float, float, float, float]:
-    """The composite's own bounds attr if it has one, else the research-grid
-    envelope above. Never the forecast serving box."""
-    attrs = dict(getattr(root, "attrs", {}) or {})
-    for key in ("bounds", "grid_bounds"):
-        raw = attrs.get(key)
-        if raw is None:
-            continue
-        try:
-            vals = tuple(float(x) for x in raw)
-        except (TypeError, ValueError):
-            LOG.warning("ignoring unparseable QPE %r attr %r", key, raw)
-            continue
-        if len(vals) == 4 and vals[0] < vals[2] and vals[1] < vals[3]:
-            return vals[0], vals[1], vals[2], vals[3]
-        LOG.warning("ignoring implausible QPE %r attr %r", key, raw)
-    return RESEARCH_GRID_BOUNDS
+BACKFILL_HINT = ("re-run tools/qpe_archive.py (>= 1b6f023) for that day, or backfill the "
+                 "attr from the archiver's own model.geo — never from the research "
+                 "checkout's, which resolves a different extent and bias")
+
+
+def _store_bounds(root, path: pathlib.Path) -> tuple[float, float, float, float]:
+    """The composite's own `bounds` attr — [west, south, east, north], outer
+    edges. Mandatory: there is no fallback, because every candidate is wrong.
+    The forecast serving box is a different grid (that was the bug), and
+    re-deriving the analysis grid from the research package gives an extent
+    ~60 km off at the south edge, since the archiver runs an older
+    model/geo.py than the repo's. Raises QpeGeometryError, naming the store.
+    """
+    raw = dict(getattr(root, "attrs", {}) or {}).get("bounds")
+    if raw is None:
+        raise QpeGeometryError(
+            f"{path} carries no 'bounds' attr, so its georeference is unknown. "
+            f"Fix: {BACKFILL_HINT}."
+        )
+    try:
+        vals = tuple(float(x) for x in raw)
+    except (TypeError, ValueError) as exc:
+        raise QpeGeometryError(f"{path}: unparseable 'bounds' attr {raw!r}") from exc
+    if len(vals) != 4 or not (vals[0] < vals[2] and vals[1] < vals[3]):
+        raise QpeGeometryError(
+            f"{path}: implausible 'bounds' attr {raw!r} — expected "
+            "[west, south, east, north] with west < east and south < north"
+        )
+    return vals[0], vals[1], vals[2], vals[3]
 
 
 def list_issues(limit: int = 96) -> list[dict]:
@@ -136,7 +145,10 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw,
     finite = np.isfinite(src)
     sums = np.zeros((H + 1, W + 1), "float64")
     counts = np.zeros((H + 1, W + 1), "float64")
-    sums[1:, 1:] = np.where(finite, src, 0.0).cumsum(0).cumsum(1)
+    # float64 before the cumsum: a 768^2 composite runs the running total to
+    # ~1e6, where float32 spacing is ~0.06 — up to ~1e-2 mm/h of error in a
+    # block mean near the far corner.
+    sums[1:, 1:] = np.where(finite, src.astype("float64"), 0.0).cumsum(0).cumsum(1)
     counts[1:, 1:] = finite.astype("float64").cumsum(0).cumsum(1)
 
     def _box(a: np.ndarray) -> np.ndarray:
@@ -154,11 +166,14 @@ def _regrid_block_mean(src: np.ndarray, src_bounds, out_bounds, out_hw,
 def observed_on(valid_epoch: int, bounds, shape):
     """Observed composite at valid time, area-averaged onto the forecast grid.
 
-    QPE day zarrs are slot-indexed: rate is (288, N, N) f16 on the research
+    QPE day zarrs are slot-indexed: rate is (288, N, N) f16 on the archiver's
     analysis grid (N = PLUVIO_GRID_N, 768 in production), slot k = the 5-min
     slot nearest the valid time, no time array. Their georeference comes from
-    the store's bounds attr when it has one, else RESEARCH_GRID_BOUNDS — never
-    from the forecast grid. Cells the composite does not cover come back NaN.
+    the store's mandatory `bounds` attr — never from the forecast grid, and
+    never re-derived here (see _store_bounds). Cells the composite does not
+    cover come back NaN. Returns None when the day/slot is not archived;
+    raises QpeGeometryError when the store is there but says nothing about
+    where it is.
     """
     import zarr
 
@@ -180,7 +195,7 @@ def observed_on(valid_epoch: int, bounds, shape):
     rate = np.asarray(rate_arr[slot], dtype="float32")
     if not np.isfinite(rate).any():
         return None
-    out = _regrid_block_mean(rate, _store_bounds(root), bounds, shape)
+    out = _regrid_block_mean(rate, _store_bounds(root, zp), bounds, shape)
     return out if np.isfinite(out).any() else None
 
 
@@ -232,9 +247,9 @@ def scores(issue: int, lead: int) -> dict | None:
     obs = observed_on(issue + lead * 60, fc["bounds"], f_rate.shape)
     if obs is None:
         return None
-    # Only cells the composite actually observed: the serving box reaches
-    # south of the composite domain, and scoring those cells as dry would
-    # invent skill (or invent misses) over ~15% of the grid.
+    # Only cells the composite actually observed. Radar coverage does not
+    # reach the whole serving box, and scoring the uncovered part as dry would
+    # invent skill (or invent misses) over a large, weather-dependent slice.
     valid = np.isfinite(f_rate) & np.isfinite(obs)
     if not valid.any():
         return None

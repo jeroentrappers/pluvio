@@ -181,22 +181,36 @@ on different rulers. Transparency is the only credible route to "reference".
       comparison is like-for-like); one JSON record/day appended to
       `<out_root>/YYYY/MM/DD.json`, static self-contained HTML with a table
       per lead, an events-yesterday adequacy line, and a 30-day trend table.
-      25 tests. Review fixes on top of the first cut: the truth georeference
-      is read from the day-zarr's own `bounds` attr, else derived from
-      `model.grid.Grid.legacy_knmi_analysis(<store shape>)` — it was
+      33 tests. Review fixes on top of the first cut: the truth georeference
+      is read from the day-zarr's own `bounds` attr and NOTHING else — it was
       hardcoded to `produce_forecast.BE_BOUNDS`, the 100² serving box, which
       read Brussels truth 237 km off and squashed the whole 768² composite
-      onto the serving box; the composite is now area-averaged onto each run's
-      grid with the non-overlapping part (the serving box reaches 0.5° south
-      of the composite) left NaN instead of `nan_to_num`'d to observed-dry;
-      the bootstrap groups kinds by issue-time sequence (`forecast` and
-      `nowcast` come from separate producers, so one paired draw over both
-      raised `ValueError`); the point join loads the previous UTC day's issues
-      (Buienradar's archive is keyed by valid time); truth frames are memoised
-      by (day, slot) and the truth lookup is a dict, not a linear scan (~12
-      min/day of re-reads); slot rounding wraps into the next day. Same wrong
-      bounds tuple fixed in `backend/src/pluvio_backend/verify.py` (+7 tests
-      there; its `scores()` now counts only observed cells).
+      onto the serving box. Deriving it from this repo's `model.geo`/
+      `model.grid` is not a safe fallback either: the archiver runs from the
+      `/opt/pluvio/radarproc` checkout, whose `model/geo.py` predates the
+      700/765 trim and the registration bias, so the stores are on
+      `(0.0, 48.8953, 10.8565, 55.9736)` while a fresh derivation returns
+      `(0.07, 49.4387, 10.9265, 55.9736)` — 60 km out at the south edge. The
+      attr is therefore mandatory (archiver patched in 1b6f023, existing
+      day-stores backfilled); a store without it raises `QpeGeometryError`
+      naming the path, and `--qpe-bounds` remains only as a loudly-logged
+      explicit override. The composite is area-averaged onto each run's grid
+      (float64 integral image — a float32 running total over 768² drifts
+      ~6e-3 mm/h near the far corner) with insufficiently-covered target cells
+      left NaN instead of `nan_to_num`'d to observed-dry. The bootstrap groups
+      kinds by issue-time sequence (`forecast` and `nowcast` come from
+      separate producers, so one paired draw over both raised `ValueError`)
+      and surfaces `ci`/`ci_vs_reference` per row exactly as
+      `tools/benchmark.py` does — `ci_vs_reference` only for a kind actually
+      drawn together with the reference, `None` otherwise, since an unpaired
+      difference interval would not mean what the column says. The point join
+      loads the previous UTC day's issues (Buienradar's archive is keyed by
+      valid time); truth frames are memoised by (day, slot) and the truth
+      lookup is a dict, not a linear scan (~12 min/day of re-reads); slot
+      rounding wraps into the next day. Same wrong bounds tuple, same
+      mandatory-attr rule and the same regrid fixed in
+      `backend/src/pluvio_backend/verify.py` (+12 tests there; its `scores()`
+      now counts only observed cells).
       Open: the `pluvio-scoreboard` nightly timer is declared in
       `research/docs/ops_schedule.md` (02:30 UTC, previous day, host paths)
       but NOT yet installed on hetz1 — ops step, nothing left in the tool.
