@@ -14,6 +14,7 @@ import zarr
 from model.metrics import categorical_scores, continuous_scores, fractions_skill_score
 from tools import benchmark as bm
 from tools._advection import advect_forecast, flow_for_pair, max_shift_px, warp
+from tools._stats import SampleStats, block_bootstrap
 
 GRID = (16, 16)
 
@@ -294,3 +295,267 @@ def test_case_days_scored_in_full_and_reported_separately(tmp_path):
     assert report["results_case_days"]
     for name in ("persistence", "advection", "operational"):
         assert name in report["results_case_days"]
+
+
+# ────────────────────────────────────────────────────────────── 3.6: stats
+
+
+def _bootstrap_cfg(**overrides):
+    cfg = {"blocks_h": 6, "n": 300, "ci": 0.9, "seed": 7, "reference_model": "persistence"}
+    cfg.update(overrides)
+    return cfg
+
+
+def test_bootstrap_ci_contains_the_point_estimate(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr")
+    config_path = _write_config(tmp_path / "benchmark.yaml", bootstrap=_bootstrap_cfg())
+    cfg = bm.load_config(config_path)
+    report = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")
+
+    for lead in ("30", "60", "90", "120"):
+        row = report["results"]["advection"][lead]["1.0"]
+        for key in ("csi", "rmse", "mae", "mean_error"):
+            ci = row["ci"][key]
+            if ci["ci_lo"] is None:  # all-NaN replicate stratum, nothing to assert
+                continue
+            assert ci["ci_lo"] - 1e-9 <= row[key] <= ci["ci_hi"] + 1e-9
+
+
+def test_bootstrap_ci_narrows_with_more_samples(tmp_path):
+    cfg_overrides = {"bootstrap": _bootstrap_cfg(n=200), "leads_min": [30],
+                     "thresholds_mm_h": [1.0], "max_samples": 100000}
+
+    small_store = _make_synthetic_store(tmp_path / "small.zarr", n_issues=20)
+    small_cfg = bm.load_config(_write_config(tmp_path / "small.yaml", **cfg_overrides))
+    small_report = bm.run_benchmark(str(small_store), small_cfg, model_specs=[], device="cpu")
+
+    big_store = _make_synthetic_store(tmp_path / "big.zarr", n_issues=200)
+    big_cfg = bm.load_config(_write_config(tmp_path / "big.yaml", **cfg_overrides))
+    big_report = bm.run_benchmark(str(big_store), big_cfg, model_specs=[], device="cpu")
+
+    small_ci = small_report["results"]["advection"]["30"]["1.0"]["ci"]["rmse"]
+    big_ci = big_report["results"]["advection"]["30"]["1.0"]["ci"]["rmse"]
+    small_width = small_ci["ci_hi"] - small_ci["ci_lo"]
+    big_width = big_ci["ci_hi"] - big_ci["ci_lo"]
+    assert big_width < small_width
+
+
+def test_bootstrap_same_seed_identical_different_seed_overlaps(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr")
+    cfg = bm.load_config(_write_config(tmp_path / "benchmark.yaml", bootstrap=_bootstrap_cfg(seed=7)))
+
+    row_a = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")[
+        "results"]["advection"]["30"]["1.0"]["ci"]
+    row_b = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")[
+        "results"]["advection"]["30"]["1.0"]["ci"]
+    assert row_a == row_b  # same seed -> byte-identical
+
+    cfg_other = bm.load_config(
+        _write_config(tmp_path / "benchmark2.yaml", bootstrap=_bootstrap_cfg(seed=99)))
+    row_c = bm.run_benchmark(str(store), cfg_other, model_specs=[], device="cpu")[
+        "results"]["advection"]["30"]["1.0"]["ci"]
+
+    assert row_c["csi"] != row_a["csi"]  # different seed -> different draw
+    lo = max(row_a["csi"]["ci_lo"], row_c["csi"]["ci_lo"])
+    hi = min(row_a["csi"]["ci_hi"], row_c["csi"]["ci_hi"])
+    assert lo <= hi  # ...but still overlapping (same underlying data)
+
+
+def _block_correlated_records(n=240, cadence_s=1800, block_h=6.0, seed=0):
+    """Per-sample RMSE-style stats where the error is dominated by a
+    per-block random offset (correlated within each ``block_h``-hour window)
+    plus small iid noise — the pattern a real storm scored at several leads
+    across a case day would leave in the accumulated statistics."""
+    rng = np.random.default_rng(seed)
+    span = max(1, int(block_h * 3600 / cadence_s))
+    records = []
+    epoch0 = 1_700_000_000
+    for i in range(n):
+        block_rng = np.random.default_rng(1000 + i // span)
+        e = float(block_rng.normal(0.0, 2.0)) + float(rng.normal(0.0, 0.05))
+        records.append({
+            "issue_epoch": epoch0 + i * cadence_s, "n": 1, "sum_e": e,
+            "sum_abs_e": abs(e), "sum_sq_e": e * e,
+            "cat": {1.0: (1, 0, 0)}, "fss": {1.0: {1: (0.0, 1.0)}},
+        })
+    return records
+
+
+def _rmse_ci_width(records, blocks_h, n_boot=400, seed=1):
+    stats = SampleStats([1.0], [1])
+    for r in records:
+        stats.add(**r)
+    boot = block_bootstrap({"model": stats}, blocks_h=blocks_h, n_boot=n_boot, ci=0.9, seed=seed)
+    ci = boot["ci"]["model"]["1.0"]["rmse"]
+    return ci["ci_hi"] - ci["ci_lo"]
+
+
+def test_block_bootstrap_respects_correlated_blocks():
+    """Resampling in 6 h blocks on data whose errors are correlated within
+    each 6 h window must give a wider CI than resampling at the (here,
+    effectively per-sample / iid) 30-min block granularity — a plain iid
+    bootstrap over samples would understate the true uncertainty."""
+    records = _block_correlated_records()
+    wide = _rmse_ci_width(records, blocks_h=6.0)
+    narrow = _rmse_ci_width(records, blocks_h=0.5)
+    assert wide > narrow
+
+
+def test_adequacy_flag_flips_at_threshold(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr")  # blob rate is exactly 5.0 mm/h
+    low_cfg = bm.load_config(_write_config(
+        tmp_path / "adequate.yaml", adequacy={"threshold_mm_h": 4.0, "min_events": 1}))
+    report = bm.run_benchmark(str(store), low_cfg, model_specs=[], device="cpu")
+    n_events = report["metadata"]["adequacy"]["n_events"]
+    assert n_events > 0
+    assert report["metadata"]["adequate"] is True
+
+    high_cfg = bm.load_config(_write_config(
+        tmp_path / "inadequate.yaml", adequacy={"threshold_mm_h": 4.0, "min_events": n_events + 1}))
+    report2 = bm.run_benchmark(str(store), high_cfg, model_specs=[], device="cpu")
+    assert report2["metadata"]["adequacy"]["n_events"] == n_events
+    assert report2["metadata"]["adequate"] is False
+
+
+def test_stratified_sampling_equal_counts_per_lead(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr", n_issues=60)
+    config_path = _write_config(tmp_path / "benchmark.yaml", max_samples=20, case_days=[])
+    cfg = bm.load_config(config_path)
+    from model.zarr_dataset import ZarrCorrectionDataset
+
+    dataset = ZarrCorrectionDataset(str(store), leads_min=tuple(cfg["leads_min"]), build_index=True)
+    selected, case_idx = bm._select_samples(dataset, cfg)
+    assert not case_idx
+
+    counts: dict[int, int] = {}
+    for i in selected:
+        lead = dataset.index[i].lead_min
+        counts[lead] = counts.get(lead, 0) + 1
+    assert max(counts.values()) - min(counts.values()) <= 1
+
+
+def test_manifest_sidecar_hash_matches_metadata_and_roundtrips(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr")
+    config_path = _write_config(tmp_path / "benchmark.yaml")
+    out_path = tmp_path / "results.json"
+
+    rc = bm.main(["--zarr", str(store), "--config", str(config_path), "--out", str(out_path)])
+    assert rc == 0
+
+    manifest_path = tmp_path / "results.json.samples.jsonl"
+    assert manifest_path.exists()
+    payload = json.loads(out_path.read_text())
+    assert "manifest" not in payload  # sidecar file only, not duplicated in the JSON report
+
+    records = bm.load_manifest(manifest_path)
+    assert len(records) == payload["metadata"]["n_samples_selected"]
+    assert bm.manifest_hash(records) == payload["metadata"]["sample_set_hash"]
+
+    rec = records[0]
+    assert set(rec) == {"issue_time", "lead_min", "target_time", "case_day", "n_valid_cells"}
+
+
+def test_sample_set_hash_changes_with_different_sample_set(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr", n_issues=30)
+    cfg_small = bm.load_config(_write_config(tmp_path / "small.yaml", max_samples=8))
+    cfg_big = bm.load_config(_write_config(tmp_path / "big.yaml", max_samples=40))
+    h_small = bm.run_benchmark(str(store), cfg_small, model_specs=[], device="cpu")["metadata"]["sample_set_hash"]
+    h_big = bm.run_benchmark(str(store), cfg_big, model_specs=[], device="cpu")["metadata"]["sample_set_hash"]
+    assert h_small != h_big
+
+
+def test_paired_diff_ci_is_exact_for_a_constant_offset():
+    """model B == model A with a constant offset added to every error. The
+    paired-difference mean_error CI must collapse to exactly that offset
+    (width ~0) for EVERY bootstrap draw, since B - A cancels the resampled
+    noise term-by-term — this only holds if both models are aggregated from
+    the same block draw each replicate (a genuinely paired comparison)."""
+    thresholds, fss_scales = [1.0], [1]
+    rng = np.random.default_rng(3)
+    offset = 0.37
+    common = {"cat": {1.0: (1, 0, 0)}, "fss": {1.0: {1: (0.0, 1.0)}}}
+    stats_a = SampleStats(thresholds, fss_scales)
+    stats_b = SampleStats(thresholds, fss_scales)
+    epoch0 = 1_700_000_000
+    for i in range(60):
+        n = 10
+        sum_e = float(rng.normal(0.0, 1.0) * n)
+        stats_a.add(issue_epoch=epoch0 + i * 1800, n=n, sum_e=sum_e,
+                    sum_abs_e=abs(sum_e), sum_sq_e=sum_e ** 2, **common)
+        sum_e_b = sum_e + offset * n
+        stats_b.add(issue_epoch=epoch0 + i * 1800, n=n, sum_e=sum_e_b,
+                    sum_abs_e=abs(sum_e_b), sum_sq_e=sum_e_b ** 2, **common)
+
+    boot = block_bootstrap({"A": stats_a, "B": stats_b}, blocks_h=6.0, n_boot=200, ci=0.9,
+                          seed=5, ref_model="A")
+    diff = boot["diff_vs_ref"]["B"]["1.0"]["mean_error"]
+    assert (diff["ci_hi"] - diff["ci_lo"]) < 1e-9
+    assert diff["ci_lo"] == pytest.approx(offset, abs=1e-9)
+    assert diff["ci_hi"] == pytest.approx(offset, abs=1e-9)
+
+
+def test_sample_stat_record_keys_by_issue_time_not_target_time():
+    """Guards the exact line that ties a sample's sufficient statistics to
+    its ISSUE time — if it were keyed by the lead-shifted target time
+    instead, samples from one issue scored at different leads would land in
+    different bootstrap blocks depending on lead, silently breaking the
+    "resample by storm" assumption the whole feature rests on."""
+    from types import SimpleNamespace
+
+    s = SimpleNamespace(issue_epoch=1_700_000_000, lead_min=120)
+    pred_sel = obs_sel = np.array([1.0, 2.0])
+    pred_fss = obs_fss = np.zeros((4, 4))
+    rec = bm._sample_stat_record(s, pred_sel, obs_sel, pred_fss, obs_fss, n_selected=2,
+                                 thresholds=[1.0], fss_scales=[1])
+    assert rec["issue_epoch"] == s.issue_epoch
+    assert rec["issue_epoch"] != s.issue_epoch + s.lead_min * 60
+
+
+def test_issue_block_groups_by_issue_time_even_when_targets_straddle_a_boundary():
+    """Two issues that share a 6 h block by issue time, but whose targets
+    (issue + a large, per-sample lead) fall in DIFFERENT blocks — proof that
+    grouping by issue time (the correct key) is not incidentally equivalent
+    to grouping by target time here."""
+    from tools._stats import issue_block
+
+    blocks_h = 6.0
+    span_s = int(blocks_h * 3600)
+    issue_a, lead_a_s = -100, 0            # target = -100
+    issue_b, lead_b_s = -50, 24_000        # target = 23_950
+
+    assert issue_block(issue_a, blocks_h) == issue_block(issue_b, blocks_h)  # same issue block
+    target_a, target_b = issue_a + lead_a_s, issue_b + lead_b_s
+    assert issue_block(target_a, blocks_h) != issue_block(target_b, blocks_h)  # different target block
+    assert span_s > 0  # sanity: span computed as expected
+
+
+def test_adequacy_counts_distinct_issue_times_not_samples(tmp_path):
+    store = _make_synthetic_store(tmp_path / "store.zarr", n_issues=10,
+                                  leads_min=(0, 30, 60, 90, 120))
+    config_path = _write_config(tmp_path / "benchmark.yaml",
+                                adequacy={"threshold_mm_h": 4.0, "min_events": 1},
+                                leads_min=[30, 60, 90, 120], max_samples=100000, case_days=[])
+    cfg = bm.load_config(config_path)
+    report = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")
+
+    distinct_issues = len({rec["issue_time"] for rec in report["manifest"]})
+    n_events = report["metadata"]["adequacy"]["n_events"]
+    assert n_events == distinct_issues
+    assert n_events != len(report["manifest"])  # would be ~4x distinct_issues if mis-counted per-sample
+
+
+def test_adequacy_anchored_on_scored_truth_not_t0_analysis(tmp_path):
+    """A store where the t0 (issue-time) analysis is always dry but the
+    scored truth at some lead is wet must still count as an adequacy event —
+    adequacy has to reflect what the metrics were actually scored against."""
+    store = _make_synthetic_store(tmp_path / "store.zarr", n_issues=10, leads_min=(0, 30))
+    root = zarr.open_group(str(store), mode="a")
+    root["radar"][:, 0, :, :] = 0.0  # every issue's t0 analysis: bone dry
+    # truth (the scored target at the only non-zero lead) is untouched — the
+    # synthetic fixture already writes a real blob there.
+
+    config_path = _write_config(tmp_path / "benchmark.yaml", leads_min=[30],
+                                adequacy={"threshold_mm_h": 4.0, "min_events": 1}, case_days=[])
+    cfg = bm.load_config(config_path)
+    report = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")
+    assert report["metadata"]["adequacy"]["n_events"] > 0

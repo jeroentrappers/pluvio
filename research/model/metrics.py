@@ -57,6 +57,21 @@ def _fraction_field(mask: np.ndarray, scale_px: int) -> np.ndarray:
     return uniform_filter(mask.astype("float64"), size=scale_px, mode="constant", cval=0.0)
 
 
+def fss_components(pred_field: np.ndarray, obs_field: np.ndarray, *, threshold: float,
+                   scale_px: int) -> tuple[float, float]:
+    """The (numerator, denominator) of the FSS ratio for a single (H, W)
+    field pair — additive sufficient statistics: summing these over any set
+    of samples and taking ``1 - sum(num)/sum(den)`` reproduces the FSS that
+    scoring the whole set at once would give (see ``fractions_skill_score``).
+    Exposed so a caller (the benchmark's block bootstrap) can accumulate FSS
+    per-sample without retaining the fraction fields themselves."""
+    pf = _fraction_field(np.asarray(pred_field) >= threshold, scale_px)
+    po = _fraction_field(np.asarray(obs_field) >= threshold, scale_px)
+    num = float(np.mean((pf - po) ** 2))
+    den = float(np.mean(pf ** 2) + np.mean(po ** 2))
+    return num, den
+
+
 def fractions_skill_score(pred: np.ndarray, obs: np.ndarray, *, threshold: float,
                           scale_px: int) -> float:
     """FSS at one intensity threshold and one neighbourhood scale (in pixels).
@@ -69,10 +84,9 @@ def fractions_skill_score(pred: np.ndarray, obs: np.ndarray, *, threshold: float
     P, O = _as_stack(pred), _as_stack(obs)
     num = den = 0.0
     for i in range(P.shape[0]):
-        pf = _fraction_field(P[i] >= threshold, scale_px)
-        po = _fraction_field(O[i] >= threshold, scale_px)
-        num += float(np.mean((pf - po) ** 2))
-        den += float(np.mean(pf ** 2) + np.mean(po ** 2))
+        n, d = fss_components(P[i], O[i], threshold=threshold, scale_px=scale_px)
+        num += n
+        den += d
     if den == 0.0:
         return float("nan")  # no wet pixels anywhere at this threshold
     return 1.0 - num / den

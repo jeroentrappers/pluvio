@@ -174,11 +174,20 @@ on different rulers. Transparency is the only credible route to "reference".
       Acceptance: nightly rows in the scoreboard. Lane: agent + ops.
 - [ ] **3.4 Public scoreboard page** — nightly job over the Verify archive →
       static page (per lead, per model, yesterday vs what fell). Lane: agent.
-- [ ] **3.6 Benchmark statistics** — block-bootstrap CIs resampled by
-      issue-time (6 h blocks) so two models within noise don't trade places
-      nightly; adequacy defined in events (≥30 issue-times with domain max
-      > 5 mm/h) not a flat sample cap; per-lead stratified samples; sidecar
-      sample manifest. Depends 3.2. Lane: agent.
+- [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
+      sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
+      FSS numerator/denominator per threshold/scale), tagged with issue_time
+      so the block bootstrap resamples 6 h blocks of stats rather than
+      re-scoring — memory footprint drops, it no longer retains per-sample
+      pointwise arrays or FSS field stacks at all. `ci_lo`/`ci_hi` merged
+      onto every metric plus a paired-difference CI vs `bootstrap.
+      reference_model` (default persistence), for both the pooled and
+      case-day strata; adequacy counted in issue-time events (a scored
+      target truth field's domain max > `adequacy.threshold_mm_h`, default
+      5 mm/h; `adequate: false` below `min_events`, default 30) reported in metadata
+      and the markdown table; per-lead stratified sampling was already in
+      `_select_samples` (verified with a test); sidecar `<out>.samples.jsonl`
+      manifest, `sample_set_hash` now hashes that manifest. Lane: agent.
 - [ ] **3.5 Deployment gate** — checkpoint swap requires benchmark win + a
       canary hour where old and new fields are both archived and diffed.
       Lane: ops. Depends: 3.2
