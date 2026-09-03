@@ -1,0 +1,36 @@
+# Frozen benchmark definition for research/tools/benchmark.py.
+#
+# Changing the numbers below changes what "beats the benchmark" means, so
+# treat edits here like a protocol change: bump `name`/`version` and note why
+# in the commit message rather than silently tightening or loosening it.
+
+name: pluvio-nowcast-benchmark
+version: 1
+
+# Validation window: issue-times in [start, end) are eligible samples.
+val_window:
+  start: "2026-04-02"
+  end: "2026-08-31"
+
+# Curated event days, evaluated in addition to (not instead of) the window
+# above — the plain validation window is mostly stratiform/quiet, and the
+# leaderboard needs a few days that actually stress the model (convective
+# initiation, fast-moving fronts, embedded cells). Fill these in from the
+# KNMI warning archive / gauge review; the entries below are placeholders.
+case_days:
+  - "2026-06-15"  # TODO: candidate convective day — verify against KNMI warnings
+  - "2026-07-22"  # TODO: candidate frontal passage — verify against KNMI warnings
+  - "2026-08-10"  # TODO: candidate convective day — verify against KNMI warnings
+
+# Deterministic seeded subsample of the eligible (issue, lead) pairs.
+max_samples: 2000
+seed: 42
+
+# 0 = score every grid cell; >0 = a fixed, seeded random subset of cells used
+# for the pointwise (categorical/continuous) metrics only — FSS always uses
+# the full field, since it is inherently a neighbourhood score.
+sample_cells: 0
+
+thresholds_mm_h: [0.1, 0.5, 1.0, 2.0, 5.0]
+leads_min: [30, 60, 90, 120]
+fss_scales_px: [1, 3, 5]
