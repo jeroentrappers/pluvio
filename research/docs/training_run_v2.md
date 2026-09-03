@@ -229,3 +229,19 @@ Retrain (paused pending these fixes) re-scoped: bigger box covering all of
 the Netherlands (~1.5-7.5E, 48.9-54.2N), everything on ONE regular lat/lon
 grid, truth = QPE composite (BE/south) + RTCOR (NL, 2019->) — aligns with
 the RTCOR pretrain phase and retires the KNMI-stereo legacy entirely.
+
+## v3 training LAUNCHED (2026-09-03 07:11 CEST)
+
+Full-Benelux 192x192 store (35,673 issues; truth = native 1-km RAC corpus,
+aux geometry healed): 113,680 train / 28,344 val samples, 33 channels incl.
+the 3 statics (restored — zarr_dataset's hardcoded GRID=(100,100) literal had
+silently dropped them at any other resolution; the dataset now derives its
+grid from the store, commit 28ba87c). base 64, batch 8, patience 30, ~80-90
+min/epoch. A local supervisor loop on asusprime owns the lifecycle
+(launch/restart/exit-on-done) because the control channel from the laptop
+drops mid-session; note pgrep guards must never appear in the same ssh
+command line they test (self-match).
+
+After convergence: same-split eval vs operational + legacy + v2, absolute
+skill vs persistence on the healed inputs, then serving integration for the
+new box (infer_latest bounds + frontend forecast domain + blend crop).
