@@ -245,3 +245,86 @@ command line they test (self-match).
 After convergence: same-split eval vs operational + legacy + v2, absolute
 skill vs persistence on the healed inputs, then serving integration for the
 new box (infer_latest bounds + frontend forecast domain + blend crop).
+
+## Pre-rendered training shards (WP 2.6, 2026-09-03)
+
+The v3 epoch cost is sample *assembly*, not the GPU: `ZarrCorrectionDataset`
+rebuilds all 33 channels from the store for every sample on every epoch (a
+chunk read per history frame, one per aux channel, plus normalisation and the
+time-encoding planes) — ~47 min/epoch at 192², batch 8, 6 workers.
+
+`tools/render_shards.py` does that assembly once into `.npy` memmaps;
+`model/shard_dataset.py` (`ShardDataset`) streams them with one memmap slice
+and one dtype cast per sample. `model/train.py --shards <dir>` swaps the
+dataset in — same index, same chronological `issue_time_split` boundary, same
+sample order, same targets, so the loss curve is unchanged.
+
+**Where the float16 cast happens.** Once, at render time, in
+`shard_dataset.cast_for_shard`. `ShardDataset` casts straight back to float32,
+so `ShardDataset[i] == cast_for_shard(ZarrCorrectionDataset[i]).astype(f32)`
+bit-for-bit (asserted in `tests/test_shard_dataset.py`, with the identical cast
+applied to both sides). It is *not* bit-equal to the un-quantised float32
+sample: normalised aux (`/255`), the `lead/120` plane and the static scalings
+land off the float16 grid. That is deliberate — the store's own arrays are
+float16 and CUDA training runs under `autocast(float16)`, so the model never
+saw more precision than this. `--dtype float32` renders exact float32 shards
+(asserted bit-equal to the raw dataset) at 2× the disk.
+
+**Safety.** The manifest records the channel recipe (names in `build_input`
+order), grid, sample count, sample-semantics recipe + its hash, a structural
+source-store fingerprint (attrs + array shapes/dtypes + the full `issue_time`
+vector — not a content hash of 14 GB) and a sha256 per shard. `ShardDataset`
+refuses an incomplete store, a mismatched recipe (`--zarr` alongside
+`--shards` re-derives the expected recipe from the store), a bumped
+`zarr_dataset.NORMALISE_VERSION`, a filtered val split, and a
+`--require-rain-fraction` the shards were not rendered with. The render is
+resumable: shards are written `*.tmp` + atomically renamed, the manifest is
+rewritten after each one and only marked `complete` at the end; a rerun keeps
+what is on disk and re-renders the rest (byte-identical to a clean render,
+asserted).
+
+**Measured throughput** (CPU, single worker, page-cached synthetic store at the
+real shape — 192², 33 channels, 30-min cadence): zarr 41.5 samples/s → shard
+14,737 samples/s (355×). The tiny 24² test store shows 227 → 341k (1500×).
+Both are upper bounds: on the real store the loader is dominated by cold random
+chunk reads (~40 samples/s *aggregate* over 6 workers, which is exactly the 47
+min/epoch), while the shard path is bounded by disk bandwidth — 2.39 MiB/sample
+means a 3× epoch (≥120 samples/s) needs ≥290 MiB/s of random 2.4 MiB reads.
+Trivial on NVMe, fine on SATA SSD, hopeless on a spinning disk. The real
+acceptance number needs the GPU box.
+
+**Storage** — 192² × 33 ch float16 = 2.32 MiB per input + 0.07 MiB per target =
+**2.39 MiB/sample** (measured, matches the arithmetic):
+
+| split | samples | size |
+|---|---|---|
+| train | 113,680 | 265 GiB |
+| val | 28,344 | 66 GiB |
+| both | 142,024 | **332 GiB** (356 GB) |
+
+If that does not fit: render `--split train` only and leave val on the zarr
+(val is forward-only and 20% of the samples), or follow up with per-issue
+dedup — 29 of the 33 channels are lead-invariant, so storing them once per
+issue and expanding the 4 leads at read time is ~2.9× smaller for one small
+per-sample copy.
+
+**asusprime invocation** (python 3.10 / zarr 2.x there; the renderer only reads
+the store, so no `zarr_format` concern):
+
+```
+cd ~/pluvio_v2/research
+python -m tools.render_shards \
+    --zarr ~/pluvio_v2/data/timeseries_v3.zarr \
+    --out  ~/pluvio_v2/data/shards_v3 \
+    --split train,val --workers 6 --dtype float16 -v
+# then, same flags as the zarr run apart from the dataset source:
+python -m model.train \
+    --shards ~/pluvio_v2/data/shards_v3 \
+    --zarr   ~/pluvio_v2/data/timeseries_v3.zarr \
+    --epochs 300 --batch-size 8 --base-channels 64 --num-workers 6
+```
+
+Check free space first (`df -h ~/pluvio_v2/data`) — 332 GiB. The render is
+resumable, so a disk-full or a dropped session is recoverable by re-running the
+same command. Keep `--val-frac` identical between render and train: it sets the
+split boundary, and train.py compares the boundary recorded in both manifests.
