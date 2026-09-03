@@ -30,6 +30,7 @@ is the single place that says what runs, when, and why.
 | pluvio-wide-archive | hourly :37 | continental 3-km composite archive (permanent) |
 | pluvio-forecast-archive | every 5 min | every forecast/nowcast run → storagebox (permanent, feeds Verify) |
 | pluvio-external-baselines | every 5 min at :30 past the tick (`*:00/5:30`), RequiresMountsFor=/mnt/storagebox; live since 2026-09-03 | Buienradar point forecasts at 20 BE/NL stations → `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl` (permanent; verification evidence) |
+| pluvio-buienradar-eu | every 5 min (`*:00/5`), RequiresMountsFor=/mnt/storagebox; **planned, not yet deployed** | Buienradar EU radar composite + every forecast run → `/mnt/storagebox/buienradar_eu` (permanent; verification evidence). `python -m tools.buienradar_eu collect --root /mnt/storagebox/buienradar_eu`. The 5-min cadence is a hard requirement, not a preference: their composite history is only 12 frames × 15 min deep (`history` is capped at 12) and a forecast run's earliest lead times drop out of the metadata as the run ages, so anything slower loses frames permanently. Exits 0 on partial success; non-zero only when a metadata document could not be fetched, so an alert on this unit means the endpoint or the API key moved. |
 
 ## Static services (triggered by other units, not timers)
 
@@ -53,7 +54,7 @@ Lagrangian blend, 2-min morph, overlays/sprites), `web` (nginx, build context
 | raw radar volumes / dwd | 3 days (re-processing window, coverage-guarded) | storagebox |
 | OPERA RATE/COMP | 7 days | storagebox |
 | RAC tar cache | keep (747 daily tars, the pretrain corpus) | storagebox/knmi_rtcor |
-| QPE day-zarrs, wide archive, forecast archive, external baselines | forever | storagebox |
+| QPE day-zarrs, wide archive, forecast archive, external baselines, buienradar_eu | forever | storagebox |
 | training stores | versioned, keep last two | /opt/pluvio/zarr, /opt/pluvio/stage |
 
 ## Training node (asusprime)

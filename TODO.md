@@ -226,6 +226,39 @@ on different rulers. Transparency is the only credible route to "reference".
 - [ ] **3.5 Deployment gate** — checkpoint swap requires benchmark win + a
       canary hour where old and new fields are both archived and diffed.
       Lane: ops. Depends: 3.2
+- [~] **3.7 Buienradar EU composite + forecast archive** —
+      `research/tools/buienradar_eu.py` (+ 71 offline tests): archives the
+      Europe rain-radar composite as a continuous linear history and every
+      forecast run separately, so our nowcasts can be scored against theirs
+      on the same frames. Collected with Buienradar's written permission;
+      named User-Agent, one fetch per frame ever, 0.2 s spacing, backoff.
+      `collect` writes `composite/YYYY/MM/DD/<YYYYMMDDHHMM>Z.png`,
+      `forecast/YYYY/MM/DD/<run>Z/<valid>Z.png`, hash-deduped metadata under
+      `meta/<kind>/`, a sqlite frame index (sha256 + fetch time) and
+      `forecast/runs.jsonl`; `cadence` summarises the run cadence, `verify`
+      cross-checks index vs disk, `decode` renders mm/h. Verified live
+      2026-09-03: metadata timestamps and the compact ids in the image URLs
+      are **UTC** (`timeOffset` is the site's display offset, 2.0 in CEST),
+      run cadence exactly 15 min (18:45/19:00/19:15 UTC) published ~30 min
+      after the run id, composite 15-min steps ~40 min behind real time,
+      30 forecast frames per run at +35..+180 min, and a run's earliest leads
+      fall out of the metadata as it ages (27 left by +55 min) — hence the
+      mandatory 5-min tick.
+      Georeference is a sidecar (`georeference.json` + `frame.pgw`): EPSG:3857,
+      766×652, corners 34-61 N / 13.5 W-35 E, ~7.05 km square pixels.
+      Open: (a) deploy `pluvio-buienradar-eu.timer` on hetz1 (every 5 min,
+      `/mnt/storagebox/buienradar_eu`, retention forever — row already in
+      `docs/ops_schedule.md`); (b) the colour→mm/h table is PROVISIONAL —
+      Buienradar publishes only a 5-class legend (0-2/2-5/5-10/10-100/100+
+      mm/h) while the PNGs carry a finer continuous ramp, so
+      `png_to_rate` interpolates between the legend anchors and needs
+      validating against our own composite over the same frames (use
+      `png_to_class` until then); (c) confirm whether composite frames are
+      ever revised in place — the collector re-checks the newest two frames
+      every tick and would archive a `.r1` twin, none seen in the first hour.
+      Acceptance: 24 h of unbroken 15-min composite history + every run
+      archived, and a decoder validated against our composite.
+      Lane: agent + ops. Depends: 3.2
 
 ## Epic 4 — Domain & latency (days 61–90)
 
