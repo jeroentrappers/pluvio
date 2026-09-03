@@ -25,10 +25,11 @@ is the single place that says what runs, when, and why.
 | pluvio-observed | every 5 min | composite producer (produce_observed) — the serving cube |
 | pluvio-qc | hourly :25 | temporal-consistency watchdog on the served cube |
 | pluvio-qc-inputs | hourly :40 | store registration / aux alignment / channel health |
-| pluvio-qpe-archive | every 10 min | 768-grid QPE day-zarr archive (permanent) |
+| pluvio-qpe-archive | every 10 min | 768-grid QPE day-zarr archive (permanent). Each day-store states its own georeference in attrs (`bounds` [w,s,e,n] outer edges, `grid_shape`, `grid_crs`, `grid_row_order`, `bounds_convention`, `bounds_source`) since 1b6f023; existing stores backfilled. Readers (scoreboard, backend Verify) treat the attr as mandatory and refuse a store without it — the archiver runs from the `/opt/pluvio/radarproc` checkout, whose `model/geo.py` resolves a different extent/bias than the repo's, so a reader-side derivation is ~60 km out at the south edge |
 | pluvio-qpe-prune | daily 04:30 | prunes RAW volumes (3 d) + OPERA (7 d) — never day-zarrs |
 | pluvio-wide-archive | hourly :37 | continental 3-km composite archive (permanent) |
 | pluvio-forecast-archive | every 5 min | every forecast/nowcast run → storagebox (permanent, feeds Verify) |
+| pluvio-scoreboard | daily 02:30 UTC, `RequiresMountsFor=/mnt/storagebox`; NOT YET INSTALLED (3.4 ops step) | scores the PREVIOUS UTC day and appends `/mnt/storagebox/scoreboard/YYYY/MM/DD.json` (permanent) + rewrites `index.html`. Runs on the host, so host paths: `python -m tools.scoreboard --forecast-archive /mnt/storagebox/forecast_archive --qpe-root /mnt/storagebox/qpe --external-archive /mnt/storagebox/external_baselines --out-root /mnt/storagebox/scoreboard --html /mnt/storagebox/scoreboard/index.html` (no `--day`: it defaults to yesterday UTC). 02:30 leaves the daily QPE backfill pass and the 01:45 NAS rotation done and sits well before `pluvio-qpe-prune` at 04:30 |
 | pluvio-external-baselines | every 5 min at :30 past the tick (`*:00/5:30`), RequiresMountsFor=/mnt/storagebox; live since 2026-09-03 | Buienradar point forecasts at 20 BE/NL stations → `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl` (permanent; verification evidence) |
 
 ## Static services (triggered by other units, not timers)
@@ -53,7 +54,7 @@ Lagrangian blend, 2-min morph, overlays/sprites), `web` (nginx, build context
 | raw radar volumes / dwd | 3 days (re-processing window, coverage-guarded) | storagebox |
 | OPERA RATE/COMP | 7 days | storagebox |
 | RAC tar cache | keep (747 daily tars, the pretrain corpus) | storagebox/knmi_rtcor |
-| QPE day-zarrs, wide archive, forecast archive, external baselines | forever | storagebox |
+| QPE day-zarrs, wide archive, forecast archive, external baselines, scoreboard records | forever | storagebox |
 | training stores | versioned, keep last two | /opt/pluvio/zarr, /opt/pluvio/stage |
 
 ## Training node (asusprime)
