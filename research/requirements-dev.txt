@@ -5,6 +5,7 @@
 --extra-index-url https://pypi.org/simple
 
 numpy>=1.26,<3
+pillow>=10,<12       # tools.buienradar_eu PNG decode (test_buienradar_eu)
 pandas>=2.2,<3
 pyproj>=3.6,<4
 rasterio>=1.4,<2      # geo.analysis_grid_dst()

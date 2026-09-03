@@ -22,6 +22,8 @@ dependencies = [
     "zstandard>=0.22",
     "zarr>=3.0",
     "rasterio>=1.4",
+    # Buienradar EU radar PNG archive + palette decode (tools/buienradar_eu.py).
+    "pillow>=10",
     "copernicusmarine>=2.4.1",
     # Classical optical-flow nowcast — the product baseline (model/classical.py)
     # AND the real verification reference. The code degrades to a built-in
