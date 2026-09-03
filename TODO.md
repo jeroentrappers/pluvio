@@ -96,6 +96,12 @@ below every metric. Make eyes unnecessary.
       interrupted append cannot take down inference). Proven safe against the
       live legacy store layout and the v3 layout (byte-identical channel lists
       through train and infer paths). Merged 2026-09-03. Lane: agent.
+      Follow-up found 2026-09-03: the live store's `issue_time` is not strictly
+      monotonic (35754 issues, no zero slots) — audit for duplicates/out-of-
+      order appends (newest-first backfill?) and add a monotonicity check to
+      qc_inputs. Also: the hetz1 research checkout is not git — the first
+      deploy of the repo's `build_zarr.py` exposed a latent NameError
+      (fixed e32148a); diff remote files before overwriting (see 1.8).
 - [ ] **1.13 Backend pixel conventions** — `cache.GridSpec.latlon_to_cell`
       (centre, `*(h-1)`, `round`) vs `history.py` and `colormap.draw_fiducials`
       (edge, `*h`, `int`) disagree by up to a cell; unify on Grid semantics
