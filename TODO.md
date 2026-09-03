@@ -180,9 +180,10 @@ on different rulers. Transparency is the only credible route to "reference".
       re-scoring — memory footprint drops, it no longer retains per-sample
       pointwise arrays or FSS field stacks at all. `ci_lo`/`ci_hi` merged
       onto every metric plus a paired-difference CI vs `bootstrap.
-      reference_model` (default persistence); adequacy counted in issue-time
-      events (t0 domain max > `adequacy.threshold_mm_h`, default 5 mm/h;
-      `adequate: false` below `min_events`, default 30) reported in metadata
+      reference_model` (default persistence), for both the pooled and
+      case-day strata; adequacy counted in issue-time events (a scored
+      target truth field's domain max > `adequacy.threshold_mm_h`, default
+      5 mm/h; `adequate: false` below `min_events`, default 30) reported in metadata
       and the markdown table; per-lead stratified sampling was already in
       `_select_samples` (verified with a test); sidecar `<out>.samples.jsonl`
       manifest, `sample_set_hash` now hashes that manifest. Lane: agent.

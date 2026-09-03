@@ -97,7 +97,11 @@ class SampleStats:
         mean_error = sum_e / n if n else float("nan")
         mae = sum_abs_e / n if n else float("nan")
         rmse = math.sqrt(sum_sq_e / n) if n else float("nan")
-        crps = mae  # deterministic point forecast: CRPS reduces to MAE
+        # Deterministic point forecast: CRPS reduces to MAE (same identity
+        # model.metrics.crps_deterministic uses). Replace this with a real
+        # quantile-based CRPS (model.metrics.crps_from_quantiles) once 2.2's
+        # probabilistic head lands and there's a spread to score.
+        crps = mae
         n_samples = int(idx.shape[0])
 
         hits = st["hits"][idx].sum(axis=0)
@@ -130,11 +134,16 @@ class SampleStats:
 def _quantile_ci(values: list[float], ci: float) -> dict:
     arr = np.asarray(values, dtype="float64")
     finite = arr[np.isfinite(arr)]
+    # n_finite alongside the bounds: a dry threshold that leaves most
+    # bootstrap replicates NaN (e.g. no wet pixels in most resampled blocks)
+    # would otherwise report a CI that looks as trustworthy as one built
+    # from every replicate.
     if finite.size == 0:
-        return {"ci_lo": None, "ci_hi": None}
+        return {"ci_lo": None, "ci_hi": None, "n_finite": 0}
     alpha = 1.0 - ci
     lo_q, hi_q = 100.0 * alpha / 2.0, 100.0 * (1.0 - alpha / 2.0)
-    return {"ci_lo": float(np.percentile(finite, lo_q)), "ci_hi": float(np.percentile(finite, hi_q))}
+    return {"ci_lo": float(np.percentile(finite, lo_q)), "ci_hi": float(np.percentile(finite, hi_q)),
+           "n_finite": int(finite.size)}
 
 
 def block_bootstrap(stats_by_model: dict[str, SampleStats], *, blocks_h: float,
@@ -155,6 +164,19 @@ def block_bootstrap(stats_by_model: dict[str, SampleStats], *, blocks_h: float,
         return {}
 
     epochs = stats_by_model[names[0]].issue_epochs()
+    # Every model must have scored exactly the same (issue, lead) samples in
+    # the same order — the whole point of a *paired* bootstrap draw is that
+    # position i means the same sample for every model. A silent mismatch
+    # here (a model dropped a sample, or the lists came from different
+    # selections) would corrupt every CI without raising.
+    for name in names[1:]:
+        other = stats_by_model[name].issue_epochs()
+        if other.shape != epochs.shape or not np.array_equal(other, epochs):
+            raise ValueError(
+                f"block_bootstrap: {name!r} has {other.shape[0]} records with a different "
+                f"issue-time sequence than {names[0]!r} ({epochs.shape[0]} records) — "
+                "every model must be scored on identical, identically-ordered samples")
+
     block_ids = np.asarray([issue_block(e, blocks_h) for e in epochs])
     unique_blocks = np.unique(block_ids)
     positions_by_block = [np.nonzero(block_ids == b)[0] for b in unique_blocks]

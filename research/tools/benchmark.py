@@ -268,6 +268,59 @@ def _km_per_px(root) -> float:
     return float(min(lat_km, lon_km) / grid_n)
 
 
+def _sample_stat_record(s, pred_sel: np.ndarray, obs_sel: np.ndarray, pred_fss: np.ndarray,
+                        obs_fss: np.ndarray, n_selected: int, thresholds: list[float],
+                        fss_scales: list[int]) -> dict:
+    """The sufficient-statistic record for one (sample, model) pair, keyed by
+    the sample's own ISSUE time (``s.issue_epoch``) — not the lead-shifted
+    target time — because the block bootstrap resamples issue-time blocks:
+    a storm scored at several leads from the same issue must land in the
+    same block at every lead, which only holds if every lead's record for
+    that issue carries the *same* epoch."""
+    e = pred_sel - obs_sel
+    cat: dict[float, tuple[int, int, int]] = {}
+    fss: dict[float, dict[int, tuple[float, float]]] = {}
+    for thr in thresholds:
+        p_wet, o_wet = pred_sel >= thr, obs_sel >= thr
+        hits = int((p_wet & o_wet).sum())
+        misses = int((~p_wet & o_wet).sum())
+        fa = int((p_wet & ~o_wet).sum())
+        cat[thr] = (hits, misses, fa)
+        fss[thr] = {sc: fss_components(pred_fss, obs_fss, threshold=thr, scale_px=sc)
+                   for sc in fss_scales}
+    return {"issue_epoch": s.issue_epoch, "n": n_selected, "sum_e": float(e.sum()),
+           "sum_abs_e": float(np.abs(e).sum()), "sum_sq_e": float((e ** 2).sum()),
+           "cat": cat, "fss": fss}
+
+
+def _apply_bootstrap(results: dict, stats: dict, leads_min: list[int], thresholds: list[float],
+                     boot_cfg: dict, ref_model: str | None) -> None:
+    """Merge block-bootstrap CIs (and the paired difference vs ``ref_model``)
+    onto every per_threshold row of ``results`` in place — existing
+    point-estimate keys are untouched."""
+    for lead in leads_min:
+        stats_by_model = {m: stats[m][lead] for m in stats if len(stats[m][lead])}
+        if not stats_by_model:
+            continue
+        boot = block_bootstrap(stats_by_model, blocks_h=float(boot_cfg["blocks_h"]),
+                              n_boot=int(boot_cfg["n"]), ci=float(boot_cfg["ci"]),
+                              seed=int(boot_cfg["seed"]), ref_model=ref_model)
+        if not boot:
+            continue
+        ci_by_model = boot.get("ci", {})
+        diff_by_model = boot.get("diff_vs_ref", {})
+        for name in stats_by_model:
+            row_by_thr = results[name].get(str(lead))
+            if row_by_thr is None:
+                continue
+            for thr in thresholds:
+                thr_key = str(thr)
+                row = row_by_thr[thr_key]
+                row["ci"] = ci_by_model.get(name, {}).get(thr_key)
+                vs_ref = diff_by_model.get(name, {}).get(thr_key) if name != ref_model else None
+                row["ci_vs_reference"] = {"reference_model": ref_model, **vs_ref} if vs_ref else None
+
+
 # ─────────────────────────────────────────────────────────────── scoring
 
 
@@ -336,7 +389,11 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
     pw_seed = int(cfg["seed"]) + 1
 
     manifest: list[dict] = []
-    issue_event_max: dict[int, float] = {}  # issue_epoch -> max of the t0 analysis field
+    # issue_epoch -> max of every SCORED target truth field (the same
+    # `obs_raw` the metrics are computed against) seen for that issue across
+    # all its selected leads — an issue counts as an "event" if ANY lead's
+    # truth exceeded the threshold, not just its own t0 analysis.
+    issue_event_max: dict[int, float] = defaultdict(lambda: float("-inf"))
 
     for si in selected:
         s = dataset.index[si]
@@ -348,12 +405,9 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         prev_idx = s.history_idx[-2] if len(s.history_idx) >= 2 else s.history_idx[-1]
         prev_raw = np.asarray(radar[prev_idx, 0], dtype="float32")
 
-        if s.issue_epoch not in issue_event_max:
-            # "domain max truth" for adequacy is the issue's own t0 analysis
-            # (what actually fell, not a future lead's target), so an issue
-            # scored at several leads is only counted once.
-            finite_issue = issue_raw[np.isfinite(issue_raw)]
-            issue_event_max[s.issue_epoch] = float(finite_issue.max()) if finite_issue.size else float("-inf")
+        finite_obs = obs_raw[np.isfinite(obs_raw)]
+        if finite_obs.size:
+            issue_event_max[s.issue_epoch] = max(issue_event_max[s.issue_epoch], float(finite_obs.max()))
 
         if s.issue_idx not in flow_cache:
             issue_filled = np.nan_to_num(issue_raw)
@@ -406,23 +460,9 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         obs_sel = obs_raw[selector].astype("float64")
         for name, pred in preds.items():
             pred_sel = pred[selector].astype("float64")
-            e = pred_sel - obs_sel
             pred_fss = np.where(valid, np.nan_to_num(pred), fss_fill)
-
-            cat: dict[float, tuple[int, int, int]] = {}
-            fss: dict[float, dict[int, tuple[float, float]]] = {}
-            for thr in thresholds:
-                p_wet, o_wet = pred_sel >= thr, obs_sel >= thr
-                hits = int((p_wet & o_wet).sum())
-                misses = int((~p_wet & o_wet).sum())
-                fa = int((p_wet & ~o_wet).sum())
-                cat[thr] = (hits, misses, fa)
-                fss[thr] = {sc: fss_components(pred_fss, obs_fss, threshold=thr, scale_px=sc)
-                           for sc in fss_scales}
-
-            record = {"issue_epoch": s.issue_epoch, "n": n_selected, "sum_e": float(e.sum()),
-                     "sum_abs_e": float(np.abs(e).sum()), "sum_sq_e": float((e ** 2).sum()),
-                     "cat": cat, "fss": fss}
+            record = _sample_stat_record(s, pred_sel, obs_sel, pred_fss, obs_fss, n_selected,
+                                         thresholds, fss_scales)
             stats_all[name][s.lead_min].add(**record)
             if is_case:
                 stats_case[name][s.lead_min].add(**record)
@@ -441,33 +481,15 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
     results = _score(stats_all)
     results_case_days = _score(stats_case) if case_idx_set else {}
 
-    # Block-bootstrap CIs (all-samples stratum only) + paired difference vs
-    # the configured reference model, merged onto each per_threshold row —
-    # existing point-estimate keys (row["csi"], row["rmse"], …) are
-    # untouched, so any consumer reading only those stays compatible.
+    # Block-bootstrap CIs + paired difference vs the configured reference
+    # model, merged onto each per_threshold row of both strata — existing
+    # point-estimate keys (row["csi"], row["rmse"], …) are untouched, so any
+    # consumer reading only those stays compatible.
     boot_cfg = cfg["bootstrap"]
     ref_model = boot_cfg.get("reference_model")
-    for lead in leads_min:
-        stats_by_model = {m: stats_all[m][lead] for m in model_names if len(stats_all[m][lead])}
-        if not stats_by_model:
-            continue
-        boot = block_bootstrap(stats_by_model, blocks_h=float(boot_cfg["blocks_h"]),
-                              n_boot=int(boot_cfg["n"]), ci=float(boot_cfg["ci"]),
-                              seed=int(boot_cfg["seed"]), ref_model=ref_model)
-        if not boot:
-            continue
-        ci_by_model = boot.get("ci", {})
-        diff_by_model = boot.get("diff_vs_ref", {})
-        for name in stats_by_model:
-            row_by_thr = results[name].get(str(lead))
-            if row_by_thr is None:
-                continue
-            for thr in thresholds:
-                thr_key = str(thr)
-                row = row_by_thr[thr_key]
-                row["ci"] = ci_by_model.get(name, {}).get(thr_key)
-                vs_ref = diff_by_model.get(name, {}).get(thr_key) if name != ref_model else None
-                row["ci_vs_reference"] = {"reference_model": ref_model, **vs_ref} if vs_ref else None
+    _apply_bootstrap(results, stats_all, leads_min, thresholds, boot_cfg, ref_model)
+    if case_idx_set:
+        _apply_bootstrap(results_case_days, stats_case, leads_min, thresholds, boot_cfg, ref_model)
 
     n_scored_total = len(selected)  # counted once, not per model
 
