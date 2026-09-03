@@ -225,8 +225,12 @@ on different rulers. Transparency is the only credible route to "reference".
 ---
 
 ## Currently running
-- v3 training (full Benelux 192², RAC truth, healed aux) on asusprime under
-  `train_supervisor.sh`; ~47 min/epoch, patience 30.
+- v3 training STOPPED by hand 2026-09-03 16:50 after epoch 12: best val RMSE
+  0.6956 at epoch 4 (`~/pluvio_v2/checkpoints/v3_192.pt`, 33 ch), then
+  0.71/0.72/…/0.78 while train loss kept falling; LR already halved by the
+  plateau scheduler. Diagnose before the next run (val split, dead `sst`
+  channel in the v3 store, weak alaro/msg alignment per QC). GPU is free for
+  the 2.1 loss A/B and the benchmark of v3@4 vs v2 vs operational.
 - Hourly `qc_inputs` + `pluvio-qc` timers on hetz1.
 
 ## Agent workflow
