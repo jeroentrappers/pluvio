@@ -29,6 +29,7 @@ is the single place that says what runs, when, and why.
 | pluvio-qpe-prune | daily 04:30 | prunes RAW volumes (3 d) + OPERA (7 d) — never day-zarrs |
 | pluvio-wide-archive | hourly :37 | continental 3-km composite archive (permanent) |
 | pluvio-forecast-archive | every 5 min | every forecast/nowcast run → storagebox (permanent, feeds Verify) |
+| pluvio-external-baselines (planned, WBS 3.3) | every 5 min, RandomizedDelaySec=30, RequiresMountsFor=/mnt/storagebox | Buienradar point forecasts at 20 BE/NL stations → `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl` (permanent; verification evidence) |
 
 ## Static services (triggered by other units, not timers)
 
@@ -52,7 +53,7 @@ Lagrangian blend, 2-min morph, overlays/sprites), `web` (nginx, build context
 | raw radar volumes / dwd | 3 days (re-processing window, coverage-guarded) | storagebox |
 | OPERA RATE/COMP | 7 days | storagebox |
 | RAC tar cache | keep (747 daily tars, the pretrain corpus) | storagebox/knmi_rtcor |
-| QPE day-zarrs, wide archive, forecast archive | forever | storagebox |
+| QPE day-zarrs, wide archive, forecast archive, external baselines | forever | storagebox |
 | training stores | versioned, keep last two | /opt/pluvio/zarr, /opt/pluvio/stage |
 
 ## Training node (asusprime)
