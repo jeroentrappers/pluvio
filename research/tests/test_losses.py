@@ -213,3 +213,44 @@ def test_gradients_finite_flat_prediction_low_precision(dtype):
     target[:, :, 4:12, 4:12] = 3.0
     pred = torch.full((1, 1, 16, 16), 1.5, dtype=dtype, requires_grad=True)
     _assert_finite_loss_and_grad(pred, target)
+
+
+# --------------------------------------------------------------------------
+# sharpness_loss dry-floor selection: tensor mask (torch.where) vs. the old
+# Python-branch reference (host sync on a device-resident scalar) — must be
+# bit-exact.
+# --------------------------------------------------------------------------
+
+def _sharpness_loss_python_branch_reference(
+    pred: torch.Tensor, target: torch.Tensor, dry_floor: float = 1e-2
+) -> torch.Tensor:
+    """The pre-2.1b implementation of ``sharpness_loss``: a Python ``if`` on
+    the (0-dim) ``target_e`` tensor, which forces a host sync. Kept here only
+    as a bit-exactness reference for the ``torch.where`` mask that replaced
+    it in ``model.losses.sharpness_loss``."""
+    from model.losses import _grad_energy
+
+    pred_e = _grad_energy(pred.float())
+    target_e = _grad_energy(target.float())
+    if target_e <= dry_floor:
+        return pred_e.new_zeros(())
+    deficit = torch.relu(target_e - pred_e)
+    return (deficit / target_e.clamp_min(dry_floor)).clamp(max=1.0)
+
+
+@pytest.mark.parametrize(
+    "pred, target",
+    [
+        pytest.param(_rand_field(20), _rand_field(21), id="random_vs_random"),
+        pytest.param(_rand_field(22), torch.zeros(2, 1, 32, 32), id="all_dry_target"),
+        pytest.param(torch.zeros(2, 1, 32, 32), torch.zeros(2, 1, 32, 32), id="all_dry_both"),
+        pytest.param(
+            torch.full((2, 1, 32, 32), 3.0), torch.full((2, 1, 32, 32), 3.0), id="all_wet_flat"
+        ),
+        pytest.param(_rand_field(23) + 5.0, _rand_field(24) + 5.0, id="all_wet_random"),
+    ],
+)
+def test_sharpness_loss_tensor_mask_matches_python_branch_reference(pred, target):
+    got = sharpness_loss(pred, target)
+    want = _sharpness_loss_python_branch_reference(pred, target)
+    assert torch.equal(got, want)

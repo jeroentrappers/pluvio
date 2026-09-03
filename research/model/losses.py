@@ -139,14 +139,16 @@ def _grad_energy(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     ``|dx| + |dy|``: the L1 form is *invariant* to monotone blurring along
     any straight transect (a box-blurred step edge has the same total
     variation as the sharp step, since ``|dx|`` summed along a monotone ramp
-    always equals the jump it came from — measured: an 8x8 sharp block and
-    its 5x5-average-pooled blur give the identical L1 mean, 0.2664 both),
-    so it fails to distinguish blur from sharpness — exactly the thing this
-    loss exists to measure. The joint L2 form does discriminate (0.265 sharp
-    vs 0.248 blurred, measured on an 8x8 block) because combining ``dx``/
-    ``dy`` through ``sqrt`` is concave, so smoothing a 2-D edge (which
-    redistributes gradient between the two axes near corners, not just along
-    one) lowers the mean magnitude.
+    always equals the jump it came from — measured on a 32x32 canvas holding
+    an interior 8x8 sharp block at value 8.0 on a 0.0 background vs. the
+    same canvas after a 5x5-average-pooled (``count_include_pad=False``)
+    blur: identical L1 mean, 0.2664 both), so it fails to distinguish blur
+    from sharpness — exactly the thing this loss exists to measure. The
+    joint L2 form does discriminate (0.262 sharp vs 0.229 blurred, same
+    32x32/8x8/8.0 canvas, ``eps=1e-6``) because combining ``dx``/``dy``
+    through ``sqrt`` is concave, so smoothing a 2-D edge (which redistributes
+    gradient between the two axes near corners, not just along one) lowers
+    the mean magnitude.
 
     The singular derivative of plain ``sqrt(dx^2+dy^2)`` at 0 (``d/dx sqrt(x)
     -> inf`` as ``x -> 0``) is what caused NaN gradients on the flat/dry
@@ -194,7 +196,11 @@ def sharpness_loss(
       effectively flat/dry) rather than computed against a near-zero
       denominator — a target with no real structure has no sharpness to
       match, and dividing by a merely-floored ~0 would still manufacture a
-      large, meaningless gradient signal.
+      large, meaningless gradient signal. The dry/not-dry selection is a
+      ``torch.where`` tensor mask, not a Python ``if`` on the (0-dim, but
+      still device-resident) ``target_e`` tensor — the latter forces a
+      host sync (``.item()``/``bool()``) every call, which is disallowed on
+      any path that has to stay under CUDA graph capture.
     * the result is clamped to ``[0, 1]`` so one badly-blurred sample can't
       dominate a batch (measured: an unclamped, unfloored, two-sided version
       of this term reached ~5e3 against a Huber term of ~0.17).
@@ -209,10 +215,10 @@ def sharpness_loss(
     """
     pred_e = _grad_energy(pred.float())
     target_e = _grad_energy(target.float())
-    if target_e <= dry_floor:
-        return pred_e.new_zeros(())
     deficit = torch.relu(target_e - pred_e)
-    return (deficit / target_e.clamp_min(dry_floor)).clamp(max=1.0)
+    result = (deficit / target_e.clamp_min(dry_floor)).clamp(max=1.0)
+    is_dry = target_e <= dry_floor
+    return torch.where(is_dry, pred_e.new_zeros(()), result)
 
 
 class CombinedLoss(torch.nn.Module):

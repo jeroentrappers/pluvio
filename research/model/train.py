@@ -33,10 +33,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
-# weighted_huber/total_loss live in model.losses (single source of truth for
-# CombinedLoss too); re-exported here for anything still importing them from
-# model.train.
-from model.losses import CombinedLoss, total_loss, weighted_huber  # noqa: E402,F401
+from model.losses import CombinedLoss  # noqa: E402
 from model.zarr_dataset import ZarrCorrectionDataset, issue_time_split  # noqa: E402
 from model.unet import PluvioUNet, num_params  # noqa: E402
 
@@ -171,6 +168,14 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"--fss-weight must be >= 0, got {args.fss_weight}")
     if args.sharpness_weight < 0:
         raise SystemExit(f"--sharpness-weight must be >= 0, got {args.sharpness_weight}")
+    if args.sharpness_weight > 0.3:
+        raise SystemExit(
+            f"--sharpness-weight must be <= 0.3, got {args.sharpness_weight}. The review "
+            "measured that the sharpness hinge locally rewards noise injection up to parity "
+            "with the target's gradient energy, and that the noise-vs-structure crossover "
+            "moves past this weight above ~0.3 (see model/losses.py:sharpness_loss docstring, "
+            "'Residual gaming risk'). Re-measure the crossover before raising this cap."
+        )
     if args.fss_tau <= 0:
         raise SystemExit(f"--fss-tau must be > 0, got {args.fss_tau}")
     fss_thresholds = tuple(float(v) for v in args.fss_thresholds.split(",") if v.strip())
