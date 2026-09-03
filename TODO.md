@@ -356,6 +356,23 @@ CSI decays. The objective is the biggest lever we own.
       the ±7 px radius on low-contrast tails. Merged b03b2a6. Open: backend
       image rebuild + deploy to put it on the serving path (ops). Lane: agent.
 
+- [ ] **2.8 Motion-consistent radar→NWP handoff** — measured 2026-09-03 on the
+      09:00Z run: the nowcast band advects cells east (wet centroid col 83→96
+      by 60 min; KNMI analysis history and the operational nowcast agree on the
+      direction), but from 2 h on the rain "comes back from the east": the
+      2–6 h blend in `classical.py` is a POINTWISE cross-fade
+      `w·radar_extrapolation + (1−w)·NWP` (cosine taper), the NWP (AIFS) rain
+      sits 10–20 columns west of and later than the radar cells, and the
+      backend cross-fades (not morphs) the hourly short/medium keyframes with a
+      122→180 min gap — so the blend weight shifting from the exiting radar
+      cells to the western NWP field is rendered as cells travelling west.
+      Fix: phase-correct the NWP field onto the radar-consistent frame (NCC
+      flow, as `fallback-phasecorr` already does) and blend intensities in that
+      moving frame; morph, not fade, between later keyframes (or end the
+      animation at the last radar-consistent frame and show the NWP outlook as
+      a separately labelled regime); benchmark the handoff on the 2–6 h leads
+      (scoreboard forecast kind, CSI≈0 there today). Lane: research + agent.
+
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored
