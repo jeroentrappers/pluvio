@@ -21,13 +21,23 @@ is exactly one place that can get the trim or the bias wrong.
 from __future__ import annotations
 
 import functools
+import logging
 import os
 import pathlib
 import sys
 
 import numpy as np
 
-from .grid import Grid, _LEGACY_CORNERS_LONLAT, _LEGACY_PROJ4, _legacy_trimmed_extent
+from .grid import (
+    Grid,
+    _LEGACY_CORNERS_LONLAT,
+    _LEGACY_PROJ4,
+    _legacy_bias,
+    _legacy_trimmed_extent,
+    log_resolved_geometry as _grid_log_resolved_geometry,
+)
+
+LOG = logging.getLogger("pluvio.geo")
 
 # The analysis grid default is 100x100 over the ~707x773 km KNMI radar domain —
 # i.e. an effective resolution of ~7-8 km/cell (see grid_resolution_km()), NOT
@@ -60,17 +70,47 @@ _PROJ4 = _LEGACY_PROJ4
 _CORNERS_LONLAT = _LEGACY_CORNERS_LONLAT
 
 
-@functools.lru_cache(maxsize=1)
-def grid_latlon() -> tuple[np.ndarray, np.ndarray]:
+def log_resolved_geometry() -> None:
+    """Log the resolved analysis GRID and (via model.grid) the registration
+    bias at INFO. A module-import-time log call would run before a CLI's own
+    logging.basicConfig() and be swallowed (no handlers configured yet) —
+    call this explicitly from a CLI's main(), after logging is configured,
+    instead."""
+    LOG.info("model.geo: resolved analysis GRID=%s (PLUVIO_GRID_N=%s)",
+             GRID, os.environ.get("PLUVIO_GRID_N"))
+    _grid_log_resolved_geometry()
+
+
+@functools.lru_cache(maxsize=8)
+def _grid_latlon_cached(shape: tuple[int, int],
+                         bias: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    return Grid.legacy_knmi_analysis(shape, bias=bias).latlon()
+
+
+def grid_latlon(bias: tuple[float, float] | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Return (lat, lon) arrays of shape GRID for the analysis grid.
 
     Row 0 is the north edge, row H-1 the south edge (matching how the radar
     field is stored, DISPLAY_ORIGIN=UL). Delegates to
-    `Grid.legacy_knmi_analysis(GRID).latlon()` — see model.grid for the trim
-    (northern 700/765 of the corner-derived projected extent) and the
-    empirical registration bias (PLUVIO_GRID_LATLON_BIAS, default (0, 0.07)).
+    `Grid.legacy_knmi_analysis(GRID, bias=...).latlon()` — see model.grid for
+    the trim (northern 700/765 of the corner-derived projected extent).
+
+    `bias` is the empirical registration bias; pass it explicitly to bypass
+    the environment entirely. Left as None (the default), it falls back to
+    the current `PLUVIO_GRID_LATLON_BIAS` env value (default (0, 0.07)) —
+    read fresh on *every* call, not frozen at import or inside the memoised
+    computation below, so a later env change is picked up on the next call
+    instead of being silently served from a stale cache entry (1.11: that
+    staleness was the mechanism of the 192² training crash).
     """
-    return Grid.legacy_knmi_analysis(GRID).latlon()
+    resolved_bias = bias if bias is not None else _legacy_bias()
+    return _grid_latlon_cached(GRID, resolved_bias)
+
+
+# Keep the old grid_latlon.cache_clear() surface (notebooks call it) — it now
+# clears the underlying memoised-by-resolved-inputs cache rather than a cache
+# on grid_latlon() itself, which no longer carries one.
+grid_latlon.cache_clear = _grid_latlon_cached.cache_clear
 
 
 def bbox() -> tuple[float, float, float, float]:

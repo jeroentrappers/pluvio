@@ -70,7 +70,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # moved into build() — the truth-backfill path must not drag in
 # the aux/collector dependency web (httpx etc.):
 # from model.build_aux import AWS_CHANNELS  # noqa: E402
-from model.geo import grid_latlon  # noqa: E402
+from model.geo import grid_latlon, log_resolved_geometry  # noqa: E402
 # moved into build() — the truth-backfill path must not drag in
 # the aux/collector dependency web (httpx etc.):
 # from notebooks._lib import ANALYSIS_GRID, load_forecast_h5  # noqa: E402
@@ -707,6 +707,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    log_resolved_geometry()
 
     start = _iso(args.start) if args.start else None
     end = _iso(args.end) if args.end else None

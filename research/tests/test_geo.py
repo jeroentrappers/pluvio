@@ -15,21 +15,13 @@ from __future__ import annotations
 
 import numpy as np
 import pyproj
-import pytest
 from model import geo
 from notebooks._lib import ANALYSIS_GRID, _resample
 
-
-@pytest.fixture()
-def zero_bias(monkeypatch):
-    """Isolate tests from geo.py's residual lat/lon calibration bias
-    (PLUVIO_GRID_LATLON_BIAS) and from grid_latlon()'s process-wide
-    lru_cache, which would otherwise silently keep serving whatever bias was
-    in effect the first time any test (or import) called grid_latlon()."""
-    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "0,0")
-    geo.grid_latlon.cache_clear()
-    yield
-    geo.grid_latlon.cache_clear()
+# geo.grid_latlon() takes the registration bias as an explicit argument
+# (1.11) — pass it directly instead of monkeypatching PLUVIO_GRID_LATLON_BIAS
+# and clearing a process-wide cache.
+_ZERO_BIAS = (0.0, 0.0)
 
 
 def _corner_xy() -> tuple[float, float, float, float]:
@@ -42,14 +34,14 @@ def _corner_xy() -> tuple[float, float, float, float]:
     return min(xs), max(xs), min(ys), max(ys)
 
 
-def test_grid_latlon_row0_is_north(zero_bias):
-    lat, _lon = geo.grid_latlon()
+def test_grid_latlon_row0_is_north():
+    lat, _lon = geo.grid_latlon(bias=_ZERO_BIAS)
     assert lat.shape == geo.GRID
     assert lat[0].mean() > lat[-1].mean()
 
 
-def test_grid_latlon_south_row_matches_700_of_765_trim(zero_bias):
-    lat, _lon = geo.grid_latlon()
+def test_grid_latlon_south_row_matches_700_of_765_trim():
+    lat, _lon = geo.grid_latlon(bias=_ZERO_BIAS)
     _h, w = geo.GRID
 
     xmin, xmax, ymin, ymax = _corner_xy()
@@ -67,7 +59,7 @@ def test_grid_latlon_south_row_matches_700_of_765_trim(zero_bias):
     np.testing.assert_allclose(lat[-1], expected_row, atol=0.01)
 
 
-def test_analysis_grid_dst_aux_trim_matches_radar_trim(zero_bias):
+def test_analysis_grid_dst_aux_trim_matches_radar_trim():
     """analysis_grid_dst() (used to reproject aux sources onto the analysis
     grid) carries its own copy of the 765->700 trim, independent of
     grid_latlon()'s. Pin the two to agree: the aux grid's south pixel EDGE
@@ -85,6 +77,39 @@ def test_analysis_grid_dst_aux_trim_matches_radar_trim(zero_bias):
     y_south_aux_edge = transform.f + h * transform.e
 
     assert abs((y_south_radar_centre - y_south_aux_edge) - py / 2) < 0.05 * py
+
+
+def test_grid_latlon_cache_clear_surface_kept_for_notebooks():
+    """geo.grid_latlon used to be an lru_cache-decorated function itself;
+    notebooks call geo.grid_latlon.cache_clear() directly, so that surface
+    must survive the 1.11 refactor even though the memoisation moved to an
+    internal helper."""
+    geo.grid_latlon(bias=(1.0, 1.0))
+    geo.grid_latlon.cache_clear()  # must not raise
+
+
+def test_grid_latlon_delegates_bit_identical_to_grid_module():
+    """geo.grid_latlon() is a thin wrapper around
+    Grid.legacy_knmi_analysis(GRID).latlon() — the two must never drift."""
+    from model.grid import Grid
+
+    geo_lat, geo_lon = geo.grid_latlon(bias=_ZERO_BIAS)
+    grid_lat, grid_lon = Grid.legacy_knmi_analysis(geo.GRID, bias=_ZERO_BIAS).latlon()
+    np.testing.assert_array_equal(geo_lat, grid_lat)
+    np.testing.assert_array_equal(geo_lon, grid_lon)
+
+
+def test_grid_latlon_env_bias_change_takes_effect_without_cache_clear(monkeypatch):
+    """1.11: grid_latlon()'s memoisation is keyed on the *resolved* bias, not
+    read from the environment inside the cached call — so a later
+    PLUVIO_GRID_LATLON_BIAS change must be picked up on the very next call
+    with no explicit cache_clear() needed."""
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "1.0,2.0")
+    lat_a, lon_a = geo.grid_latlon()
+    monkeypatch.setenv("PLUVIO_GRID_LATLON_BIAS", "3.0,4.0")
+    lat_b, lon_b = geo.grid_latlon()
+    np.testing.assert_allclose(lat_b - lat_a, 2.0, atol=1e-4)
+    np.testing.assert_allclose(lon_b - lon_a, 2.0, atol=1e-4)
 
 
 def test_resample_last_row_averages_source_rows_693_to_699():
