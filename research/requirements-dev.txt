@@ -1,0 +1,9 @@
+numpy
+pytest
+zarr>=3
+pyproj
+opencv-python-headless
+scipy
+torch
+h5py
+pandas
