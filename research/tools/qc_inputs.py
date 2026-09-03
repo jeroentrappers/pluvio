@@ -17,8 +17,20 @@ continuously-measured check:
                  correlation where physics demands strong coupling.
   channel health per-channel NaN fraction and value-range sanity over the
                  newest issues (catches dead feeds and unit regressions).
+                 Ranges are calibrated to the store's OBSERVED conventions,
+                 not idealised units — see tools/qc/thresholds.py.
   staleness      age of the newest store issue vs wall clock (the seam-lag
                  budget: WARN beyond 75 min).
+
+The actual check math lives in tools/qc/ (a plain library, no I/O); this
+file is the CLI: opens the store, drives the checks over it, and writes the
+legacy-shaped JSON below so nothing downstream (systemd unit, dashboards)
+has to change. The output also carries an additive "verdict" key — the one
+{generated, checks, summary} shape from tools/qc/verdict.py — alongside the
+untouched legacy top-level keys, for anything that wants the unified form.
+
+Deploys must copy the whole tools/qc/ package, not just this file — both
+qc_inputs.py and qc_watchdog.py import it.
 
 Writes /opt/pluvio/serve/qc_inputs.json and exits 1 on any WARN, so a systemd
 timer surfaces failures. Run:  python -m tools.qc_inputs [-v]
@@ -28,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
 import logging
 import pathlib
 import sys
@@ -37,33 +48,18 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from tools.qc import checks
+from tools.qc.thresholds import load_thresholds
+from tools.qc.verdict import build_verdict, write_atomic
+
 LOG = logging.getLogger("pluvio.qc_inputs")
 
 STORE = "/opt/pluvio/zarr/timeseries.zarr"
 OBSERVED = "/opt/pluvio/serve/observed.npz"
 OUT = "/opt/pluvio/serve/qc_inputs.json"
 
-REG_OFFSET_WARN_DEG = 0.07
-REG_CORR_WARN = 0.25
-AUX_CORR_WARN = 0.05      # alaro_precip vs radar must correlate positively
-STALE_WARN_MIN = 75
-RANGES = {                # plausible value ranges (min, max) per channel family
-    "radar": (0.0, 200.0),
-    "truth": (0.0, 400.0),
-    "alaro_precip": (0.0, 150.0),
-    "aws_temp": (-1.0, 2.0),        # normalised
-    "msg_ir108": (150.0, 340.0),    # Kelvin
-}
 
-
-def _corr(x: np.ndarray, y: np.ndarray) -> float:
-    x, y = x.ravel(), y.ravel()
-    if x.std() < 1e-6 or y.std() < 1e-6:
-        return float("nan")
-    return float(np.corrcoef(x, y)[0, 1])
-
-
-def registration_check(src, t, warn: list) -> dict:
+def registration_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     from model.geo import grid_latlon
 
     glat, glon = grid_latlon()
@@ -85,7 +81,7 @@ def registration_check(src, t, warn: list) -> dict:
             continue
         OB = np.nan_to_num(R[j]).astype("float32")
 
-        def sample(dlat: float, dlon: float) -> np.ndarray:
+        def sample(dlat: float, dlon: float, OB=OB) -> np.ndarray:
             rr = ((N0 - (glat + dlat)) / (N0 - S0) * gh).astype(int)
             cc = (((glon + dlon) - W0) / (E0 - W0) * gw).astype(int)
             ok = (rr >= 0) & (rr < gh) & (cc >= 0) & (cc < gw)
@@ -93,30 +89,24 @@ def registration_check(src, t, warn: list) -> dict:
             out[ok] = OB[rr[ok], cc[ok]]
             return out
 
-        best = (-9.0, 0.0, 0.0)
-        for dlat in np.arange(-0.14, 0.141, 0.02):
-            for dlon in np.arange(-0.14, 0.141, 0.02):
-                c = _corr(fld, sample(float(dlat), float(dlon)))
-                if c == c and c > best[0]:
-                    best = (c, float(dlat), float(dlon))
-        fits.append(best)
+        fits.append(checks.registration_offset(fld, sample))
         if len(fits) >= 6:
             break
 
-    if not fits:
-        return {"n": 0, "note": "no wet overlapping issues to fit"}
-    arr = np.array(fits)
-    med = {"corr": round(float(np.median(arr[:, 0])), 3),
-           "dlat": round(float(np.median(arr[:, 1])), 3),
-           "dlon": round(float(np.median(arr[:, 2])), 3), "n": len(fits)}
-    if abs(med["dlat"]) > REG_OFFSET_WARN_DEG or abs(med["dlon"]) > REG_OFFSET_WARN_DEG:
-        warn.append(f"REGISTRATION offset (dlat={med['dlat']}, dlon={med['dlon']})")
-    if med["corr"] < REG_CORR_WARN:
-        warn.append(f"REGISTRATION corr {med['corr']} < {REG_CORR_WARN}")
-    return med
+    check = checks.aggregate_registration(fits, thresholds)
+    all_checks.append(check)
+    if check.status == "warn":
+        # two separate warning strings (offset; corr), mirroring how
+        # channel_health's detail splits on "; " — so a fit that trips both
+        # thresholds contributes two lines to `warnings`/the warning count,
+        # same as the original inline checks did.
+        for detail in check.detail.split("; "):
+            if detail:
+                warn.append(f"REGISTRATION {detail}")
+    return check.value
 
 
-def aux_alignment_check(src, t, warn: list) -> dict:
+def aux_alignment_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     out = {}
     pairs = [("alaro_precip", +1)]
     if "msg_ir108" in src:
@@ -132,20 +122,21 @@ def aux_alignment_check(src, t, warn: list) -> dict:
             aux = np.asarray(src[name][i], dtype="float32")
             if not np.isfinite(aux).any():
                 continue
-            c = _corr(radar, np.nan_to_num(aux))
+            c = checks.signed_corr(radar, aux, sign)
             if c == c:
-                cs.append(sign * c)
+                cs.append(c)
             if len(cs) >= 8:
                 break
-        if cs:
-            med = round(float(np.median(cs)), 3)
-            out[name] = {"signed_corr": med, "n": len(cs)}
-            if med < AUX_CORR_WARN:
-                warn.append(f"AUX-ALIGN {name} signed corr {med} < {AUX_CORR_WARN}")
+        check = checks.aggregate_aux_alignment(name, cs, thresholds)
+        all_checks.append(check)
+        if check.value is not None:
+            out[name] = check.value
+        if check.status == "warn":
+            warn.append(f"AUX-ALIGN {check.detail}")
     return out
 
 
-def channel_health_check(src, t, warn: list) -> dict:
+def channel_health_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     out = {}
     n = len(t)
     lo = max(0, n - 48)
@@ -154,16 +145,13 @@ def channel_health_check(src, t, warn: list) -> dict:
         if a.ndim < 3 or a.shape[0] != n:
             continue
         block = np.asarray(a[lo:n] if a.ndim == 3 else a[lo:n, 0], dtype="float32")
-        nanfrac = round(float(np.mean(~np.isfinite(block))), 3)
-        fin = block[np.isfinite(block)]
-        vmin = round(float(fin.min()), 2) if fin.size else None
-        vmax = round(float(fin.max()), 2) if fin.size else None
-        out[name] = {"nan_frac": nanfrac, "min": vmin, "max": vmax}
-        if nanfrac > 0.9:
-            warn.append(f"CHANNEL {name} {int(nanfrac*100)}% NaN over last 48 issues")
-        rng = RANGES.get(name)
-        if rng and fin.size and (vmin < rng[0] - 1e-6 or vmax > rng[1]):
-            warn.append(f"CHANNEL {name} out of range [{vmin}, {vmax}] vs {rng}")
+        check = checks.channel_health(block, name, thresholds)
+        all_checks.append(check)
+        out[name] = check.value
+        if check.status == "warn":
+            for detail in check.detail.split("; "):
+                if detail:
+                    warn.append(f"CHANNEL {detail}")
     return out
 
 
@@ -171,32 +159,39 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--store", default=STORE)
     p.add_argument("--out", default=OUT)
+    p.add_argument("--thresholds", default=None,
+                    help="path to a thresholds YAML/JSON file "
+                         "(default: $PLUVIO_QC_THRESHOLDS or built-in defaults)")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s %(name)s %(message)s")
     import zarr
 
+    thresholds = load_thresholds(args.thresholds)
     src = zarr.open_group(args.store, mode="r")
     t = np.asarray(src["issue_time"][:]).astype("int64")
     warn: list[str] = []
+    all_checks: list = []
 
-    stale_min = round((dt.datetime.now(dt.UTC).timestamp() - int(t[-1])) / 60)
-    if stale_min > STALE_WARN_MIN:
-        warn.append(f"STALE newest issue {stale_min} min old")
+    now = dt.datetime.now(dt.UTC).timestamp()
+    stale = checks.staleness(int(t[-1]), now, thresholds.stale_warn_min)
+    all_checks.append(stale)
+    stale_min = stale.value
+    if stale.status == "warn":
+        warn.append(f"STALE {stale.detail}")
 
+    generated = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     body = {
-        "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "generated": generated,
         "newest_issue_age_min": stale_min,
-        "registration": registration_check(src, t, warn),
-        "aux_alignment": aux_alignment_check(src, t, warn),
-        "channels": channel_health_check(src, t, warn),
+        "registration": registration_check(src, t, thresholds, warn, all_checks),
+        "aux_alignment": aux_alignment_check(src, t, thresholds, warn, all_checks),
+        "channels": channel_health_check(src, t, thresholds, warn, all_checks),
         "warnings": warn,
+        "verdict": build_verdict(all_checks, generated=generated),
     }
-    op = pathlib.Path(args.out)
-    tmp = op.with_name(op.name + ".tmp")
-    tmp.write_text(json.dumps(body, indent=1))
-    tmp.replace(op)
+    op = write_atomic(args.out, body)
     for w in warn:
         LOG.warning("%s", w)
     LOG.info("wrote %s (%d warnings)", op, len(warn))
