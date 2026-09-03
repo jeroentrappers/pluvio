@@ -29,7 +29,7 @@ is the single place that says what runs, when, and why.
 | pluvio-qpe-prune | daily 04:30 | prunes RAW volumes (3 d) + OPERA (7 d) — never day-zarrs |
 | pluvio-wide-archive | hourly :37 | continental 3-km composite archive (permanent) |
 | pluvio-forecast-archive | every 5 min | every forecast/nowcast run → storagebox (permanent, feeds Verify) |
-| pluvio-external-baselines (planned, WBS 3.3) | every 5 min, RandomizedDelaySec=30, RequiresMountsFor=/mnt/storagebox | Buienradar point forecasts at 20 BE/NL stations → `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl` (permanent; verification evidence) |
+| pluvio-external-baselines | every 5 min at :30 past the tick (`*:00/5:30`), RequiresMountsFor=/mnt/storagebox; live since 2026-09-03 | Buienradar point forecasts at 20 BE/NL stations → `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl` (permanent; verification evidence) |
 
 ## Static services (triggered by other units, not timers)
 

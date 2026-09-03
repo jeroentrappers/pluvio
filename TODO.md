@@ -163,14 +163,15 @@ on different rulers. Transparency is the only credible route to "reference".
       19cccf0 + follow-ups ece22c9. Open: `reliability` slot is `None` until
       2.2; full 2000-sample 192² run needs ~7 GB RAM; run it against
       operational/legacy/v2/v3 once v3 converges. Lane: agent.
-- [~] **3.3 External baselines** — Buienradar point forecasts (raintext API)
-      sampled at stations, UKMO nowcast over the UK box, OPERA where
-      obtainable; archived alongside our runs. Branch
-      `worktree-agent-a12f2b246e41c03be`: DST rollover and t0-relative leads
-      verified; second fix cycle (idx-loss duplicates, float32 NaN truth,
-      integer-only values) in progress. Then: systemd timer every 5 min,
-      archive under /mnt/storagebox/external_baselines. Acceptance: nightly
-      rows in the scoreboard. Lane: agent + ops.
+- [~] **3.3 External baselines** — Buienradar raintext point forecasts at 20
+      BE/NL stations: `research/tools/external_baselines.py` merged 3a87a96
+      (DST-safe rollover, t0-relative 5-min leads, self-healing JSONL index,
+      dtype-agnostic NaN skip; 34 tests). Running on hetz1 since 2026-09-03
+      12:05 as `pluvio-external-baselines.timer` (every 5 min, :30 offset),
+      archive `/mnt/storagebox/external_baselines/buienradar/YYYY/MM/DD.jsonl`.
+      Open: wire `score_against_truth` to the composite truth in the nightly
+      run (3.4); UKMO nowcast over the UK box and OPERA where obtainable.
+      Acceptance: nightly rows in the scoreboard. Lane: agent + ops.
 - [ ] **3.4 Public scoreboard page** — nightly job over the Verify archive →
       static page (per lead, per model, yesterday vs what fell). Lane: agent.
 - [ ] **3.6 Benchmark statistics** — block-bootstrap CIs resampled by

@@ -4,12 +4,12 @@ all payloads come from tests/fixtures/."""
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import math
 import pathlib
 import urllib.error
 
 import pytest
-
 from tools import external_baselines as eb
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
@@ -52,7 +52,7 @@ def test_value_to_mm_per_h_monotonic():
 
 def test_parse_raintext_live_fixture_no_rain():
     text = read_fixture("buienradar_brussels_live_20260903.txt")
-    issue = dt.datetime(2026, 9, 3, 8, 27, 44, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 8, 27, 44, tzinfo=dt.UTC)
     rows = eb.parse_raintext(text, issue)
 
     non_blank_lines = [l for l in text.splitlines() if l.strip()]
@@ -60,14 +60,14 @@ def test_parse_raintext_live_fixture_no_rain():
 
     # first line is 10:30 local (CEST, UTC+2) on issue day.
     first_epoch, first_rate = rows[0]
-    first_dt = dt.datetime.fromtimestamp(first_epoch, dt.timezone.utc)
-    assert first_dt == dt.datetime(2026, 9, 3, 8, 30, tzinfo=dt.timezone.utc)
+    first_dt = dt.datetime.fromtimestamp(first_epoch, dt.UTC)
+    assert first_dt == dt.datetime(2026, 9, 3, 8, 30, tzinfo=dt.UTC)
     assert first_rate == 0.0  # value 0 is below the dry floor
 
     # steps are 5 minutes apart, strictly increasing.
     epochs = [e for e, _ in rows]
     assert epochs == sorted(epochs)
-    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+    assert all(b - a == 300 for a, b in itertools.pairwise(epochs))
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ def test_parse_raintext_live_fixture_no_rain():
 def test_parse_raintext_day_rollover():
     text = read_fixture("buienradar_rollover_20260630.txt")
     # issued a few minutes before local midnight, CEST (UTC+2).
-    issue = dt.datetime(2026, 6, 30, 21, 52, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 6, 30, 21, 52, 0, tzinfo=dt.UTC)
     rows = eb.parse_raintext(text, issue)
     assert len(rows) == 7
 
@@ -101,7 +101,7 @@ def test_parse_raintext_day_rollover():
     epochs = [e for e, _ in rows]
     assert epochs == sorted(epochs)
     assert len(set(epochs)) == len(epochs)
-    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+    assert all(b - a == 300 for a, b in itertools.pairwise(epochs))
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ def test_parse_raintext_day_rollover():
 def test_parse_raintext_dst_fallback_repeated_hour():
     text = read_fixture("buienradar_fallback_20261025.txt")
     # issued just before the repeated hour, while still CEST.
-    issue = dt.datetime(2026, 10, 24, 23, 50, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 10, 24, 23, 50, 0, tzinfo=dt.UTC)
     rows = eb.parse_raintext(text, issue)
     # 01:50, 01:55, then 02:00..02:55 (CEST, 12 lines), then 02:00..02:55
     # again (CET, 12 lines), then 03:00, 03:05 -- 28 lines total.
@@ -124,7 +124,7 @@ def test_parse_raintext_dst_fallback_repeated_hour():
     # instead jump the date forward here and blow the lead out to ~1512 min.
     assert epochs == sorted(epochs)
     assert len(set(epochs)) == len(epochs)
-    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+    assert all(b - a == 300 for a, b in itertools.pairwise(epochs))
 
     # first "02:00" (fold=0, still CEST/UTC+2) and second "02:00" (fold=1,
     # now CET/UTC+1) are exactly one hour apart in absolute time.
@@ -138,10 +138,10 @@ def test_parse_raintext_dst_fallback_repeated_hour():
     assert epochs[-1] - epochs[0] == 27 * 300
 
     # and every epoch really does land in UTC where we expect.
-    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.timezone.utc)
-    assert first_dt == dt.datetime(2026, 10, 24, 23, 50, tzinfo=dt.timezone.utc)
-    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.timezone.utc)
-    assert last_dt == dt.datetime(2026, 10, 25, 2, 5, tzinfo=dt.timezone.utc)
+    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.UTC)
+    assert first_dt == dt.datetime(2026, 10, 24, 23, 50, tzinfo=dt.UTC)
+    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.UTC)
+    assert last_dt == dt.datetime(2026, 10, 25, 2, 5, tzinfo=dt.UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_parse_raintext_dst_fallback_repeated_hour():
 def test_parse_raintext_dst_springforward_skipped_hour():
     text = read_fixture("buienradar_springforward_20260329.txt")
     # issued just before the gap, while still CET.
-    issue = dt.datetime(2026, 3, 29, 0, 50, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 3, 29, 0, 50, 0, tzinfo=dt.UTC)
     rows = eb.parse_raintext(text, issue)
     assert len(rows) == 5
 
@@ -159,12 +159,12 @@ def test_parse_raintext_dst_springforward_skipped_hour():
     # the labels jump from 01:55 straight to 03:00 (02:xx never happened
     # locally) but the real cadence stays a perfectly even 5 minutes.
     assert epochs == sorted(epochs)
-    assert all(b - a == 300 for a, b in zip(epochs, epochs[1:]))
+    assert all(b - a == 300 for a, b in itertools.pairwise(epochs))
 
-    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.timezone.utc)
-    assert first_dt == dt.datetime(2026, 3, 29, 0, 50, tzinfo=dt.timezone.utc)
-    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.timezone.utc)
-    assert last_dt == dt.datetime(2026, 3, 29, 1, 10, tzinfo=dt.timezone.utc)
+    first_dt = dt.datetime.fromtimestamp(epochs[0], dt.UTC)
+    assert first_dt == dt.datetime(2026, 3, 29, 0, 50, tzinfo=dt.UTC)
+    last_dt = dt.datetime.fromtimestamp(epochs[-1], dt.UTC)
+    assert last_dt == dt.datetime(2026, 3, 29, 1, 10, tzinfo=dt.UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ def test_parse_raintext_dst_springforward_skipped_hour():
 
 def test_parse_raintext_malformed_lines_are_skipped():
     text = read_fixture("buienradar_malformed.txt")
-    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.UTC)
     rows = eb.parse_raintext(text, issue)
     # valid: "000|10:30", "109|10:40", "109|10:50".
     # skipped: blank line, no-pipe line, non-numeric value ("abc|10:35"),
@@ -186,14 +186,14 @@ def test_parse_raintext_malformed_lines_are_skipped():
 
 
 def test_parse_raintext_rejects_out_of_range_byte():
-    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.UTC)
     rows = eb.parse_raintext("999|10:30\n256|10:35\n-1|10:40\n109|10:45\n", issue)
     assert len(rows) == 1
     assert rows[0][1] == pytest.approx(eb.value_to_mm_per_h(109))
 
 
 def test_parse_raintext_requires_integer_byte_token():
-    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.UTC)
     # "50.5" and "1e2" are not legal encodings of a 0-255 byte and must be
     # rejected like any other malformed line, not silently coerced by
     # float(). " 50 " (incidental whitespace around an otherwise-plain
@@ -206,7 +206,7 @@ def test_parse_raintext_requires_integer_byte_token():
 
 
 def test_parse_raintext_empty_string():
-    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 10, 25, 0, tzinfo=dt.UTC)
     assert eb.parse_raintext("", issue) == []
 
 
@@ -239,7 +239,7 @@ def test_buienradar_source_fetch_point_success(monkeypatch):
 
     monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
     source = eb.BuienradarSource()
-    issue = dt.datetime(2026, 9, 3, 8, 27, 44, tzinfo=dt.timezone.utc)
+    issue = dt.datetime(2026, 9, 3, 8, 27, 44, tzinfo=dt.UTC)
     rows = source.fetch_point(50.85, 4.35, issue)
     assert rows is not None
     assert len(rows) == 24
@@ -253,7 +253,7 @@ def test_buienradar_source_fetch_point_http_error_returns_none(monkeypatch):
 
     monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
     source = eb.BuienradarSource()
-    issue = dt.datetime.now(dt.timezone.utc)
+    issue = dt.datetime.now(dt.UTC)
     assert source.fetch_point(50.85, 4.35, issue) is None
 
 
@@ -265,7 +265,7 @@ def test_buienradar_source_fetch_point_incomplete_read_returns_none(monkeypatch)
 
     monkeypatch.setattr(eb.urllib.request, "urlopen", fake_urlopen)
     source = eb.BuienradarSource()
-    issue = dt.datetime.now(dt.timezone.utc)
+    issue = dt.datetime.now(dt.UTC)
     assert source.fetch_point(50.85, 4.35, issue) is None
 
 
@@ -286,7 +286,7 @@ class _FakeSource:
 
 
 def test_sample_all_lead_min_is_relative_to_feed_t0_not_fetch_time():
-    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.UTC)
     # feed's first line ("t0") is 3 minutes after the fetch instant, as
     # happens when the feed floors to its own 5-minute grid.
     t0 = int(fetch_time.timestamp()) + 180
@@ -312,7 +312,7 @@ def test_sample_all_lead_min_is_relative_to_feed_t0_not_fetch_time():
 
 
 def test_sample_all_drops_rows_with_lead_outside_sane_range():
-    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+    fetch_time = dt.datetime(2026, 9, 3, 10, 0, 0, tzinfo=dt.UTC)
     t0 = int(fetch_time.timestamp())
     stations = [("A", 1.0, 2.0)]
     points = {
@@ -410,7 +410,7 @@ def _mk_row(station, issue_epoch, valid_epoch, mm_per_h=1.0, fetch_epoch=None):
 
 def test_append_archive_writes_and_is_idempotent(tmp_path):
     day = dt.date(2026, 9, 3)
-    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.UTC).timestamp())
     valid_epoch = issue_epoch + 600
     rows = [_mk_row("Brussels", issue_epoch, valid_epoch)]
 
@@ -441,7 +441,7 @@ def test_append_archive_writes_and_is_idempotent(tmp_path):
 def test_append_archive_batch_covers_all_rows_from_one_fetch(tmp_path):
     # multiple lead-time rows from a single station/fetch share (station,
     # issue_epoch) and are idempotent together, not row-by-row.
-    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.UTC).timestamp())
     rows = [
         _mk_row("Brussels", issue_epoch, issue_epoch),
         _mk_row("Brussels", issue_epoch, issue_epoch + 300),
@@ -455,7 +455,7 @@ def test_append_archive_batch_covers_all_rows_from_one_fetch(tmp_path):
 
 
 def test_append_archive_survives_deleted_index(tmp_path):
-    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.UTC).timestamp())
     rows = [
         _mk_row("Brussels", issue_epoch, issue_epoch),
         _mk_row("Brussels", issue_epoch, issue_epoch + 300),
@@ -485,7 +485,7 @@ def test_append_archive_survives_deleted_index(tmp_path):
 
 
 def test_append_archive_survives_truncated_index(tmp_path):
-    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.UTC).timestamp())
     rows = [
         _mk_row("Brussels", issue_epoch, issue_epoch),
         _mk_row("Antwerp", issue_epoch, issue_epoch),
@@ -513,13 +513,13 @@ def test_append_archive_survives_truncated_index(tmp_path):
 def test_append_archive_index_header_mismatch_forces_rebuild(tmp_path):
     # a header whose recorded size no longer matches the JSONL (as if the
     # JSONL was appended to without updating the index) must not be trusted.
-    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 10, 0, tzinfo=dt.UTC).timestamp())
     rows = [_mk_row("Brussels", issue_epoch, issue_epoch)]
     eb.append_archive(rows, tmp_path)
 
     path = tmp_path / "buienradar" / "2026" / "09" / "03.jsonl"
     idx_path = eb._index_path(path)
-    idx_path.write_text("# size=999999 batches=1\nBrussels|%d\n" % issue_epoch)
+    idx_path.write_text(f"# size=999999 batches=1\nBrussels|{issue_epoch}\n")
 
     # re-appending the same row: the bogus header must trigger a JSONL
     # rebuild rather than being trusted at face value.
@@ -535,7 +535,7 @@ def test_load_archive_missing_day_returns_empty(tmp_path):
 def test_append_archive_splits_by_utc_day_of_valid_epoch(tmp_path):
     # issue on day 1, valid_epoch on day 2 (near-midnight step): must land
     # in day 2's file since that's what a later truth-join keys on.
-    issue_epoch = int(dt.datetime(2026, 9, 3, 23, 55, tzinfo=dt.timezone.utc).timestamp())
+    issue_epoch = int(dt.datetime(2026, 9, 3, 23, 55, tzinfo=dt.UTC).timestamp())
     valid_epoch = issue_epoch + 600  # crosses into 2026-09-04 UTC
     rows = [_mk_row("Brussels", issue_epoch, valid_epoch)]
     eb.append_archive(rows, tmp_path)
