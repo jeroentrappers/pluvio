@@ -1,13 +1,19 @@
-# Example PLUVIO_QC_THRESHOLDS override file — only the keys you want to
-# change need to be present; anything omitted falls back to the built-in
-# defaults in research/tools/qc/thresholds.py.
+# Example PLUVIO_QC_THRESHOLDS override file, mirroring the built-in
+# defaults in research/tools/qc/thresholds.py — only the keys you want to
+# change need to be present; anything omitted falls back to those defaults.
+# An unrecognised top-level key (a typo) is rejected loudly by
+# load_thresholds() rather than silently ignored.
 ranges:
   alaro_precip: [0, 255]
-  msg_ir108: [0, 260]
-  aws: [-3, 3]
+  msg_ir108: [0, 255]
+  aws_pressure: [-4.0, 2.5]
+  aws_temp: [-4.5, 3.5]
+  aws_wind: [-1.0, 8.0]
+  aws_humidity: [-2.4, 1.0]
   radar: [0, 400]
   truth: [0, 400]
 nan_limit: 0.9
+range_percentile: 99.9
 reg_offset_warn_deg: 0.07
 reg_corr_warn: 0.25
 aux_corr_warn: 0.05

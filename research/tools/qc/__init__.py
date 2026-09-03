@@ -9,5 +9,9 @@ library returns internally.
 The two CLIs still write their own legacy-shaped JSON files (unchanged, so
 the systemd units and anything scraping /opt/pluvio/serve/*.json keep
 working) — they just build that JSON from Check results instead of from
-inline logic.
+inline logic, and additionally embed the unified {generated, checks,
+summary} shape under an additive "verdict" key.
+
+Deploys must copy this whole package, not just qc_inputs.py/qc_watchdog.py
+— both CLIs import from it at run time.
 """

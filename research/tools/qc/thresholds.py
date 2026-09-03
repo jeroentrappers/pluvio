@@ -9,12 +9,36 @@ first hourly run threw false alarms hard-coding guessed physical ranges:
                 encoded/scaled integer, or something else is an OPEN
                 question (TODO 1.6) — this range is a sanity band on the
                 stored representation, not a claim about units.
-  msg_ir108     observed [4.26, 239] — NOT Kelvin brightness temperature,
-                stored normalised/rescaled.
-  aws_*         observed roughly [-0.87, 2.51] — normalised anomalies, not
-                raw physical units. The range applies to any aws_-prefixed
-                channel (aws_temp, aws_wind, ...).
+  msg_ir108     observed [4.26, 239] — NOT Kelvin brightness temperature.
+                It is band-1 luminance (0-255) of the rendered GeoTIFF, not
+                a normalised physical quantity.
+  aws_*         each AWS channel is normalised independently in
+                research/model/build_aux.py (AWS_CHANNELS: column ->
+                (centre, scale), applied as (value - centre) / scale), so a
+                single +-3 band across all of them false-alarms on ordinary
+                weather — see per-channel derivations below.
   radar / truth mm/h, physically bounded [0, 400].
+
+Range checks compare the channel's 0.1st/99.9th percentile over the window
+to the band, not the hard min/max — a single noisy IDW cell or one bad AWS
+report over 48 issues x grid should not page anyone; a real unit/feed
+regression moves the bulk of the distribution, which the percentile catches.
+
+Per-channel AWS bands (centre, scale) from build_aux.py's AWS_CHANNELS,
+envelope = (physical_min - centre) / scale .. (physical_max - centre) / scale:
+
+  aws_pressure  (1013, 20) hPa. Envelope 933-1063 hPa (deep depression to
+                strong anticyclone at sea level) -> (-4.0, 2.5).
+  aws_temp      (10, 10) degC. Envelope -35..45 degC (Benelux/NW-Europe
+                extremes with margin) -> (-4.5, 3.5).
+  aws_wind      (4, 4) m/s. Envelope 0-36 m/s (calm to storm-force gust)
+                -> (-1.0, 8.0).
+  aws_humidity  (70, 30) % RH. Envelope -2..100 %RH (0% plus IDW/normalis-
+                ation slack) -> (-2.4, 1.0).
+
+Only channels stored aligned to `humidity_rel_shelter_avg` etc. use these;
+an aws_* channel not in this table has no default range (nan/limit checks
+still apply) until it is added here.
 
 The per-channel NaN-fraction limit is 0.9 for every channel, including sst.
 sst going 100% NaN over the newest 48 issues (found the first production
@@ -24,7 +48,10 @@ deliberately NOT relaxed or special-cased away here.
 Override the whole set with a YAML or JSON file, either passed explicitly
 to `load_thresholds(path=...)` or via the PLUVIO_QC_THRESHOLDS env var. A
 file only needs to set the keys it wants to change; anything absent falls
-back to the defaults below.
+back to the defaults below. The top level must be a mapping, and every
+top-level key must be a recognised one ("ranges" or a scalar threshold
+field) — an unrecognised key (a typo like "nan_limi") raises ValueError
+rather than being silently ignored.
 """
 
 from __future__ import annotations
@@ -34,17 +61,24 @@ import os
 import pathlib
 from dataclasses import dataclass, field, replace
 
-# channel name -> (min, max). Matched exactly first, then by "<prefix>_"
-# so "aws" covers aws_temp, aws_wind, etc.
+# channel name -> (min, max), checked against the window's 0.1/99.9
+# percentile (see module docstring). Matched exactly first, then by prefix
+# for any key ending in "_" (e.g. a future "aws_" catch-all) — a bare key
+# like "radar" is NEVER treated as a prefix, so it can't accidentally catch
+# an unrelated "radar_dbz"/"radar_quality" channel later.
 DEFAULT_RANGES: dict[str, tuple[float, float]] = {
     "radar": (0.0, 400.0),
     "truth": (0.0, 400.0),
     "alaro_precip": (0.0, 255.0),
-    "msg_ir108": (0.0, 260.0),
-    "aws": (-3.0, 3.0),
+    "msg_ir108": (0.0, 255.0),
+    "aws_pressure": (-4.0, 2.5),
+    "aws_temp": (-4.5, 3.5),
+    "aws_wind": (-1.0, 8.0),
+    "aws_humidity": (-2.4, 1.0),
 }
 
 DEFAULT_NAN_LIMIT = 0.9
+DEFAULT_RANGE_PERCENTILE = 99.9  # compare p(100-P)/p(P), not hard min/max
 
 DEFAULT_REG_OFFSET_WARN_DEG = 0.07
 DEFAULT_REG_CORR_WARN = 0.25
@@ -60,6 +94,7 @@ DEFAULT_GAUGE_BIAS_WARN = 5.0
 
 _SCALAR_FIELDS = (
     "nan_limit",
+    "range_percentile",
     "reg_offset_warn_deg",
     "reg_corr_warn",
     "aux_corr_warn",
@@ -71,6 +106,7 @@ _SCALAR_FIELDS = (
     "stale_warn_s",
     "gauge_bias_warn",
 )
+_TOP_LEVEL_KEYS = frozenset({"ranges", *_SCALAR_FIELDS})
 
 
 @dataclass
@@ -79,6 +115,7 @@ class Thresholds:
         default_factory=lambda: dict(DEFAULT_RANGES)
     )
     nan_limit: float = DEFAULT_NAN_LIMIT
+    range_percentile: float = DEFAULT_RANGE_PERCENTILE
 
     # qc_inputs
     reg_offset_warn_deg: float = DEFAULT_REG_OFFSET_WARN_DEG
@@ -96,16 +133,27 @@ class Thresholds:
 
     def range_for(self, channel: str) -> tuple[float, float] | None:
         """Look up the plausible-value range for a channel by exact name,
-        falling back to a prefix match (e.g. "aws" for "aws_temp")."""
+        falling back to a prefix match ONLY for keys that end in "_" (so a
+        bare "radar" entry never matches "radar_dbz")."""
         if channel in self.ranges:
             return self.ranges[channel]
         for prefix, rng in self.ranges.items():
-            if channel.startswith(prefix + "_"):
+            if prefix.endswith("_") and channel.startswith(prefix):
                 return rng
         return None
 
 
 def _apply_mapping(th: Thresholds, data: dict) -> Thresholds:
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"thresholds file must contain a mapping at the top level, got {type(data).__name__}"
+        )
+    unknown = set(data) - _TOP_LEVEL_KEYS
+    if unknown:
+        raise ValueError(
+            f"unknown threshold key(s): {sorted(unknown)}; valid keys are "
+            f"{sorted(_TOP_LEVEL_KEYS)}"
+        )
     th = replace(th)
     if "ranges" in data:
         th.ranges = {**th.ranges, **{k: tuple(v) for k, v in data["ranges"].items()}}
@@ -117,7 +165,12 @@ def _apply_mapping(th: Thresholds, data: dict) -> Thresholds:
 
 def load_thresholds(path: str | pathlib.Path | None = None) -> Thresholds:
     """Load thresholds. Resolution order: explicit `path` argument, then the
-    PLUVIO_QC_THRESHOLDS env var, then the built-in defaults above."""
+    PLUVIO_QC_THRESHOLDS env var, then the built-in defaults above.
+
+    Raises ValueError if the file's top level isn't a mapping, or contains
+    an unrecognised key (a typo like "nan_limi" fails loudly instead of
+    being silently ignored).
+    """
     resolved = path or os.environ.get("PLUVIO_QC_THRESHOLDS")
     th = Thresholds()
     if not resolved:

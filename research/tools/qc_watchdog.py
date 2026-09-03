@@ -20,7 +20,13 @@ The check math (region_metrics, gauge_bias, evaluate_region) lives in
 tools/qc/checks.py, unchanged in behaviour from the original inline version;
 this file is the CLI: loads the npz, drives the checks per region, and
 writes the legacy-shaped JSON below so the systemd unit and anything
-scraping it keep working.
+scraping it keep working. The output also carries an additive "verdict" key
+— the one {generated, checks, summary} shape from tools/qc/verdict.py
+(staleness + one Check per assessed region) — alongside the untouched
+legacy top-level keys.
+
+Deploys must copy the whole tools/qc/ package, not just this file — both
+qc_inputs.py and qc_watchdog.py import it.
 
 Output: one JSON (region -> metrics + verdicts) written atomically for anything to
 scrape, WARN lines in the journal for thresholds crossed, exit code 1 if any region
@@ -44,7 +50,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from tools.qc import checks
 from tools.qc.thresholds import load_thresholds
-from tools.qc.verdict import write_atomic
+from tools.qc.verdict import Check, build_verdict, write_atomic
 
 LOG = logging.getLogger("pluvio.qc")
 
@@ -80,12 +86,17 @@ def main(argv=None) -> int:
     rates = z["rates"].astype("float32")
     bounds = tuple(float(x) for x in z["bounds"])
 
+    generated = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     stale_s = int(dt.datetime.now(dt.UTC).timestamp() - int(times[-1]))
-    out = {"generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-           "staleness_s": stale_s, "regions": {}}
+    out = {"generated": generated, "staleness_s": stale_s, "regions": {}}
     red = stale_s > thresholds.stale_warn_s
     if stale_s > thresholds.stale_warn_s:
         LOG.warning("STALE: newest frame %d s old", stale_s)
+
+    all_checks: list[Check] = [
+        Check("staleness", "warn" if red else "ok", stale_s, thresholds.stale_warn_s,
+              f"newest frame {stale_s} s old" if red else ""),
+    ]
 
     for name, box in REGIONS.items():
         m = checks.region_metrics(rates, times, bounds, box)
@@ -96,6 +107,8 @@ def main(argv=None) -> int:
         verdicts = checks.evaluate_region(m, gb, thresholds)
         m["warnings"] = verdicts
         out["regions"][name] = m
+        all_checks.append(Check(f"region:{name}", "warn" if verdicts else "ok",
+                                 m, None, ",".join(verdicts)))
         if verdicts:
             red = True
             LOG.warning("%s: %s  %s", name, ",".join(verdicts),
@@ -103,6 +116,7 @@ def main(argv=None) -> int:
         else:
             LOG.info("%s ok", name)
 
+    out["verdict"] = build_verdict(all_checks, generated=generated)
     op = write_atomic(args.out, out)
     LOG.info("wrote %s", op)
     return 1 if red else 0

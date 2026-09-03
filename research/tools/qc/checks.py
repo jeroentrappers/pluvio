@@ -99,7 +99,15 @@ def aggregate_aux_alignment(name: str, corrs: list[float], thresholds) -> Check:
 
 def channel_health(block: np.ndarray, name: str, thresholds) -> Check:
     """NaN fraction and value-range health of one channel's recent block
-    of issues. `block` is already sliced to the window under test."""
+    of issues. `block` is already sliced to the window under test.
+
+    The range check compares the block's [100-P, P] percentile (P =
+    `thresholds.range_percentile`, default 99.9) to the configured band,
+    not the hard min/max — min/max are still reported for visibility, but
+    a single outlier cell (bad IDW sample, one noisy report) over 48 issues
+    x a whole grid must not page anyone; a real regression moves the bulk
+    of the distribution, which the percentile catches.
+    """
     nanfrac = round(float(np.mean(~np.isfinite(block))), 3)
     fin = block[np.isfinite(block)]
     vmin = round(float(fin.min()), 2) if fin.size else None
@@ -111,18 +119,31 @@ def channel_health(block: np.ndarray, name: str, thresholds) -> Check:
     if nanfrac > thresholds.nan_limit:
         status = "warn"
         details.append(f"{name} {int(nanfrac * 100)}% NaN over last {block.shape[0]} issues")
-    if rng and fin.size and (vmin < rng[0] - 1e-6 or vmax > rng[1]):
-        status = "warn"
-        details.append(f"{name} out of range [{vmin}, {vmax}] vs {rng}")
+    if rng and fin.size:
+        pct = getattr(thresholds, "range_percentile", 99.9)
+        p_lo = round(float(np.percentile(fin, 100.0 - pct)), 2)
+        p_hi = round(float(np.percentile(fin, pct)), 2)
+        value["p_lo"], value["p_hi"] = p_lo, p_hi
+        if p_lo < rng[0] - 1e-6 or p_hi > rng[1]:
+            status = "warn"
+            details.append(
+                f"{name} out of range [{p_lo}, {p_hi}] (p{100 - pct:g}/p{pct:g}) vs {rng}"
+            )
     return Check(name, status, value, rng, "; ".join(details))
 
 
 def staleness(newest_epoch: float, now_epoch: float, warn_min: float) -> Check:
-    """Age of the newest issue/frame vs wall clock, in minutes."""
-    age_min = round((now_epoch - newest_epoch) / 60.0, 2)
+    """Age of the newest issue/frame vs wall clock, in whole minutes.
+
+    Rounds to the nearest minute BEFORE comparing to `warn_min` — this
+    matches the original qc_inputs boundary (it computed `round(age_min)`
+    once and compared that integer), so a warn does not fire ~30 s earlier
+    than it used to just because the comparison moved to unrounded minutes.
+    """
+    age_min = round((now_epoch - newest_epoch) / 60.0)
     if age_min > warn_min:
         return Check("staleness", "warn", age_min, warn_min,
-                      f"newest issue {age_min:.0f} min old")
+                      f"newest issue {age_min} min old")
     return Check("staleness", "ok", age_min, warn_min)
 
 

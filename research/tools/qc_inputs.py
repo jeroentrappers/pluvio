@@ -25,7 +25,12 @@ continuously-measured check:
 The actual check math lives in tools/qc/ (a plain library, no I/O); this
 file is the CLI: opens the store, drives the checks over it, and writes the
 legacy-shaped JSON below so nothing downstream (systemd unit, dashboards)
-has to change.
+has to change. The output also carries an additive "verdict" key — the one
+{generated, checks, summary} shape from tools/qc/verdict.py — alongside the
+untouched legacy top-level keys, for anything that wants the unified form.
+
+Deploys must copy the whole tools/qc/ package, not just this file — both
+qc_inputs.py and qc_watchdog.py import it.
 
 Writes /opt/pluvio/serve/qc_inputs.json and exits 1 on any WARN, so a systemd
 timer surfaces failures. Run:  python -m tools.qc_inputs [-v]
@@ -45,7 +50,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from tools.qc import checks
 from tools.qc.thresholds import load_thresholds
-from tools.qc.verdict import write_atomic
+from tools.qc.verdict import build_verdict, write_atomic
 
 LOG = logging.getLogger("pluvio.qc_inputs")
 
@@ -54,7 +59,7 @@ OBSERVED = "/opt/pluvio/serve/observed.npz"
 OUT = "/opt/pluvio/serve/qc_inputs.json"
 
 
-def registration_check(src, t, thresholds, warn: list) -> dict:
+def registration_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     from model.geo import grid_latlon
 
     glat, glon = grid_latlon()
@@ -89,12 +94,19 @@ def registration_check(src, t, thresholds, warn: list) -> dict:
             break
 
     check = checks.aggregate_registration(fits, thresholds)
+    all_checks.append(check)
     if check.status == "warn":
-        warn.append(f"REGISTRATION {check.detail}")
+        # two separate warning strings (offset; corr), mirroring how
+        # channel_health's detail splits on "; " — so a fit that trips both
+        # thresholds contributes two lines to `warnings`/the warning count,
+        # same as the original inline checks did.
+        for detail in check.detail.split("; "):
+            if detail:
+                warn.append(f"REGISTRATION {detail}")
     return check.value
 
 
-def aux_alignment_check(src, t, thresholds, warn: list) -> dict:
+def aux_alignment_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     out = {}
     pairs = [("alaro_precip", +1)]
     if "msg_ir108" in src:
@@ -116,6 +128,7 @@ def aux_alignment_check(src, t, thresholds, warn: list) -> dict:
             if len(cs) >= 8:
                 break
         check = checks.aggregate_aux_alignment(name, cs, thresholds)
+        all_checks.append(check)
         if check.value is not None:
             out[name] = check.value
         if check.status == "warn":
@@ -123,7 +136,7 @@ def aux_alignment_check(src, t, thresholds, warn: list) -> dict:
     return out
 
 
-def channel_health_check(src, t, thresholds, warn: list) -> dict:
+def channel_health_check(src, t, thresholds, warn: list, all_checks: list) -> dict:
     out = {}
     n = len(t)
     lo = max(0, n - 48)
@@ -133,6 +146,7 @@ def channel_health_check(src, t, thresholds, warn: list) -> dict:
             continue
         block = np.asarray(a[lo:n] if a.ndim == 3 else a[lo:n, 0], dtype="float32")
         check = checks.channel_health(block, name, thresholds)
+        all_checks.append(check)
         out[name] = check.value
         if check.status == "warn":
             for detail in check.detail.split("; "):
@@ -158,20 +172,24 @@ def main(argv=None) -> int:
     src = zarr.open_group(args.store, mode="r")
     t = np.asarray(src["issue_time"][:]).astype("int64")
     warn: list[str] = []
+    all_checks: list = []
 
     now = dt.datetime.now(dt.UTC).timestamp()
     stale = checks.staleness(int(t[-1]), now, thresholds.stale_warn_min)
-    stale_min = round(stale.value)
+    all_checks.append(stale)
+    stale_min = stale.value
     if stale.status == "warn":
         warn.append(f"STALE {stale.detail}")
 
+    generated = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     body = {
-        "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "generated": generated,
         "newest_issue_age_min": stale_min,
-        "registration": registration_check(src, t, thresholds, warn),
-        "aux_alignment": aux_alignment_check(src, t, thresholds, warn),
-        "channels": channel_health_check(src, t, thresholds, warn),
+        "registration": registration_check(src, t, thresholds, warn, all_checks),
+        "aux_alignment": aux_alignment_check(src, t, thresholds, warn, all_checks),
+        "channels": channel_health_check(src, t, thresholds, warn, all_checks),
         "warnings": warn,
+        "verdict": build_verdict(all_checks, generated=generated),
     }
     op = write_atomic(args.out, body)
     for w in warn:
