@@ -116,7 +116,7 @@ CSI decays. The objective is the biggest lever we own.
       `--fss-weight --fss-thresholds --sharpness-weight` (defaults 0 = today's
       behaviour). Acceptance: unit tests on synthetic fields; an A/B epoch on
       the v3 store shows higher CSI@1 at equal RMSE. Lane: agent → research.
-- [ ] **2.1b Loss follow-ups (review notes)** — cap `--sharpness-weight`
+- [x] **2.1b Loss follow-ups (review notes)** — cap `--sharpness-weight`
       (noise injection is locally rewarded up to parity; crossover moves right
       above ~0.3 — re-measure before any higher weight); replace the Python
       branch on `target_e <= dry_floor` with a tensor mask (host sync, blocks
