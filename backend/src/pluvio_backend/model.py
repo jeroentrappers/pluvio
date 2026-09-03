@@ -34,7 +34,7 @@ import httpx
 import numpy as np
 
 from . import schedules
-from .cache import DEFAULT_BOUNDS, GridSpec, edge_bounds
+from .cache import DEFAULT_BOUNDS, GridSpec
 from .stubs import stub_band
 
 LOG = logging.getLogger("pluvio.model")
@@ -208,17 +208,33 @@ def _lagrangian_blend(out: np.ndarray, leads_min: list[int], issued_at: datetime
     if len(times) < 12:
         return out
     gh, gw = rates.shape[1:]
-    # Crop the observed cube to `grid`'s footprint. Both sets of bounds are
-    # CELL-CENTRE envelopes, so the window is computed between the two EDGE
-    # frames (one convention, 1.13) — otherwise the crop drifts by half a
-    # cell of the observed grid at each side.
-    ow, os_, oe, on = edge_bounds((W0, S0, E0, N0), (gh, gw))
+    # Crop the observed cube to `grid`'s footprint. The two sides use
+    # DIFFERENT bounds conventions (see the table in cache.GridSpec): the
+    # observed cube's bounds are pixel EDGES — produce_observed.py builds the
+    # raster with rasterio `from_bounds`, and the composite binning in
+    # radar_single_site._polar_geometry is edge-referenced — while the
+    # forecast grid's bounds are cell CENTRES, so only the target side is
+    # inflated to edges here.
     tw, ts, te, tn = grid.edge_bounds()
-    c0 = round((tw - ow) / (oe - ow) * gw)
-    c1 = round((te - ow) / (oe - ow) * gw)
-    r0 = round((on - tn) / (on - os_) * gh)
-    r1 = round((on - ts) / (on - os_) * gh)
-    if not (0 <= c0 < c1 <= gw and 0 <= r0 < r1 <= gh):
+    c0 = round((tw - W0) / (E0 - W0) * gw)
+    c1 = round((te - W0) / (E0 - W0) * gw)
+    r0 = round((N0 - tn) / (N0 - S0) * gh)
+    r1 = round((N0 - ts) / (N0 - S0) * gh)
+    # CLAMP, don't reject. The live configuration has the target box equal to
+    # the observed box (legacy 100², and the 192² npz), so the target's edge
+    # frame sticks half a target cell outside the observed raster and c0/r0
+    # come out at -1: the old `0 <= c0 < c1 <= gw` guard then returned the
+    # unblended field silently, disabling the seam anchor entirely.
+    win = (r0, r1, c0, c1)
+    r0, r1 = max(0, min(r0, gh)), max(0, min(r1, gh))
+    c0, c1 = max(0, min(c0, gw)), max(0, min(c1, gw))
+    if (r0, r1, c0, c1) != win:
+        LOG.info("lagrangian blend: target box %s clamped to the observed raster "
+                 "%s -> rows %d:%d cols %d:%d", grid.edge_bounds(), (gh, gw), r0, r1, c0, c1)
+    if not (c0 < c1 and r0 < r1):
+        LOG.warning("lagrangian blend: target box %s does not overlap the observed "
+                    "raster (%d x %d over %s) — serving the model field unblended",
+                    grid.edge_bounds(), gh, gw, (W0, S0, E0, N0))
         return out
 
     from .morph import _warp, flow_for_pair

@@ -17,7 +17,6 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from .cache import edge_bounds
 from .colormap import diff_rgba, rgba_for_array, upsample_field
 
 LOG = logging.getLogger("pluvio.verify")
@@ -25,9 +24,7 @@ LOG = logging.getLogger("pluvio.verify")
 ARCHIVE_ROOT = pathlib.Path(os.environ.get("PLUVIO_FORECAST_ARCHIVE",
                                            "/storagebox/forecast_archive"))
 QPE_ROOT = pathlib.Path(os.environ.get("PLUVIO_QPE_ROOT", "/storagebox/qpe"))
-# research-grid bounds (W,S,E,N) — the day zarrs carry no attrs. CELL-CENTRE
-# bounds, like every other `bounds` in this codebase (see cache.GridSpec):
-# converted to pixel edges with `edge_bounds()` before any cropping/painting.
+# research-grid bounds (W,S,E,N) — the day zarrs carry no attrs
 QPE_BOUNDS = (1.5, 48.9, 7.5, 52.5)
 
 
@@ -93,18 +90,13 @@ def observed_on(valid_epoch: int, bounds, shape):
     rate = np.asarray(root["rate"][slot], dtype="float32")
     if not np.isfinite(rate).any():
         return None
+    qb = QPE_BOUNDS
     H, W = rate.shape
-    # Both boxes are CELL-CENTRE bounds, so the crop window is computed
-    # between the two EDGE frames — the one backend pixel convention (1.13).
-    # Mixing them (centre bounds against a whole-pixel-count index) shifted
-    # the window by half a QPE cell on each side.
-    qw, qs, qe, qn = edge_bounds(QPE_BOUNDS, (H, W))
-    fw, fs, fe, fn = (float(x) for x in bounds)
-    w, s, e, n = edge_bounds((fw, fs, fe, fn), (int(shape[0]), int(shape[1])))
-    c0 = round((w - qw) / (qe - qw) * W)
-    c1 = round((e - qw) / (qe - qw) * W)
-    r0 = round((qn - n) / (qn - qs) * H)
-    r1 = round((qn - s) / (qn - qs) * H)
+    w, s, e, n = bounds
+    c0 = int((w - qb[0]) / (qb[2] - qb[0]) * W)
+    c1 = int((e - qb[0]) / (qb[2] - qb[0]) * W)
+    r0 = int((qb[3] - n) / (qb[3] - qb[1]) * H)
+    r1 = int((qb[3] - s) / (qb[3] - qb[1]) * H)
     if not (0 <= c0 < c1 <= W and 0 <= r0 < r1 <= H):
         return None
     return _area_resample(np.nan_to_num(rate[r0:r1, c0:c1]), shape)

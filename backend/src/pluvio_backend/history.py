@@ -21,7 +21,6 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from .cache import GridSpec, edge_bounds
 from .colormap import draw_fiducials, rgba_for_array
 from .tiler import render_sprite
 
@@ -163,17 +162,21 @@ def point_frames(lat: float, lon: float, span_min: int):
     data = _load_hi() or _load()
     if data is None:
         return None
+    b = data["bounds"]
+    if not (b["west"] <= lon <= b["east"] and b["south"] <= lat <= b["north"]):
+        raise ValueError(f"location ({lat}, {lon}) outside observed bounds")
     n, h, w = data["rates"].shape
-    # The cube's `bounds` are CELL-CENTRE bounds (see _load/_load_hi) — go
-    # through GridSpec so this uses the one backend pixel convention (1.13)
-    # instead of mixing centre bounds with a whole-pixel-count index, which
-    # shifted the sampled cell by half a cell (a whole cell at the south/east
-    # edge). GridSpec also raises for a point outside the cell footprint.
-    grid = GridSpec(bounds=data["bounds"], shape=(h, w))
-    try:
-        row, col = grid.latlon_to_cell(lat, lon)
-    except ValueError as exc:
-        raise ValueError(f"location ({lat}, {lon}) outside observed bounds") from exc
+    # The observed cube's bounds are pixel EDGES, not the cell-centre envelope
+    # a forecast grid uses (see the convention table in cache.GridSpec):
+    # produce_observed.py rasterises with rasterio `from_bounds`, and the
+    # composite binning in radar_single_site._polar_geometry is edge-based
+    # (`col = ((lon - w) / (e - w) * wd).astype(int)`). So index off these
+    # bounds directly over the whole pixel count — floor of the fractional
+    # EDGE index, as below. Do NOT route this through
+    # GridSpec.latlon_to_cell: that reads its bounds as cell CENTRES and
+    # would move a quarter of all lookups by one cell.
+    row = min(h - 1, max(0, int((b["north"] - lat) / (b["north"] - b["south"]) * h)))
+    col = min(w - 1, max(0, int((lon - b["west"]) / (b["east"] - b["west"]) * w)))
     newest = int(data["times"][-1])
     out = []
     for i in range(n):
@@ -237,16 +240,17 @@ def overlay_png(epoch: int) -> bytes | None:
     idx = {int(t): i for i, t in enumerate(data["times"])}
     if epoch not in idx:
         return None
-    field = data["rates"][idx[epoch]]
-    rgba = rgba_for_array(field)
+    rgba = rgba_for_array(data["rates"][idx[epoch]])
     import os as _os
     if _os.environ.get("PLUVIO_DEBUG_FIDUCIALS") == "1":
-        b = data["bounds"]  # dict(west, south, east, north), CELL-CENTRE — see _load_hi
-        centre = (float(b["west"]), float(b["south"]), float(b["east"]), float(b["north"]))
-        # draw_fiducials paints against pixel EDGES — inflate by half a cell
-        # (the same centre→edge convention as GridSpec.edge_bounds()) or the
-        # cross lands up to a cell off, worst at the south/east edge.
-        draw_fiducials(rgba, edge_bounds(centre, field.shape))
+        # draw_fiducials wants pixel EDGES, and the observed cube's bounds
+        # already ARE pixel edges (see point_frames, and the convention table
+        # in cache.GridSpec) — pass them straight through. Inflating them by
+        # half a cell, the way a forecast grid's centre bounds must be, would
+        # move every cross off its cell.
+        b = data["bounds"]  # dict(west, south, east, north), EDGES — see _load_hi
+        draw_fiducials(rgba, (float(b["west"]), float(b["south"]),
+                              float(b["east"]), float(b["north"])))
     img = Image.fromarray(rgba, mode="RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

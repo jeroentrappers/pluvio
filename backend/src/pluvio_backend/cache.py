@@ -85,8 +85,32 @@ class GridSpec:
     footprint extends half a cell further in each direction. Use
     `edge_bounds()` (not `bounds`) wherever pixel EDGES are needed (painters,
     tile renderers). `cell_center_latlon()` returns a cell's own centre and
-    `latlon_to_cell()` inverts it — both on the one convention below, the
-    same one `Grid.cell_of()`/`Grid.bounds_of_cell()` use in research.
+    `latlon_to_cell()` inverts it — both on the same convention as
+    `Grid.cell_of()`/`Grid.bounds_of_cell()` in research.
+
+    NOT every `bounds` in this codebase is a centre envelope, though — two
+    conventions exist, and which one an array carries depends on who wrote
+    it. The full list:
+
+    ========================================  ================  ============
+    array / attr                              bounds mean       written by
+    ========================================  ================  ============
+    GridSpec.bounds, grid.json "bounds"       CELL CENTRES      cache.py
+    forecast/nowcast npz "bounds"             CELL CENTRES      infer_latest
+      (Grid.bounds, or the BE_* constants)
+    zarr store attrs "bounds" (Grid)          CELL CENTRES      build_store_v3
+    observed cube npz/hi "bounds"             PIXEL EDGES       produce_observed
+      (rasterio from_bounds raster)
+    QPE day stores (verify.QPE_BOUNDS)        PIXEL EDGES       composite
+      (attrs bounds_convention=outer_edges)     producer
+    ========================================  ================  ============
+
+    So: a CENTRE-bounds array must be inflated with `edge_bounds()` before it
+    is painted or cropped against pixel indices; an EDGE-bounds array must
+    NOT be (`history.point_frames`/`overlay_png` index the observed cube off
+    its bounds directly, and `model._lagrangian_blend` inflates only its
+    forecast-grid side). Converting the wrong side is the half-cell — at the
+    south/east edge, whole-cell — misregistration this class of bug produces.
     """
 
     bounds: dict[str, float]  # keys: west, east, south, north (degrees)
@@ -119,9 +143,12 @@ class GridSpec:
 
         One convention, shared with research/model/grid.py `Grid.cell_of()`
         and with the painters: the floor of the fractional index measured
-        from the pixel EDGE (`edge_bounds()`), which is identical to rounding
-        the fractional cell-CENTRE index. A cell therefore owns the half-cell
-        margin on every side of its own centre, and `colormap.draw_fiducials`
+        from the pixel EDGE (`edge_bounds()`) — identical to rounding the
+        fractional cell-CENTRE index except exactly on a cell boundary, where
+        floor-on-edge is south/east-inclusive (it takes the farther cell)
+        while `round()` breaks the tie to even. A cell therefore owns the
+        half-cell margin on every side of its own centre, and
+        `colormap.draw_fiducials`
         fed `edge_bounds()` computes exactly this index — so a value painted
         at (row, col) reads back at (row, col) here (tests/test_gridspec.py).
 

@@ -39,6 +39,7 @@ def model_mod(tmp_path, monkeypatch):
     monkeypatch.setenv("PLUVIO_MODEL_FORECAST_NPZ", str(npz))
     monkeypatch.setenv("PLUVIO_MODEL_NOWCAST_NPZ", str(tmp_path / "missing.npz"))
     import pluvio_backend.model as m
+
     importlib.reload(m)  # pick up the patched env paths
     return m, npz
 
@@ -98,11 +99,20 @@ def _write_nowcast_npz(path, issue_epoch, *, shape, bounds=None):
     H, W = shape
     rates = np.stack([np.full((H, W), float(i), dtype="float32") for i in range(len(leads))])
     if bounds is not None:
-        np.savez(path, leads=np.asarray(leads, dtype="int16"), rates=rates,
-                 issue_epoch=np.int64(issue_epoch), bounds=np.asarray(bounds, dtype="float64"))
+        np.savez(
+            path,
+            leads=np.asarray(leads, dtype="int16"),
+            rates=rates,
+            issue_epoch=np.int64(issue_epoch),
+            bounds=np.asarray(bounds, dtype="float64"),
+        )
     else:
-        np.savez(path, leads=np.asarray(leads, dtype="int16"), rates=rates,
-                 issue_epoch=np.int64(issue_epoch))
+        np.savez(
+            path,
+            leads=np.asarray(leads, dtype="int16"),
+            rates=rates,
+            issue_epoch=np.int64(issue_epoch),
+        )
 
 
 @pytest.fixture
@@ -112,6 +122,7 @@ def nowcast_mod(tmp_path, monkeypatch):
     monkeypatch.setenv("PLUVIO_MODEL_FORECAST_NPZ", str(tmp_path / "missing_cube.npz"))
     monkeypatch.setenv("PLUVIO_OBSERVED_NPZ", str(tmp_path / "missing_observed.npz"))
     import pluvio_backend.model as m
+
     importlib.reload(m)
     return m, npz
 
@@ -125,8 +136,9 @@ def test_full_benelux_npz_accepted_and_bounds_propagated_to_api_response(nowcast
     m, npz = nowcast_mod
     full_bounds = (1.0, 47.5, 8.5, 53.5)  # wider than DEFAULT_GRID
     full_shape = (192, 192)
-    _write_nowcast_npz(npz, int(datetime.now(UTC).timestamp()), shape=full_shape,
-                       bounds=full_bounds)
+    _write_nowcast_npz(
+        npz, int(datetime.now(UTC).timestamp()), shape=full_shape, bounds=full_bounds
+    )
 
     # Called with the caller's (still legacy) grid, exactly as inference_worker
     # does today — model.py must not assume the npz matches it.
@@ -159,8 +171,9 @@ def test_legacy_npz_without_bounds_still_served_on_caller_grid(nowcast_mod):
     all — still serves fine, on the legacy DEFAULT_BOUNDS/DEFAULT_GRID_SHAPE
     the caller passes in."""
     m, npz = nowcast_mod
-    _write_nowcast_npz(npz, int(datetime.now(UTC).timestamp()), shape=DEFAULT_GRID.shape,
-                       bounds=None)
+    _write_nowcast_npz(
+        npz, int(datetime.now(UTC).timestamp()), shape=DEFAULT_GRID.shape, bounds=None
+    )
 
     out, _issued_at, used_grid = m.model_band(None, "", DEFAULT_GRID, "nowcast")
 
@@ -170,8 +183,7 @@ def test_legacy_npz_without_bounds_still_served_on_caller_grid(nowcast_mod):
     assert used_grid.bounds == DEFAULT_GRID.bounds
 
 
-def test_npz_bounds_but_shape_matches_default_grid_round_trips_via_run_tick(nowcast_mod,
-                                                                            tmp_path):
+def test_npz_bounds_but_shape_matches_default_grid_round_trips_via_run_tick(nowcast_mod, tmp_path):
     """The common near-term case: the npz already carries `bounds` (1.1) but
     they equal the cache's own grid (nothing has moved yet) — full run_tick
     plumbing (point shards + sprite + publish) must work unchanged."""
@@ -179,9 +191,17 @@ def test_npz_bounds_but_shape_matches_default_grid_round_trips_via_run_tick(nowc
     from pluvio_backend.inference_worker import run_tick
 
     m, npz = nowcast_mod
-    _write_nowcast_npz(npz, int(datetime.now(UTC).timestamp()), shape=DEFAULT_GRID.shape,
-                       bounds=(DEFAULT_GRID.bounds["west"], DEFAULT_GRID.bounds["south"],
-                               DEFAULT_GRID.bounds["east"], DEFAULT_GRID.bounds["north"]))
+    _write_nowcast_npz(
+        npz,
+        int(datetime.now(UTC).timestamp()),
+        shape=DEFAULT_GRID.shape,
+        bounds=(
+            DEFAULT_GRID.bounds["west"],
+            DEFAULT_GRID.bounds["south"],
+            DEFAULT_GRID.bounds["east"],
+            DEFAULT_GRID.bounds["north"],
+        ),
+    )
 
     settings = Settings(cache_root=tmp_path / "cache_root")
     import pluvio_backend.inference_worker as worker
@@ -198,3 +218,78 @@ def test_npz_bounds_but_shape_matches_default_grid_round_trips_via_run_tick(nowc
     meta = cache.latest_metadata()
     assert meta is not None
     assert meta["grid"]["bounds"] == DEFAULT_GRID.bounds
+
+
+# -- the Lagrangian seam blend must actually run on the live geometry -------
+
+
+def _write_observed(path, *, shape=(400, 416), bounds=(1.5, 48.9, 7.5, 52.5), value=3.0):
+    """An observed cube like produce_observed.py's: 12 frames, 5 min apart,
+    ending now, and `bounds` that are the raster's outer PIXEL EDGES."""
+    now = int(datetime.now(UTC).timestamp())
+    times = np.asarray([now - (11 - i) * 300 for i in range(12)], dtype="int64")
+    rates = np.full((12, *shape), value, dtype="float32")
+    np.savez(path, times=times, rates=rates, bounds=np.asarray(bounds, dtype="float64"))
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        # The live legacy configuration: the forecast box IS the observed box,
+        # at a coarser resolution.
+        ({"west": 1.5, "east": 7.5, "south": 48.9, "north": 52.5}, (100, 100)),
+        # The 192² full-Benelux npz, same story.
+        ({"west": 1.5, "east": 7.5, "south": 48.9, "north": 52.5}, (192, 192)),
+    ],
+    ids=["legacy-100", "full-192"],
+)
+def test_lagrangian_blend_is_active_when_the_boxes_coincide(
+    model_mod, tmp_path, monkeypatch, target
+):
+    """Regression: the forecast grid's bounds are cell CENTRES, so its edge
+    frame sticks half a target cell outside an observed raster that covers
+    exactly the same box — the crop window's c0/r0 come out at -1. Rejecting
+    that window (the old `0 <= c0 < c1 <= gw` guard) silently disabled the
+    seam anchor on every live configuration; it must be clamped instead."""
+    from pluvio_backend.cache import GridSpec
+
+    m, _npz = model_mod
+    obs = tmp_path / "observed.npz"
+    _write_observed(obs)
+    monkeypatch.setenv("PLUVIO_OBSERVED_NPZ", str(obs))
+
+    bounds, shape = target
+    grid = GridSpec(bounds=bounds, shape=shape)
+    leads = schedules.band("nowcast").leads_min
+    out = np.zeros((len(leads), *shape), dtype="float32")
+
+    blended = m._lagrangian_blend(out, leads, datetime.now(UTC), grid)
+    # Lead 0's valid time is inside the observed record, so it is the
+    # observation itself: 3 mm/h everywhere, not the zeroed model field.
+    assert float(blended[0].max()) == pytest.approx(3.0)
+    assert float(blended[0].min()) == pytest.approx(3.0)
+    assert float(blended.max()) == pytest.approx(3.0)
+
+
+def test_lagrangian_blend_declines_a_box_that_does_not_overlap(
+    model_mod, tmp_path, monkeypatch, caplog
+):
+    """A target box outside the observed raster leaves the model field alone
+    — and says so, instead of failing silently."""
+    from pluvio_backend.cache import GridSpec
+
+    m, _npz = model_mod
+    obs = tmp_path / "observed.npz"
+    _write_observed(obs)
+    monkeypatch.setenv("PLUVIO_OBSERVED_NPZ", str(obs))
+
+    grid = GridSpec(
+        bounds={"west": 20.0, "east": 26.0, "south": 40.0, "north": 44.0}, shape=(100, 100)
+    )
+    leads = schedules.band("nowcast").leads_min
+    out = np.zeros((len(leads), *grid.shape), dtype="float32")
+
+    with caplog.at_level("WARNING", logger="pluvio.model"):
+        blended = m._lagrangian_blend(out, leads, datetime.now(UTC), grid)
+    assert blended is out
+    assert any("does not overlap" in r.getMessage() for r in caplog.records)

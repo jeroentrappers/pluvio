@@ -189,8 +189,10 @@ def test_matches_research_grid_cell_of_formula(grid):
     """Equivalence with research/model/grid.py `Grid.cell_of()`, replicated
     here (it can't be imported without the research env): that one rounds the
     fractional CENTRE index, this one floors the fractional EDGE index — the
-    same cell for every point, which is what "one convention" means. Checked
-    over a deterministic sweep, including the half-cell margins."""
+    same cell for every point that isn't exactly on a cell boundary (there,
+    floor-on-edge is south/east-inclusive and `round()` breaks the tie to
+    even). Checked over a deterministic sweep, including the half-cell
+    margins."""
     h, w = grid.shape
     ew, es, ee, en = grid.edge_bounds()
     rng = np.random.default_rng(1313)
@@ -203,3 +205,29 @@ def test_matches_research_grid_cell_of_formula(grid):
         ref = (min(max(int(row_ref), 0), h - 1), min(max(int(col_ref), 0), w - 1))
         # --- end verbatim block ---
         assert grid.latlon_to_cell(float(lat), float(lon)) == ref
+
+
+# -- the painter's bounds are pinned at the source --------------------------
+
+
+def test_forecast_cache_paints_fiducials_with_edge_bounds(tmp_path, monkeypatch):
+    """`ForecastCache._fiducial_bounds` — the one thing that decides which
+    convention every rendered overlay and the sprite are painted on — must
+    hand out EDGE bounds. Swapping it back to `grid.bounds` shifts every
+    overlay by half a cell, so pin it here rather than trusting a caller."""
+    from pluvio_backend.cache import ForecastCache
+
+    cache = ForecastCache(tmp_path, grid=GridSpec(bounds=BOUNDS, shape=SHAPE))
+    monkeypatch.delenv("PLUVIO_DEBUG_FIDUCIALS", raising=False)
+    assert cache._fiducial_bounds() is None  # off unless the QC flag is set
+
+    monkeypatch.setenv("PLUVIO_DEBUG_FIDUCIALS", "1")
+    default_grid_bounds = cache._fiducial_bounds()
+    assert default_grid_bounds == cache.grid.edge_bounds()
+    assert default_grid_bounds != (BOUNDS["west"], BOUNDS["south"], BOUNDS["east"], BOUNDS["north"])
+
+    # ... and for a band served on its own grid, that grid's edges.
+    other = GridSpec(
+        bounds={"west": 1.0, "east": 8.5, "south": 47.5, "north": 53.5}, shape=(192, 192)
+    )
+    assert cache._fiducial_bounds(other) == other.edge_bounds()
