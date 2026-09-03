@@ -175,6 +175,9 @@ below every metric. Make eyes unnecessary.
       `verify.py`'s QPE crop is left to the scoreboard branch (attrs-driven
       edge bounds + NaN-aware regrid). Web client untouched — see 1.9.
       Lane: agent + ops.
+      Deployed to hetz1 2026-09-03 21:08 UTC (GHCR image from 0888519 after the
+      backend CI gate was made green; api/worker recreated, overlay + point
+      endpoints 200, seam blend active on the live 100² grid).
 - [x] **1.14 Dead code / small debts** — `morph.py` unused `gy` (with 2.7),
       `zarr_dataset` unused `src`, `torch` in `research/pyproject.toml`,
       `[tool.pytest.ini_options]` replaces the conftest sys.path hack; `cv2`
