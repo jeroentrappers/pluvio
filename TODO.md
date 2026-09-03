@@ -210,9 +210,24 @@ CSI decays. The objective is the biggest lever we own.
 - [ ] **2.5 Temporal encoder** — ConvGRU / axial-attention over the history
       stack + UNet decoder, AMP + checkpointing at 192². Acceptance: benchmark
       win over 2.1 model. Lane: research (rented GPU).
-- [ ] **2.6 Pre-rendered training shards** — one-time render of samples to
-      sharded tensors; streaming loader. Acceptance: ≥3× epoch speedup, same
-      loss curve. Lane: agent.
+- [x] **2.6 Pre-rendered training shards** — `research/tools/render_shards.py`
+      renders the `ZarrCorrectionDataset` sample set once into `.npy` memmaps
+      (issue-aligned shards, float16 by default, resumable, manifest carries
+      the channel recipe + grid + sample count + structural source-store hash
+      + per-shard sha256); `research/model/shard_dataset.py` (`ShardDataset`)
+      streams them with one memmap slice per sample; `model/train.py --shards
+      <dir>` swaps the dataset. Same index, same chronological split boundary,
+      same order, same targets → same loss curve; the float16 cast happens
+      once at render time (`cast_for_shard`) and the tests assert bit-for-bit
+      equality with that same cast applied to the zarr side (`--dtype
+      float32` is bit-equal un-quantised). Loader refuses an incomplete
+      store, a recipe mismatch, a bumped `NORMALISE_VERSION`, a filtered val
+      split, or a `--require-rain-fraction` the shards lack. Measured on a
+      real-shape synthetic store (192², 33 ch, CPU, 1 worker): 41.5 → 14,737
+      samples/s. Storage: 2.39 MiB/sample → 332 GiB for 142k samples — check
+      `df` on asusprime before rendering; CLI + estimate in
+      `research/docs/training_run_v2.md`. Open: run it on the real store to
+      confirm the ≥3× epoch gate (needs the GPU box). Lane: agent.
 
 - [x] **2.7 Better motion estimator** — `research/model/motion.py` is the one
       NCC block-flow estimator (mean-subtracted, std-normalised over wet

@@ -87,10 +87,19 @@ def _assert_epoch_seconds(t: np.ndarray, context: str) -> None:
         )
 
 
+# Bump whenever _normalise (or build_input's channel order/scaling) changes:
+# pre-rendered shards (tools/render_shards.py) record this in their manifest so
+# a loader refuses shards baked with different channel semantics.
+NORMALISE_VERSION = 1
+
+
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
     """Bring each channel family to ~O(1). aws_* are already normalised in the
     builder; the rendered MSG/ALARO bytes go to [0,1]; SST/static get sensible
-    scales; radar stays in mm/h (the model predicts mm/h)."""
+    scales; radar stays in mm/h (the model predicts mm/h).
+
+    Any change here changes what every pre-rendered shard means — bump
+    NORMALISE_VERSION above so stale shard stores are rejected loudly."""
     if name.startswith("aws_"):
         return arr
     if name == "msg_rdt":
@@ -385,13 +394,21 @@ class ZarrCorrectionDataset(Dataset):
 
     # ───────────────────────────────────────────────────────── __getitem__
 
+    def build_target(self, target_idx: int) -> np.ndarray:
+        """Assemble the (1, H, W) target for one target issue-index. Shared by
+        __getitem__ and the shard renderer (tools/render_shards.py) so both
+        sides cannot drift apart."""
+        root = self._open()
+        y = (np.asarray(root["truth"][target_idx])
+             if self._has_truth
+             else np.asarray(root["radar"][target_idx, 0]))[None, ...].astype("float32")
+        np.nan_to_num(y, copy=False, nan=0.0)
+        return y
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         s = self.index[idx]
         chans = self.build_input(s.issue_idx, s.lead_min, s.history_idx)
-        y = (np.asarray(self._open()["truth"][s.target_idx])
-             if self._has_truth
-             else np.asarray(self._open()["radar"][s.target_idx, 0]))[None, ...].astype("float32")
-        np.nan_to_num(y, copy=False, nan=0.0)
+        y = self.build_target(s.target_idx)
         return torch.from_numpy(chans), torch.from_numpy(y)
 
 
