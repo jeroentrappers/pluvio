@@ -291,6 +291,8 @@ def _build_aws_idw(aws_df: pd.DataFrame, ts: datetime, lat: np.ndarray,
                   .drop_duplicates(subset=["lat", "lon"], keep="last"))
     lats = frame["lat"].to_numpy(dtype="float64")
     lons = frame["lon"].to_numpy(dtype="float64")
+    from model.build_aux import AWS_CHANNELS  # lazy: see module header
+
     out: dict[str, np.ndarray] = {}
     for ch, (centre, scale) in AWS_CHANNELS.items():
         vals = frame[ch].to_numpy(dtype="float64")
