@@ -15,7 +15,7 @@ def test_manifest_loads_and_covers_every_cron_job_and_timer():
     doc = gs.load_manifest(MANIFEST)
     names = {j["name"] for j in doc["jobs"]}
     for n in ("collect-knmi-radar", "collect-kmi-aws", "collect-knmi-aws", "collect-meteosat",
-              "collect-alaro", "collect-sst", "collect-netatmo", "append-infer", "rotate-to-nas",
+              "collect-alaro", "collect-sst", "collect-netatmo", "append-infer", "rotate-to-nas", "canary",
               "observed", "qc", "qc-inputs", "qpe-archive", "qpe-prune", "wide-archive",
               "forecast-archive", "external-baselines", "buienradar-eu", "scoreboard"):
         assert n in names, n

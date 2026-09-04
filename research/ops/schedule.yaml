@@ -65,6 +65,12 @@ jobs:
     log: /opt/pluvio/logs/serve.log
     requires_mounts: []   # store and serve dir are local; must run even if the storage box is down
     description: append new issues to the training store, then write the served nowcast npz
+  - name: canary
+    on_calendar: "*:2/5"
+    exec: "{python} -m tools.canary_tick"
+    log: /opt/pluvio/logs/canary.log
+    requires_mounts: []
+    description: candidate-checkpoint canary (pairs candidate vs served nowcast per issue; no-op without checkpoints/candidate.pt)
   - name: rotate-to-nas
     on_calendar: "01:45"
     exec: "{python} /opt/pluvio/research/tools/rotate_to_nas.py --stage /opt/pluvio/data --nas /mnt/storagebox/pluvio/data"
