@@ -1,0 +1,105 @@
+# Every recurring job on hetz1, in one place (TODO 1.8). `tools/gen_systemd.py`
+# renders these into systemd unit + timer files; `systemctl list-timers` must
+# equal this list and no crontab may remain. Times are the box's local time
+# unless a `UTC` suffix is given (systemd OnCalendar syntax).
+defaults:
+  user: ansible
+  working_directory: /opt/pluvio/research
+  environment:
+    PYTHONPATH: /opt/pluvio/research
+    PLUVIO_STAGE_DIR: /opt/pluvio/data
+  requires_mounts: [/mnt/storagebox]
+  python: /opt/pluvio/research/.venv/bin/python
+
+jobs:
+  # ── input collectors (were user crontab entries) ──────────────────────────
+  - name: collect-knmi-radar
+    on_calendar: "*:0/30"
+    exec: /opt/pluvio/research/tools/pull_forward.sh knmi-radar
+    log: /opt/pluvio/logs/knmi-radar.log
+    description: KNMI radar analysis/nowcast HDF5 pull-forward
+  - name: collect-kmi-aws
+    on_calendar: "*:0/10"
+    exec: /opt/pluvio/research/tools/pull_forward.sh kmi-aws
+    log: /opt/pluvio/logs/kmi-aws.log
+    description: KMI automatic weather stations
+  - name: collect-knmi-aws
+    on_calendar: "*:0/15"
+    exec: /opt/pluvio/research/tools/pull_forward.sh knmi-aws
+    log: /opt/pluvio/logs/knmi-aws.log
+    description: KNMI automatic weather stations
+  - name: collect-meteosat
+    on_calendar: "*:0/30"
+    exec: /opt/pluvio/research/tools/pull_forward.sh meteosat
+    log: /opt/pluvio/logs/meteosat.log
+    description: EUMETSAT MSG WMS frames
+  - name: collect-alaro
+    on_calendar: "0,6,12,18:30"
+    exec: /opt/pluvio/research/tools/pull_forward.sh alaro
+    log: /opt/pluvio/logs/alaro.log
+    description: ALARO NWP frames (4 runs/day)
+  - name: collect-sst
+    on_calendar: "06:00"
+    exec: /opt/pluvio/research/tools/pull_forward.sh sst
+    log: /opt/pluvio/logs/sst.log
+    description: OSTIA SST daily (published ~D+2 06:00; 96 h max-age)
+  - name: collect-netatmo
+    on_calendar: "*:0/30"
+    exec: /opt/pluvio/research/tools/pull_forward.sh netatmo
+    log: /opt/pluvio/logs/netatmo.log
+    description: Netatmo personal weather stations
+  # ── store append + nowcast inference (was one */5 cron line) ──────────────
+  - name: append-infer
+    on_calendar: "*:0/5"
+    exec: >-
+      /bin/sh -c '{python} -m tools.build_zarr --append --data /opt/pluvio/data --out /opt/pluvio/zarr/timeseries.zarr
+      && {python} -m model.infer_latest --zarr /opt/pluvio/zarr/timeseries.zarr
+      --checkpoint /opt/pluvio/research/checkpoints/pluvio_unet.pt --out /opt/pluvio/serve/model_nowcast.npz'
+    log: /opt/pluvio/logs/serve.log
+    description: append new issues to the training store, then write the served nowcast npz
+  - name: rotate-to-nas
+    on_calendar: "01:45"
+    exec: "{python} /opt/pluvio/research/tools/rotate_to_nas.py --stage /opt/pluvio/data --nas /mnt/storagebox/pluvio/data"
+    log: /opt/pluvio/logs/rotate.log
+    description: move aged stage files to the storage box
+  # ── already systemd (declared here so the manifest is the complete schedule) ─
+  - name: observed
+    on_calendar: "*:0/5"
+    managed: false
+    description: composite producer (produce_observed) — the serving cube
+  - name: qc
+    on_calendar: "*:25"
+    managed: false
+    description: temporal-consistency watchdog on the served cube
+  - name: qc-inputs
+    on_calendar: "*:40"
+    managed: false
+    description: store registration / aux alignment / channel health
+  - name: qpe-archive
+    on_calendar: "*:0/10"
+    managed: false
+    description: 768-grid QPE day-zarr archive (self-describing since 1b6f023)
+  - name: qpe-prune
+    on_calendar: "04:30"
+    managed: false
+    description: prune raw volumes (3 d) + OPERA (7 d)
+  - name: wide-archive
+    on_calendar: "*:37"
+    managed: false
+    description: continental 3-km composite archive
+  - name: forecast-archive
+    on_calendar: "*:0/5"
+    managed: false
+    description: every forecast/nowcast run → storagebox
+  - name: external-baselines
+    on_calendar: "*:0/5:30"
+    managed: false
+    description: Buienradar station raintext sampler
+  - name: buienradar-eu
+    on_calendar: "*:0/5:45"
+    managed: false
+    description: Buienradar EU composite + forecast-run archive
+  - name: scoreboard
+    on_calendar: "02:30 UTC"
+    managed: false
+    description: nightly scoreboard for the previous UTC day
