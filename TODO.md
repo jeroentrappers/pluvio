@@ -716,6 +716,9 @@ on different rulers. Transparency is the only credible route to "reference".
       path behind the 3.5 gate (compare the two npz streams for a day), and
       cutting the composite lag (~20 min: 10-min archiver cadence + radar
       latency) toward the < 10 min acceptance.
+      The side-path npz is archived by `forecast_archive` as `lowlatency_HHMM`
+      and scored by the nightly scoreboard as its own kind from 2026-09-05 on,
+      so the serving decision can rest on real paired days.
 - [ ] **4.2 Patch-based continental training** — random 192² patches over the
       wide composite; radar + motion + statics inputs, aux masked where absent.
       Lane: research. Depends: 1.1, wide archive depth.
