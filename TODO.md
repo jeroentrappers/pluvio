@@ -188,11 +188,22 @@ below every metric. Make eyes unnecessary.
 Why: a deterministic Huber loss rewards hedging; fields blur with lead and
 CSI decays. The objective is the biggest lever we own.
 
-- [~] **2.1 Loss upgrade** (code merged 2026-09-03, A/B epoch pending) — `model/losses.py`: exceedance-FSS (port from
-      `train_seamless`), gradient/spectral sharpness; `train.py` flags
-      `--fss-weight --fss-thresholds --sharpness-weight` (defaults 0 = today's
-      behaviour). Acceptance: unit tests on synthetic fields; an A/B epoch on
-      the v3 store shows higher CSI@1 at equal RMSE. Lane: agent → research.
+- [x] **2.1 Loss upgrade** — `model/losses.py` exceedance-FSS + sharpness terms
+      behind zero-default flags (code 2026-09-03), A/B measured 2026-09-04 on
+      the frozen benchmark (2000 samples, 682 events, same manifest): arm B
+      (`--fss-weight 0.5 --sharpness-weight 0.05`, epoch 2, val RMSE 0.6822)
+      vs the plain-Huber v3 (epoch 4, 0.6956). CSI@1 mm/h equal within the
+      90 % CIs at every lead (0.457/0.341/0.257/0.194 vs 0.446/0.334/0.264/
+      0.199); FSS 3 px higher at every lead (+0.04..+0.06: 0.766/0.650/0.558/
+      0.459 vs 0.729/0.591/0.495/0.398); CSI@0.1 much higher at 60–120 min
+      (0.421/0.354/0.321 vs 0.377/0.313/0.202); RMSE equal or lower; wet bias
+      halved. Against the KNMI operational nowcast: CSI@1 ties at 30/60 and
+      wins at 90/120; FSS3 wins at every lead; CSI@0.1 still loses (0.54 vs
+      0.61 at 30 min). Baseline training also diverged after epoch 4 while
+      arm B held 0.68–0.70 through epoch 10. Verdict: adopt the structure
+      loss; the run continues under patience 30 and gets re-benchmarked at its
+      best epoch. Results: `research/benchmark/results/2026-09-04_v3_huber_vs_fss.md`.
+      Lane: agent → research.
 - [x] **2.1b Loss follow-ups (review notes)** — cap `--sharpness-weight`
       (noise injection is locally rewarded up to parity; crossover moves right
       above ~0.3 — re-measure before any higher weight); replace the Python

@@ -439,3 +439,18 @@ rebuild `timeseries_v3.zarr` in place (the fingerprint will refuse the resume
 and the train run — correctly; re-render with `--force`), and change
 `--val-frac`, which sets the split boundary that train.py compares against the
 boundary recorded in both manifests.
+
+
+## 2026-09-04 — loss A/B on the v3 store (2.1)
+
+Arm A: plain Huber (the v3 run of 2026-09-03, stopped after epoch 12; best val
+RMSE 0.6956 at epoch 4, then diverging to 0.78). Arm B: identical data, split
+and config plus `--fss-weight 0.5 --sharpness-weight 0.05`; val RMSE 0.6856,
+0.6822, 0.6957, 0.7030, 0.6871, 0.6932, 0.6932, 0.6889, 0.6981, 0.7047 for
+epochs 1–10 (no divergence). Frozen benchmark (`tools/benchmark.py`, 2000
+samples, 682 events, sample set `8dec3cd2e44123fd`) on arm B epoch 2 vs arm A
+epoch 4: CSI@1 equal within CIs, FSS3 +0.04..+0.06 at every lead, CSI@0.1
++0.04..+0.12 at 60–120 min, RMSE equal or lower, mean error halved. Both
+models beat the KNMI operational nowcast on CSI@1 at 90/120 min and on FSS3
+at every lead; the operational product still wins CSI@0.1. Full table:
+`research/benchmark/results/2026-09-04_v3_huber_vs_fss.md`.
