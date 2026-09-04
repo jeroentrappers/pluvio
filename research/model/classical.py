@@ -70,6 +70,65 @@ class ClassicalForecast:
     phase_offset_px: tuple[float, float] | None = None
 
 
+
+def global_motion_robust(prev: np.ndarray, curr: np.ndarray) -> tuple[float, float]:
+    """Per-frame (dy, dx) content motion prev→curr, from the same bounded
+    smoothed cross-correlation the NWP phase offset uses (the whitened FFT
+    estimator is fragile on sparse fields)."""
+    dy, dx = nwp_phase_offset(curr, prev)  # shift that puts prev's rain where curr has it
+    return dy, dx
+
+
+def anchored_blend(
+    rates: np.ndarray,
+    source: list[str],
+    leads_min,
+    *,
+    anchor_field: np.ndarray,
+    anchor_lead_min: int,
+    motion_per_frame: tuple[float, float],
+    dt_min: float,
+    aifs_rates: np.ndarray | None,
+    phase_correct: bool = True,
+) -> tuple[np.ndarray, tuple[float, float] | None]:
+    """Rebuild every lead past ``anchor_lead_min`` up to the blend horizon so
+    the radar arm CONTINUES ``anchor_field`` (the last field the served
+    nowcast actually shows) instead of a separate extrapolation from t0.
+
+    The hybrid cube splices a learned nowcast (0–120 min) onto a classical
+    cube whose 2–6 h radar arm was pysteps' own extrapolation of the OPERA
+    history: two different nowcasts of the same rain, 20+ cells apart on
+    2026-09-04, so the timeline jumped at 120→180 min. Here the radar arm is
+    the anchor advected by ``motion_per_frame`` per ``dt_min``, the NWP is
+    phase-corrected against the anchor, and the blend weights are unchanged.
+    Returns (rates, phase_offset_px); leads at or before the anchor and past
+    the blend horizon are left untouched.
+    """
+    leads = [int(x) for x in leads_min]
+    out = np.array(rates, dtype="float32", copy=True)
+    anchor = np.nan_to_num(np.asarray(anchor_field, dtype="float32"), nan=0.0)
+    dy, dx = motion_per_frame
+    aifs = None if aifs_rates is None else np.nan_to_num(np.asarray(aifs_rates, dtype="float32"), nan=0.0)
+    offset: tuple[float, float] | None = None
+    if aifs is not None and phase_correct and anchor_lead_min in leads:
+        offset = nwp_phase_offset(anchor, aifs[leads.index(anchor_lead_min)])
+    for i, lead in enumerate(leads):
+        if lead <= anchor_lead_min or lead > BLEND_END_MIN + PHASE_RELAX_MIN:
+            continue
+        w = _blend_weight(lead)
+        step = (lead - anchor_lead_min) / dt_min
+        radar_arm = _advect_semilagrangian(anchor, dy, dx, step) if w > 0.0 else None
+        if aifs is None:
+            out[i] = radar_arm
+            continue
+        nwp = aifs[i]
+        r = _phase_relax(lead)
+        if offset is not None and offset != (0.0, 0.0) and r > 0.0:
+            nwp = _advect_semilagrangian(nwp, offset[0] * r, offset[1] * r, 1)
+        out[i] = nwp if radar_arm is None else w * radar_arm + (1.0 - w) * nwp
+    return np.clip(out, 0.0, None).astype("float32"), offset
+
+
 # ───────────────────────────────────────────────────────── optical flow nowcast
 
 

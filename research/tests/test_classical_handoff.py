@@ -110,3 +110,26 @@ def test_phase_offset_is_robust_to_dissimilar_fields_and_noise():
     # unrelated weather (rain in the opposite corner, far beyond a quarter grid): refused
     far = _blob(8.0, 8.0, 2.0, 4.0)
     assert classical.nwp_phase_offset(_blob(56.0, 56.0), far) == (0.0, 0.0)
+
+
+def test_anchored_blend_continues_the_served_field_without_a_seam_jump():
+    # classical cube whose radar arm extrapolates from t0 at x=20 (blob moving east 1 px/step)
+    history, nwp = _case(nwp_offset_px=0.0)
+    fc = classical.seamless_cube(history, LEADS, dt_min=30.0, aifs_rates=nwp, prefer_pysteps=False)
+    # the served (learned) nowcast put the cell somewhere else at 120 min: 12 px further east
+    anchor = _blob(21.0 + 4.0 + 12.0)
+    rates = fc.rates.copy()
+    rates[LEADS.index(120)] = anchor
+    nwp_shifted = np.stack([_blob(21.0 + 12.0 + lead / 30.0) for lead in LEADS])  # NWP agrees with the model
+    before = np.array([_centroid_col(f) for f in rates])
+    out, offset = classical.anchored_blend(rates, fc.source, LEADS, anchor_field=anchor, anchor_lead_min=120,
+                                           motion_per_frame=(0.0, 1.0), dt_min=30.0, aifs_rates=nwp_shifted)
+    after = np.array([_centroid_col(f) for f in out])
+    i120, i180 = LEADS.index(120), LEADS.index(180)
+    assert before[i180] - before[i120] < -8          # the old cube jumped back west at the seam
+    assert 1.0 <= after[i180] - after[i120] <= 3.0    # now: two 30-min steps of eastward motion
+    steps = np.diff(after[i120: LEADS.index(360) + 1])
+    assert (steps >= 0.5).all() and (steps <= 3.0).all(), steps
+    # leads at/before the anchor are untouched, and the outlook past the relaxation is pure NWP
+    np.testing.assert_array_equal(out[: i120 + 1], np.clip(rates[: i120 + 1], 0.0, None))
+    assert offset == (0.0, 0.0)

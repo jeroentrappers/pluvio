@@ -131,12 +131,16 @@ def _aifs_cube(storage: pathlib.Path, leads_min, issue_dt) -> np.ndarray | None:
         return None
 
 
-def produce_classical(storage: pathlib.Path, leads, max_age_min: int):
+_classical_inputs: dict = {}   # hist/aifs of the last produce_classical(return_inputs=True) call
+
+
+def produce_classical(storage: pathlib.Path, leads, max_age_min: int, *, return_inputs: bool = False):
     from model.classical import seamless_cube
 
     hist, issue_dt = _opera_history(storage, n_frames=6, max_age_min=max_age_min)
     aifs = _aifs_cube(storage, leads, issue_dt)
     fc = seamless_cube(hist, leads, dt_min=OPERA_DT_MIN, aifs_rates=aifs)
+    _classical_inputs.update({"hist": hist, "aifs": aifs}) if return_inputs else None
     if fc.phase_offset_px is not None:
         LOG.info("classical: NWP phase offset at handoff dy=%.1f dx=%.1f px",
                  fc.phase_offset_px[0], fc.phase_offset_px[1])
@@ -224,7 +228,8 @@ def produce_hybrid(storage: pathlib.Path, zarr_path: str, leads, max_age_min: in
     the leads the model actually covers. Every lead is then served by whichever
     producer is verified for it, and `source` stays honest per lead.
     """
-    rates, source, conf, engine_c, issue_dt = produce_classical(storage, leads, max_age_min)
+    rates, source, conf, engine_c, issue_dt = produce_classical(
+        storage, leads, max_age_min, return_inputs=True)
 
     import zarr
     zleads = {int(x) for x in zarr.open_group(zarr_path, mode="r")["leads_min"][:]}
@@ -250,6 +255,22 @@ def produce_hybrid(storage: pathlib.Path, zarr_path: str, leads, max_age_min: in
         rates[i] = m_rates[j]
         source[i] = m_source[j]
         conf[i] = m_conf[j]
+
+    # Continue the SERVED nowcast into the blend (2.8): the classical cube's
+    # 2-6 h radar arm was pysteps' own extrapolation from t0 — a second
+    # nowcast of the same rain, 20+ cells away from the model's 120-min field
+    # on 2026-09-04, so the timeline jumped at the 120→180 seam.
+    from model.classical import anchored_blend, global_motion_robust
+    hist = _classical_inputs.get("hist")
+    anchor_lead = max(model_leads)
+    if hist is not None and len(hist) >= 2:
+        motion = global_motion_robust(hist[-2], hist[-1])
+        rates, offset = anchored_blend(
+            rates, source, leads, anchor_field=rates[idx[anchor_lead]],
+            anchor_lead_min=anchor_lead, motion_per_frame=motion, dt_min=OPERA_DT_MIN,
+            aifs_rates=_classical_inputs.get("aifs"))
+        LOG.info("hybrid: blend re-anchored on the model's %d-min field; motion/frame dy=%.1f dx=%.1f px; "
+                 "NWP phase offset %s", anchor_lead, motion[0], motion[1], offset)
     LOG.info("hybrid: model on %d leads (%d-%d min), classical on the remaining %d",
              len(model_leads), min(model_leads), max(model_leads), len(leads) - len(model_leads))
     return rates, source, conf, f"hybrid:{engine_m}+{engine_c}", issue_dt
