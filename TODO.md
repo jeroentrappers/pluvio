@@ -252,8 +252,10 @@ CSI decays. The objective is the biggest lever we own.
       serves the median as `rates` and, on the Grid-contract path, adds
       `rate_quantiles`, `quantile_levels` and `p_exceed` (P(rate>0.1/1.0 mm/h)
       by linear CDF interpolation between quantiles, documented approximation).
-      12 tests. Open: benchmark CRPS from quantiles (pinball×2) + reliability
-      diagram for `p_exceed`; backend/web exposure of P(rain); a training run
+      Benchmark scores quantile checkpoints on the median, CRPS = 2×mean
+      pinball over the levels, and a 10-bin reliability diagram of P(rate>thr)
+      per lead/threshold (`reliability` slot filled). Open: backend/web
+      exposure of P(rain); a training run
       (research, GPU). Acceptance unchanged: reliability in the benchmark,
       sharper median than the deterministic baseline. Depends: 2.1, 3.2
 - [~] **2.3 Lagrangian input channels** — advected latest observation at each

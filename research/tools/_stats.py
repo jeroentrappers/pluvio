@@ -31,6 +31,9 @@ def issue_block(issue_epoch: int, blocks_h: float) -> int:
     return int(issue_epoch) // span_s
 
 
+RELIABILITY_BINS = 10   # forecast-probability bins for the reliability diagram
+
+
 class SampleStats:
     """Sufficient statistics for one (model, lead)'s scored samples — one
     fixed-size record per sample, no pointwise arrays retained."""
@@ -43,12 +46,20 @@ class SampleStats:
 
     def add(self, *, issue_epoch: int, n: int, sum_e: float, sum_abs_e: float,
            sum_sq_e: float, cat: dict[float, tuple[int, int, int]],
-           fss: dict[float, dict[int, tuple[float, float]]]) -> None:
+           fss: dict[float, dict[int, tuple[float, float]]],
+           sum_crps: float | None = None,
+           rel: dict[float, tuple[np.ndarray, np.ndarray, np.ndarray]] | None = None) -> None:
+        """``sum_crps``: summed per-cell CRPS (quantile models; defaults to the
+        deterministic identity CRPS == |error|). ``rel``: per threshold the
+        reliability sufficient statistics (bin counts, observed exceedances,
+        summed forecast probability) over RELIABILITY_BINS probability bins."""
         if self._stacked is not None:
             raise RuntimeError("SampleStats.add() after aggregate() — stack already built")
         self._records.append({
             "issue_epoch": int(issue_epoch), "n": n, "sum_e": sum_e,
             "sum_abs_e": sum_abs_e, "sum_sq_e": sum_sq_e, "cat": cat, "fss": fss,
+            "sum_crps": sum_abs_e if sum_crps is None else float(sum_crps),
+            "rel": rel,
         })
 
     def __len__(self) -> int:
@@ -70,8 +81,19 @@ class SampleStats:
         fa = np.empty((nrec, nthr))
         fss_num = np.empty((nrec, nthr, nsc))
         fss_den = np.empty((nrec, nthr, nsc))
+        sum_crps = np.empty(nrec)
+        rel_cnt = np.zeros((nrec, nthr, RELIABILITY_BINS))
+        rel_obs = np.zeros((nrec, nthr, RELIABILITY_BINS))
+        rel_psum = np.zeros((nrec, nthr, RELIABILITY_BINS))
+        has_rel = False
         for i, r in enumerate(self._records):
             n[i], sum_e[i], sum_abs_e[i], sum_sq_e[i] = r["n"], r["sum_e"], r["sum_abs_e"], r["sum_sq_e"]
+            sum_crps[i] = r.get("sum_crps", r["sum_abs_e"])
+            if r.get("rel"):
+                has_rel = True
+                for j, thr in enumerate(self.thresholds):
+                    c, o, ps = r["rel"][thr]
+                    rel_cnt[i, j], rel_obs[i, j], rel_psum[i, j] = c, o, ps
             for j, thr in enumerate(self.thresholds):
                 h, m, f = r["cat"][thr]
                 hits[i, j], misses[i, j], fa[i, j] = h, m, f
@@ -80,8 +102,25 @@ class SampleStats:
                     fss_num[i, j, k], fss_den[i, j, k] = num, den
         self._stacked = {"n": n, "sum_e": sum_e, "sum_abs_e": sum_abs_e, "sum_sq_e": sum_sq_e,
                         "hits": hits, "misses": misses, "fa": fa,
-                        "fss_num": fss_num, "fss_den": fss_den}
+                        "fss_num": fss_num, "fss_den": fss_den, "sum_crps": sum_crps,
+                        "rel_cnt": rel_cnt, "rel_obs": rel_obs, "rel_psum": rel_psum,
+                        "has_rel": has_rel}
         return self._stacked
+
+    @staticmethod
+    def _reliability(st: dict, idx: np.ndarray, j: int) -> dict | None:
+        if not st.get("has_rel"):
+            return None
+        cnt = st["rel_cnt"][idx, j].sum(axis=0)
+        obs = st["rel_obs"][idx, j].sum(axis=0)
+        psum = st["rel_psum"][idx, j].sum(axis=0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            fprob = np.where(cnt > 0, psum / cnt, np.nan)
+            ofreq = np.where(cnt > 0, obs / cnt, np.nan)
+        edges = np.linspace(0.0, 1.0, RELIABILITY_BINS + 1)
+        return {"bin_edges": edges.tolist(), "forecast_prob": [None if np.isnan(v) else float(v) for v in fprob],
+                "observed_freq": [None if np.isnan(v) else float(v) for v in ofreq],
+                "count": [int(v) for v in cnt]}
 
     def aggregate(self, positions: np.ndarray | None = None) -> dict:
         """Per-threshold metric dict, summed over ``positions`` (repeats
@@ -97,11 +136,10 @@ class SampleStats:
         mean_error = sum_e / n if n else float("nan")
         mae = sum_abs_e / n if n else float("nan")
         rmse = math.sqrt(sum_sq_e / n) if n else float("nan")
-        # Deterministic point forecast: CRPS reduces to MAE (same identity
-        # model.metrics.crps_deterministic uses). Replace this with a real
-        # quantile-based CRPS (model.metrics.crps_from_quantiles) once 2.2's
-        # probabilistic head lands and there's a spread to score.
-        crps = mae
+        # Deterministic models: CRPS == MAE (the identity model.metrics.
+        # crps_deterministic uses). Quantile models (2.2) supply a per-cell
+        # CRPS estimate (2 x mean pinball over the predicted levels).
+        crps = float(st["sum_crps"][idx].sum()) / n if n else float("nan")
         n_samples = int(idx.shape[0])
 
         hits = st["hits"][idx].sum(axis=0)
@@ -125,7 +163,7 @@ class SampleStats:
                 "csi": csi, "pod": pod, "far": far, "freq_bias": bias,
                 "hits": int(h), "misses": int(m), "false_alarms": int(f),
                 "mean_error": mean_error, "mae": mae, "rmse": rmse, "crps": crps,
-                "reliability": None,
+                "reliability": self._reliability(st, idx, j),
                 "fss": fss, "n_samples": n_samples, "n_valid_cells": int(n),
             }
         return per_threshold

@@ -237,9 +237,14 @@ def _load_models(specs: list[str], device):
         ckpt = torch.load(ckpt_path, map_location=device)
         in_channels = ckpt.get("in_channels", 29)
         base_channels = ckpt.get("base_channels", 32)
-        model = PluvioUNet(in_channels=in_channels, base_channels=base_channels).to(device)
+        quantiles = ckpt.get("quantiles")
+        model = PluvioUNet(in_channels=in_channels, base_channels=base_channels,
+                           out_channels=len(quantiles) if quantiles else 1).to(device)
         model.load_state_dict(ckpt["model"])
         model.eval()
+        # A quantile head (2.2) is scored on its MEDIAN for the deterministic
+        # metrics; the whole stack feeds CRPS and the reliability diagram.
+        model.pluvio_quantiles = tuple(float(q) for q in quantiles) if quantiles else None
         LOG.info("loaded model %r from %s (val_rmse=%.4f, epoch=%s)",
                  name, ckpt_path, ckpt.get("val_rmse", float("nan")), ckpt.get("epoch"))
         models[name] = model
@@ -256,6 +261,34 @@ def _km_per_px(root) -> float:
     attrs = dict(root.attrs)
     spacing = km_per_px_from_bounds(attrs.get("bounds"), attrs.get("grid_n"))
     return 6.0 if spacing is None else spacing
+
+
+def crps_sum_from_quantiles(q_sel: np.ndarray, obs_sel: np.ndarray, levels) -> float:
+    """Summed per-cell CRPS estimate for a quantile forecast: twice the mean
+    pinball loss over the predicted levels (exact CRPS in the limit of dense
+    levels; with 3 levels a documented, consistently-applied approximation)."""
+    taus = np.asarray(levels, dtype="float64")[:, None]
+    diff = obs_sel[None, :] - q_sel
+    pin = np.maximum(taus * diff, (taus - 1.0) * diff)                    # (Q, n)
+    return float(2.0 * pin.mean(axis=0).sum())
+
+
+def reliability_stats_from_quantiles(q_sel: np.ndarray, obs_sel: np.ndarray, levels, thresholds):
+    """Per threshold: (bin counts, observed exceedances, summed forecast
+    probability) over RELIABILITY_BINS bins of P(rate > thr) derived from
+    the quantile stack (same CDF interpolation infer_latest serves)."""
+    from model.infer_latest import exceedance_from_quantiles
+    from tools._stats import RELIABILITY_BINS
+
+    p = exceedance_from_quantiles(q_sel, levels, thresholds)              # (T, n)
+    out = {}
+    for t, thr in enumerate(thresholds):
+        bins = np.clip((p[t] * RELIABILITY_BINS).astype(int), 0, RELIABILITY_BINS - 1)
+        cnt = np.bincount(bins, minlength=RELIABILITY_BINS).astype("float64")
+        obs = np.bincount(bins, weights=(obs_sel >= thr).astype("float64"), minlength=RELIABILITY_BINS)
+        psum = np.bincount(bins, weights=p[t].astype("float64"), minlength=RELIABILITY_BINS)
+        out[thr] = (cnt, obs, psum)
+    return out
 
 
 def _sample_stat_record(s, pred_sel: np.ndarray, obs_sel: np.ndarray, pred_fss: np.ndarray,
@@ -417,13 +450,20 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
             "advection": advected,
             "operational": operational_raw,
         }
+        quantile_stacks: dict[str, tuple[np.ndarray, tuple[float, ...]]] = {}
         if models:
             x = dataset.build_input(s.issue_idx, s.lead_min, s.history_idx)
             for name, model in models.items():
                 with torch_mod.no_grad():
                     xt = torch_mod.from_numpy(x).unsqueeze(0).to(torch_device)
-                    pred = model(xt).squeeze(0).squeeze(0).cpu().numpy().astype("float32")
-                preds[name] = pred
+                    out = model(xt)[0].cpu().numpy().astype("float32")   # (Q or 1, H, W)
+                qs = getattr(model, "pluvio_quantiles", None)
+                if qs:
+                    stack = np.sort(out, axis=0)                          # monotone levels
+                    quantile_stacks[name] = (stack, qs)
+                    preds[name] = stack[list(qs).index(0.5)]
+                else:
+                    preds[name] = out[0]
 
         # One validity mask per sample, shared by every model/baseline so
         # every entry is scored on identical support.
@@ -453,6 +493,11 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
             pred_fss = np.where(valid, np.nan_to_num(pred), fss_fill)
             record = _sample_stat_record(s, pred_sel, obs_sel, pred_fss, obs_fss, n_selected,
                                          thresholds, fss_scales)
+            if name in quantile_stacks:
+                stack, qs = quantile_stacks[name]
+                q_sel = stack[:, selector].astype("float64")             # (Q, n_selected)
+                record["sum_crps"] = crps_sum_from_quantiles(q_sel, obs_sel, qs)
+                record["rel"] = reliability_stats_from_quantiles(q_sel, obs_sel, qs, thresholds)
             stats_all[name][s.lead_min].add(**record)
             if is_case:
                 stats_case[name][s.lead_min].add(**record)
