@@ -210,26 +210,54 @@ PHASE_RELAX_MIN = 720            # relax the NWP phase correction over 12 h past
 MAX_PHASE_SHIFT_FRAC = 0.25      # never shift NWP by more than a quarter grid
 
 
+MIN_PHASE_CORR = 0.2             # peak normalised correlation needed to trust an offset
+PHASE_SMOOTH_SIGMA_PX = 3.0      # smooth both fields before matching (cells → blobs)
+
+
 def nwp_phase_offset(radar_field: np.ndarray, nwp_field: np.ndarray,
                      wet_thr: float = 0.1) -> tuple[float, float]:
     """(dy, dx) px to advect ``nwp_field`` by so its rain sits where
-    ``radar_field`` has it (FFT phase correlation on log rates). Zero when
-    either field is essentially dry or the estimate exceeds a quarter grid —
-    a wild offset says the two fields describe different weather, and then
-    moving the NWP would fake agreement rather than remove a phase error."""
+    ``radar_field`` has it.
+
+    Bounded cross-correlation of the two log-rate fields after Gaussian
+    smoothing (a radar cell and the NWP's broad rain area are matched as
+    blobs, not pixel patterns), peak searched only within a quarter grid.
+    Zero when either field is essentially dry or the peak's normalised
+    correlation is below ``MIN_PHASE_CORR`` — then the two fields describe
+    different weather and moving the NWP would fake agreement rather than
+    remove a phase error. Whitened FFT phase correlation was tried first and
+    returned a spurious (113, -102) px on the first live field (2026-09-04).
+    """
+    from scipy.ndimage import gaussian_filter
+
     a = np.nan_to_num(np.asarray(radar_field, dtype="float32"), nan=0.0)
     b = np.nan_to_num(np.asarray(nwp_field, dtype="float32"), nan=0.0)
     if (a > wet_thr).mean() < MIN_WET_FRAC_FOR_PHASE or (b > wet_thr).mean() < MIN_WET_FRAC_FOR_PHASE:
         return 0.0, 0.0
-    # _global_motion_phasecorr(a, b) is the content motion a→b; to put b's
-    # content where a's is, advect b by the opposite of that motion.
-    my, mx = _global_motion_phasecorr(a, b)
-    dy, dx = -my, -mx
     h, w = a.shape
-    if abs(dy) > MAX_PHASE_SHIFT_FRAC * h or abs(dx) > MAX_PHASE_SHIFT_FRAC * w:
-        LOG.warning("nwp phase offset (%.0f, %.0f) px exceeds a quarter grid — not applied", dy, dx)
+    sa = gaussian_filter(np.log1p(np.maximum(a, 0.0)), PHASE_SMOOTH_SIGMA_PX)
+    sb = gaussian_filter(np.log1p(np.maximum(b, 0.0)), PHASE_SMOOTH_SIGMA_PX)
+    sa -= sa.mean()
+    sb -= sb.mean()
+    na, nb = float(np.sqrt((sa * sa).sum())), float(np.sqrt((sb * sb).sum()))
+    if na < 1e-6 or nb < 1e-6:
         return 0.0, 0.0
-    return float(dy), float(dx)
+    # Zero-padded (non-circular) cross-correlation: corr[dy, dx] = sum sa(y, x) * sb(y - dy, x - dx),
+    # i.e. how well sb SHIFTED BY (dy, dx) matches sa.
+    fa = np.fft.rfft2(sa, s=(2 * h, 2 * w))
+    fb = np.fft.rfft2(sb, s=(2 * h, 2 * w))
+    corr = np.fft.irfft2(fa * np.conj(fb), s=(2 * h, 2 * w)) / (na * nb)
+    my, mx = int(MAX_PHASE_SHIFT_FRAC * h), int(MAX_PHASE_SHIFT_FRAC * w)
+    dys = np.arange(-my, my + 1)
+    dxs = np.arange(-mx, mx + 1)
+    window = corr[np.ix_(dys % (2 * h), dxs % (2 * w))]
+    k = np.unravel_index(int(np.argmax(window)), window.shape)
+    peak = float(window[k])
+    if peak < MIN_PHASE_CORR:
+        LOG.info("nwp phase offset: peak corr %.2f < %.2f — fields too dissimilar, not applied",
+                 peak, MIN_PHASE_CORR)
+        return 0.0, 0.0
+    return float(dys[k[0]]), float(dxs[k[1]])
 
 
 def _phase_relax(lead_min: float) -> float:

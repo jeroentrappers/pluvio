@@ -98,3 +98,15 @@ def test_phase_offset_sign_moves_nwp_onto_radar():
     dy, dx = classical.nwp_phase_offset(radar, nwp)
     shifted = classical._advect_semilagrangian(nwp, dy, dx, 1)
     assert _centroid_col(shifted) == pytest.approx(_centroid_col(radar), abs=1.0)
+
+
+def test_phase_offset_is_robust_to_dissimilar_fields_and_noise():
+    rng = np.random.default_rng(1)
+    # radar: three sharp cells; NWP: one broad weak blob covering them, 9 px west, 3 px north
+    radar = _blob(40.0, 30.0, 12.0, 2.5) + _blob(46.0, 36.0, 6.0, 2.0) + _blob(36.0, 38.0, 8.0, 2.0)
+    nwp = _blob(40.0 - 9.0, 33.0 - 3.0, 0.4, 9.0) + rng.uniform(0, 0.05, (H, W)).astype("float32")
+    dy, dx = classical.nwp_phase_offset(radar, nwp)
+    assert dy == pytest.approx(3.0, abs=1.5) and dx == pytest.approx(9.0, abs=1.5)
+    # unrelated weather (rain in the opposite corner, far beyond a quarter grid): refused
+    far = _blob(8.0, 8.0, 2.0, 4.0)
+    assert classical.nwp_phase_offset(_blob(56.0, 56.0), far) == (0.0, 0.0)
