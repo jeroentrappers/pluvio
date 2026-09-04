@@ -133,7 +133,8 @@ below every metric. Make eyes unnecessary.
       `infer_latest` change once a converged full-Benelux model exists.
       2026-09-04 later: grid.json now carries per-band footprints (`bands`),
       and the manifest/forecast endpoints label each band by the grid it was
-      rendered on — the mixed-grid mislabel is closed. Still gated on a
+      rendered on — the mixed-grid mislabel is closed (deployed 2026-09-04
+      ~11:50Z with the scoreboard route). Still gated on a
       converged full-Benelux model: cache default grid/point shards/location
       check widening, Flutter bounds, the infer_latest switch.
 - [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
