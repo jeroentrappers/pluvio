@@ -131,6 +131,11 @@ below every metric. Make eyes unnecessary.
       mislabel), widen the cache default grid / point shards / `/v1/forecast`
       location check, Flutter `Env.radarBounds*` → edge bounds, and the
       `infer_latest` change once a converged full-Benelux model exists.
+      2026-09-04 later: grid.json now carries per-band footprints (`bands`),
+      and the manifest/forecast endpoints label each band by the grid it was
+      rendered on — the mixed-grid mislabel is closed. Still gated on a
+      converged full-Benelux model: cache default grid/point shards/location
+      check widening, Flutter bounds, the infer_latest switch.
 - [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
       `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
@@ -719,6 +724,9 @@ on different rulers. Transparency is the only credible route to "reference".
       The side-path npz is archived by `forecast_archive` as `lowlatency_HHMM`
       and scored by the nightly scoreboard as its own kind from 2026-09-05 on,
       so the serving decision can rest on real paired days.
+      Latency floor note: both the QPE archive and the served observed cube
+      are ~20 min behind wall clock (radar publication + processing), so the
+      "< 10 min" acceptance needs faster radar ingestion, not just this path.
 - [ ] **4.2 Patch-based continental training** — random 192² patches over the
       wide composite; radar + motion + statics inputs, aux masked where absent.
       Lane: research. Depends: 1.1, wide archive depth.
