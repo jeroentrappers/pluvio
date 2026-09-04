@@ -676,9 +676,23 @@ on different rulers. Transparency is the only credible route to "reference".
 
 ## Epic 4 — Domain & latency (days 61–90)
 
-- [ ] **4.1 Low-latency inference path** — infer every 5 min on radar-complete
-      issues with aux carried forward; QC reports issue-age budget.
-      Acceptance: median issue age < 10 min. Lane: ops + research.
+- [~] **4.1 Low-latency inference path** — measured 2026-09-04: KNMI RAC_FM
+      files are 30-min issues landing ~30 min late, so the served nowcast is
+      30–60 min stale; our composite is 5-min cadence, ~20 min old.
+      `tools/lowlatency_infer.py` builds a 5-min issue from the composite
+      (bilinear onto the model grid, capped at 150 mm/h), carries aux forward
+      from the newest store issue, time-shifts the KNMI nowcast lead by the
+      issue age, runs the served checkpoint and writes the same npz to a SIDE
+      path (`serve/lowlatency_nowcast.npz`); `zarr_dataset.assemble_input` is
+      the shared input-layout function. First live run (issue 08:45Z vs served
+      08:30Z, 4.8 s): fields correlate 0.67/0.79/0.86/0.90 with the served
+      30–120 min leads but only 0.26 at lead 0 — the composite and the KNMI
+      analysis disagree at cell level (known registration/intensity gap), so
+      the model's inputs shift. NOT served. Next: `--evaluate DAY` over the
+      QPE archive (same valid times: low-latency issue vs the regular older
+      issue at the longer lead) to quantify latency gain vs shift loss; a
+      `pluvio-lowlatency` timer writing only the side path; then decide.
+      Acceptance: median issue age < 10 min without losing skill. Lane: ops + research.
 - [ ] **4.2 Patch-based continental training** — random 192² patches over the
       wide composite; radar + motion + statics inputs, aux masked where absent.
       Lane: research. Depends: 1.1, wide archive depth.

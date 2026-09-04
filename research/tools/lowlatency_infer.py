@@ -42,6 +42,7 @@ from model.zarr_dataset import _normalise, assemble_input  # noqa: E402
 from tools.scoreboard import QpeTruth  # noqa: E402
 
 LOG = logging.getLogger("pluvio.lowlatency")
+MAX_COMPOSITE_RATE_MM_H = 150.0
 
 
 def sample_regular_raster(rate: np.ndarray, bounds, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -56,7 +57,9 @@ def sample_regular_raster(rate: np.ndarray, bounds, lat: np.ndarray, lon: np.nda
     rows = (n - lat) / (n - s) * h - 0.5
     cols = (lon - w) / (e - w) * wd - 0.5
     out = map_coordinates(np.nan_to_num(rate, nan=0.0), [rows, cols], order=1, mode="constant", cval=0.0)
-    return np.clip(out, 0.0, None).astype("float32")
+    # The 1-km composite carries clutter/hail spikes (365 mm/h seen live) the
+    # KNMI analysis the model trained on never shows; cap like a radar product.
+    return np.clip(out, 0.0, MAX_COMPOSITE_RATE_MM_H).astype("float32")
 
 
 def model_grid_latlon(store_root):
@@ -176,9 +179,10 @@ def main(argv=None) -> int:
     out_rates, out_bounds = to_serving_grid(rates, grid, None if grid is not None else (lat, lon))
     out = write_nowcast_npz(pathlib.Path(args.out), (0, *LEADS), out_rates, out_bounds, t,
                             {"source": np.asarray("lowlatency-composite")})
-    LOG.info("wrote %s — issue %s (composite), KNMI issue age %.0f min (lead used for lead 30: %d), max %.2f mm/h",
-             out, dt.datetime.fromtimestamp(t, dt.UTC).isoformat(), info["age_min"],
-             info["knmi_lead_used"], float(rates.max()))
+    LOG.info("wrote %s — issue %s (composite), KNMI issue %s is %.0f min old (its lead %d fed our lead %d), "
+             "max %.2f mm/h", out, dt.datetime.fromtimestamp(t, dt.UTC).isoformat(),
+             dt.datetime.fromtimestamp(info["issue_epoch"], dt.UTC).isoformat(), info["age_min"],
+             info["knmi_lead_used"], LEADS[-1], float(rates.max()))
     return 0
 
 

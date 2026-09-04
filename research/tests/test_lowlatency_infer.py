@@ -45,9 +45,9 @@ def test_shifted_lead_index_adds_the_issue_age_and_clamps():
 def test_lowlatency_input_matches_dataset_layout_and_uses_composite_history(synthetic_store, tmp_path):
     ds = ZarrCorrectionDataset(synthetic_store, leads_min=(30, 60), build_index=False)
     root = zarr.open_group(str(synthetic_store), mode="r")
-    grid, lat, lon = ll.model_grid_latlon(root)
+    _grid, lat, lon = ll.model_grid_latlon(root)
     epochs = ds._issue_epoch
-    t = (int(epochs[10]) // 300 + 2) * 300                    # first 5-min slots after issue 10 (6–10 min later)
+    t = (int(epochs[10]) // 300 + 2) * 300                    # first 5-min slots after issue 10 (6-10 min later)
     day = dt.datetime.fromtimestamp(t, dt.UTC).date()
     slots = {}
     for k in range(ds.history_steps):
