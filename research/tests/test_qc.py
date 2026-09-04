@@ -510,3 +510,13 @@ def test_issue_time_order_warns_only_for_the_live_tail():
     assert r.status == "ok" and r.value["non_increasing_steps"] == 1 and "historic" in r.detail
     live = t.copy(); live[-2], live[-1] = live[-1], live[-2]           # disorder in the newest issues: warn
     assert checks.issue_time_order(live).status == "warn"
+
+
+def test_channel_health_distinguishes_a_young_channel_from_a_dead_one():
+    th = load_thresholds()
+    young = np.full((48, 4, 4), np.nan, dtype="float32"); young[40:] = 0.5      # started 8 issues ago
+    c = checks.channel_health(young, "alaro_precip_mm", th)
+    assert c.status == "ok" and c.value["started_issues_ago"] == 8 and c.value["nan_frac"] > 0.8
+    dead = np.full((48, 4, 4), 0.5, dtype="float32"); dead[8:] = np.nan          # finite once, NaN since
+    assert checks.channel_health(dead, "alaro_precip_mm", th).status == "warn"
+    assert checks.channel_health(np.full((48, 4, 4), np.nan, dtype="float32"), "sst", th).status == "warn"

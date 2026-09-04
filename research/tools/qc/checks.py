@@ -116,7 +116,15 @@ def channel_health(block: np.ndarray, name: str, thresholds) -> Check:
     rng = thresholds.range_for(name)
     details = []
     status = "ok"
-    if nanfrac > thresholds.nan_limit:
+    # A channel that STARTED inside the window (leading all-NaN issues, then
+    # finite ones up to and including the newest) is young, not dead: a dead
+    # feed is NaN at the newest issue. alaro_precip_mm on 2026-09-04 was 95 %
+    # NaN over 48 issues for exactly this reason.
+    alive = np.isfinite(block).reshape(block.shape[0], -1).any(axis=1) if block.ndim >= 2 else np.isfinite(block)
+    young = bool(alive.size and alive[-1] and not alive[0] and np.all(alive[np.argmax(alive):]))
+    if young:
+        value["started_issues_ago"] = int(alive.size - int(np.argmax(alive)))
+    if nanfrac > thresholds.nan_limit and not young:
         status = "warn"
         details.append(f"{name} {int(nanfrac * 100)}% NaN over last {block.shape[0]} issues")
     if rng and fin.size:
