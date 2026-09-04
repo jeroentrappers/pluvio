@@ -134,6 +134,10 @@ MSG_CHANNELS = [
 # between an issue time and the nearest hourly valid step. All 9 layers are
 # pulled with the WMS `raster` style (grayscale), so band-1 luminance is a
 # clean monotonic render — see collectors/fetch_alaro_24h.py for why.
+# NOTE (measured 2026-09-04): the rendered GeoTIFFs are uint8 and for
+# Total_precipitation strictly {0, 255} — a rain/no-rain MASK, not an amount
+# (the layer's own style gives {0, 1}). Treat every ALARO "lum" channel as a
+# rendered, unit-less field; physical values need a coverage service.
 ALARO_CHANNELS = [
     RasterChannel("alaro_precip", "alaro", "Total_precipitation", ALARO_BBOX, 90, "lum"),
     RasterChannel("alaro_cloud", "alaro", "Inst_flx_Tot_Cld_cover", ALARO_BBOX, 90, "lum"),

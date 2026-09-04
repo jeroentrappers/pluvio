@@ -56,6 +56,16 @@ below every metric. Make eyes unnecessary.
       → max-age 96 h deployed (3e82e0d); one-off SST backfill for existing
       issues still needed. Acceptance: QC range checks pass with documented
       units; affected channels corrected in the store. Lane: ops + research.
+      Measured 2026-09-04: `alaro_precip` is a rain/no-rain MASK, not an amount —
+      the WMS GetMap GeoTIFF is uint8 {0,255} under the `raster` style and
+      {0,1} under the layer's own style (checked live; 42 % of the last frame is
+      255, nothing in between). The model has been training on an NWP rain
+      mask; the QC alignment score (0.03–0.3) is what a mask gives. Same
+      encoding class applies to the other ALARO "lum" layers (rendered, not
+      physical). `msg_ir108` sign fixed in QC (luminance, cold = bright).
+      Next: physical values need a coverage service (WCS/GetCoverage) or a
+      different product — probed 2026-09-04 (see log); until then document the
+      channel as a mask in build_zarr's channel notes.
 - [x] **1.7 Archive retention audit** — audited 2026-09-03: `qpe_archive.py
       --prune` deletes only raw volumes/caches (coverage-guarded); day-zarrs are
       kept forever by design. The QPE archive is simply young (started
