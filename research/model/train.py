@@ -113,14 +113,18 @@ def train_one_epoch(
 
 @torch.no_grad()
 def validate(
-    model: torch.nn.Module, loader: DataLoader, device: torch.device
+    model: torch.nn.Module, loader: DataLoader, device: torch.device, median_index: int = 0
 ) -> dict[str, float]:
+    """Val RMSE of the deterministic output — the median channel for a
+    quantile head (2.2), the only channel otherwise."""
     model.eval()
     rmses: list[float] = []
     for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         pred = model(x)
+        if pred.shape[1] > 1:
+            pred = pred[:, median_index : median_index + 1]
         rmses.append(float(rmse(pred, y).cpu()))
     return {"val_rmse": sum(rmses) / max(len(rmses), 1)}
 
@@ -270,6 +274,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sharpness-weight", type=float, default=0.0,
                         help="Weight on the gradient-energy sharpness loss "
                              "(0 = disabled, matching the pre-existing Huber-only objective).")
+    parser.add_argument("--quantiles", default=None,
+                        help="Comma-separated quantile levels for a probabilistic head (2.2), e.g. "
+                             "0.1,0.5,0.9; must include 0.5. Default: single deterministic output.")
+    parser.add_argument("--quantile-weight", type=float, default=1.0,
+                        help="Weight on the pinball + crossing terms when --quantiles is set.")
     parser.add_argument("--lagrangian-channels", type=int, default=0,
                         choices=(0, 1, 2),
                         help="Append Lagrangian-persistence input channels (2.3): 1 = the "
@@ -370,7 +379,10 @@ def main(argv: list[str] | None = None) -> int:
         pin_memory=device.type == "cuda",
     )
 
-    model = PluvioUNet(in_channels=train_set.n_channels, base_channels=args.base_channels).to(device)
+    quantiles = tuple(float(q) for q in args.quantiles.split(",")) if args.quantiles else None
+    out_channels = len(quantiles) if quantiles else 1
+    model = PluvioUNet(in_channels=train_set.n_channels, base_channels=args.base_channels,
+                       out_channels=out_channels).to(device)
     LOG.info(
         "Model: PluvioUNet (%d channels, base=%d, %d parameters)",
         train_set.n_channels,
@@ -385,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         fss_scales=fss_scales,
         fss_tau=args.fss_tau,
         sharpness_weight=args.sharpness_weight,
+        quantiles=quantiles,
+        quantile_weight=args.quantile_weight,
     )
     loss_config = {
         "bias_penalty": args.bias_penalty,
@@ -393,7 +407,10 @@ def main(argv: list[str] | None = None) -> int:
         "fss_scales": fss_scales,
         "fss_tau": args.fss_tau,
         "sharpness_weight": args.sharpness_weight,
+        "quantiles": quantiles,
+        "quantile_weight": args.quantile_weight,
     }
+    median_index = loss_fn.median_index
 
     # The exact channel layout this run trained on, so infer_latest/benchmark
     # rebuild it rather than re-deriving it from a store that may have gained
@@ -451,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
         train_loss, term_means = train_one_epoch(
             model, train_loader, optimizer, scaler, device, loss_fn
         )
-        metrics = validate(model, val_loader, device)
+        metrics = validate(model, val_loader, device, median_index)
         scheduler.step(metrics["val_rmse"])
         elapsed_min = (time.monotonic() - started) / 60
         LOG.info(
@@ -473,6 +490,8 @@ def main(argv: list[str] | None = None) -> int:
                     "val_rmse": best_val,
                     "in_channels": train_set.n_channels,
                     "base_channels": args.base_channels,
+                    "out_channels": out_channels,
+                    "quantiles": list(quantiles) if quantiles else None,
                     "arch": "PluvioUNet",
                     "epoch": epoch,
                     "loss_config": loss_config,

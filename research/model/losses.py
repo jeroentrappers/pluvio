@@ -221,6 +221,30 @@ def sharpness_loss(
     return torch.where(is_dry, pred_e.new_zeros(()), result)
 
 
+def pinball_loss(pred_q: torch.Tensor, target: torch.Tensor, quantiles: tuple[float, ...]) -> torch.Tensor:
+    """Mean pinball (quantile) loss over Q predicted quantiles.
+
+    ``pred_q`` is (B, Q, H, W), ``target`` (B, 1, H, W). For each quantile
+    level tau the loss is ``max(tau*(y-q), (tau-1)*(y-q))``; averaged over
+    all levels it is a proper scoring rule whose expectation approximates
+    CRPS/2 for a dense set of levels (used as the CRPS estimate in the
+    benchmark for quantile models).
+    """
+    if pred_q.shape[1] != len(quantiles):
+        raise ValueError(f"pred has {pred_q.shape[1]} channels but {len(quantiles)} quantiles")
+    taus = torch.as_tensor(quantiles, dtype=pred_q.dtype, device=pred_q.device).view(1, -1, 1, 1)
+    diff = target - pred_q
+    return torch.maximum(taus * diff, (taus - 1.0) * diff).mean()
+
+
+def quantile_crossing_penalty(pred_q: torch.Tensor) -> torch.Tensor:
+    """Mean positive violation of q_k <= q_{k+1} across adjacent quantile
+    channels (channels must be ordered by increasing level)."""
+    if pred_q.shape[1] < 2:
+        return pred_q.new_zeros(())
+    return torch.relu(pred_q[:, :-1] - pred_q[:, 1:]).mean()
+
+
 class CombinedLoss(torch.nn.Module):
     """``total_loss`` (weighted Huber + bias penalty) with optional FSS and
     sharpness terms, each gated by its own weight.
@@ -242,8 +266,22 @@ class CombinedLoss(torch.nn.Module):
         fss_scales: tuple[int, ...] = DEFAULT_SCALES,
         fss_tau: float = DEFAULT_TAU,
         sharpness_weight: float = 0.0,
+        quantiles: tuple[float, ...] | None = None,
+        quantile_weight: float = 1.0,
     ) -> None:
         super().__init__()
+        if quantiles is not None:
+            qs = tuple(float(q) for q in quantiles)
+            if list(qs) != sorted(qs) or any(not 0.0 < q < 1.0 for q in qs):
+                raise ValueError(f"quantiles must be strictly increasing in (0, 1): {qs}")
+            if 0.5 not in qs:
+                raise ValueError("quantiles must include 0.5 (the median drives the deterministic terms)")
+            self.quantiles: tuple[float, ...] | None = qs
+            self.median_index = qs.index(0.5)
+        else:
+            self.quantiles = None
+            self.median_index = 0
+        self.quantile_weight = quantile_weight
         self.bias_penalty = bias_penalty
         self.fss_weight = fss_weight
         self.fss_thresholds = tuple(fss_thresholds)
@@ -253,11 +291,23 @@ class CombinedLoss(torch.nn.Module):
         self.last_terms: dict[str, float] = {}
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_q = None
+        if self.quantiles is not None:
+            # Probabilistic head (2.2): the deterministic terms see the MEDIAN
+            # channel, the pinball term sees every quantile channel.
+            pred_q = pred
+            pred = pred[:, self.median_index : self.median_index + 1]
         total = total_loss(pred, target, self.bias_penalty)
+
+        if pred_q is not None:
+            pin = pinball_loss(pred_q, target, self.quantiles)
+            cross = quantile_crossing_penalty(pred_q)
+            total = total + self.quantile_weight * (pin + cross)
 
         if self.fss_weight <= 0 and self.sharpness_weight <= 0:
             # Default (live-run) path: no extra terms, no logging syncs.
-            self.last_terms = {}
+            self.last_terms = ({"pinball": float(pin.detach().item()), "crossing": float(cross.detach().item()),
+                                "total": float(total.detach().item())} if pred_q is not None else {})
             return total
 
         # Only recomputed on the (non-default) path where extra terms are
@@ -278,6 +328,9 @@ class CombinedLoss(torch.nn.Module):
             total = total + self.sharpness_weight * sharp
             terms["sharpness"] = float(sharp.detach().item())
 
+        if pred_q is not None:
+            terms["pinball"] = float(pin.detach().item())
+            terms["crossing"] = float(cross.detach().item())
         terms["total"] = float(total.detach().item())
         self.last_terms = terms
         return total

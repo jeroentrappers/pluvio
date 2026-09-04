@@ -136,6 +136,35 @@ def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
     return ds
 
 
+EXCEED_THRESHOLDS = (0.1, 1.0)  # mm/h, served as P(rate > thr) for quantile checkpoints
+
+
+def exceedance_from_quantiles(rate_q: np.ndarray, levels, thresholds) -> np.ndarray:
+    """P(rate > thr) per threshold from Q sorted quantile fields (Q, ...).
+
+    Linear interpolation of the empirical CDF between the predicted quantile
+    levels; below the lowest quantile the CDF is taken as 0 (so P=1), above
+    the highest as 1 (P=0). A documented approximation until a denser or
+    parametric head exists. Returns (T, ...) in [0, 1].
+    """
+    lv = np.asarray(levels, dtype="float64")
+    out = np.empty((len(thresholds), *rate_q.shape[1:]), dtype="float32")
+    for t, thr in enumerate(thresholds):
+        cdf = np.zeros(rate_q.shape[1:], dtype="float64")
+        below = rate_q[0] >= thr                      # even the lowest quantile is above thr
+        above = rate_q[-1] < thr                      # even the highest quantile is below thr
+        cdf[above] = 1.0
+        mid = ~below & ~above
+        # locate thr between adjacent quantiles and interpolate the level
+        for k in range(len(lv) - 1):
+            lo, hi = rate_q[k], rate_q[k + 1]
+            seg = mid & (thr >= lo) & (thr <= hi)
+            frac = np.where(hi > lo, (thr - lo) / np.maximum(hi - lo, 1e-9), 0.0)
+            cdf[seg] = (lv[k] + frac * (lv[k + 1] - lv[k]))[seg]
+        out[t] = (1.0 - cdf).astype("float32")
+    return np.clip(out, 0.0, 1.0)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--zarr", default="/opt/pluvio/zarr/timeseries.zarr")
@@ -176,8 +205,11 @@ def main(argv: list[str] | None = None) -> int:
         LOG.error("no radar history for the latest issue — cannot infer"); return 1
 
     from model.unet import PluvioUNet
+    quantiles = ckpt.get("quantiles")
     model = PluvioUNet(in_channels=ckpt.get("in_channels", ds.n_channels),
-                       base_channels=ckpt.get("base_channels", 32))
+                       base_channels=ckpt.get("base_channels", 32),
+                       out_channels=len(quantiles) if quantiles else 1)
+    median_index = list(quantiles).index(0.5) if quantiles else 0
     model.load_state_dict(ckpt["model"])
     model.eval()
     LOG.info("loaded %s (val_rmse=%.4f, %d ch, lagrangian=%d)", args.checkpoint,
@@ -207,14 +239,23 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     rates = np.zeros((len(LEADS) + 1, H, W), dtype="float32")
+    rate_q = (np.zeros((len(quantiles), len(LEADS) + 1, H, W), dtype="float32")
+              if quantiles else None)
     # lead 0 = current radar analysis (anchor); read from the issue block
     radar = store_root["radar"]
     rates[0] = np.nan_to_num(np.asarray(radar[issue_idx, 0]), nan=0.0).astype("float32")
+    if rate_q is not None:
+        rate_q[:, 0] = rates[0]
     with torch.no_grad():
         for i, lead in enumerate(LEADS, start=1):
             x = torch.from_numpy(ds.build_input(issue_idx, lead, hist)).unsqueeze(0)
-            pred = model(x).squeeze().numpy()
-            rates[i] = np.clip(pred, 0.0, None).astype("float32")  # rain ≥ 0
+            pred = model(x)[0].numpy()                      # (Q or 1, H, W)
+            if rate_q is not None:
+                q = np.clip(np.sort(pred, axis=0), 0.0, None)  # enforce monotone quantiles
+                rate_q[:, i] = q.astype("float32")
+                rates[i] = q[median_index]
+            else:
+                rates[i] = np.clip(pred[0], 0.0, None).astype("float32")  # rain ≥ 0
 
     if store_grid is not None:
         # v3: the store is already the regular lat/lon serving grid — emit it
@@ -246,7 +287,15 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.NamedTemporaryFile(dir=out.parent, suffix=".npz", delete=False) as tf:
         tmp = pathlib.Path(tf.name)
     np.savez(tmp, leads=np.asarray((0, *LEADS), dtype="int16"), rates=out_rates,
-             bounds=out_bounds, issue_epoch=np.int64(issue_epoch))
+             bounds=out_bounds, issue_epoch=np.int64(issue_epoch),
+             # Quantile extras only on the Grid-contract path: the legacy path
+             # reprojects the median onto the Belgium box and the quantile
+             # stack would sit on a different grid than `rates`.
+             **({"quantile_levels": np.asarray(quantiles, dtype="float32"),
+                 "rate_quantiles": rate_q,
+                 "p_exceed_thresholds": np.asarray(EXCEED_THRESHOLDS, dtype="float32"),
+                 "p_exceed": exceedance_from_quantiles(rate_q, quantiles, EXCEED_THRESHOLDS)}
+                if (rate_q is not None and store_grid is not None) else {}))
     tmp.replace(out)
     out.chmod(0o644)  # the backend worker container reads this as a different uid
     LOG.info("wrote %s — leads=%s, grid=%s max=%.2f mm/h, issue=%s",

@@ -243,10 +243,19 @@ CSI decays. The objective is the biggest lever we own.
       branch on `target_e <= dry_floor` with a tensor mask (host sync, blocks
       graph capture on the non-default path); fix docstring literals (canvas
       size unstated); drop the dead re-export shim in train.py. Lane: agent.
-- [ ] **2.2 Probabilistic head** — quantile (0.1/0.5/0.9) or small ensemble
-      with CRPS; serving carries P(rain>thr) per lead. Acceptance: reliability
-      diagram in benchmark; sharper median than deterministic baseline.
-      Lane: research. Depends: 2.1, 3.2
+- [~] **2.2 Probabilistic head** — code 2026-09-04: `PluvioUNet(out_channels=Q)`
+      with `--quantiles 0.1,0.5,0.9` (must include 0.5); `losses.pinball_loss`
+      + a quantile-crossing penalty behind `CombinedLoss(quantiles=…)` (the
+      deterministic Huber/FSS/sharpness terms see the median; bit-identical
+      when off); validation RMSE on the median; checkpoint records
+      `quantiles`/`out_channels`; `infer_latest` sorts the quantile stack,
+      serves the median as `rates` and, on the Grid-contract path, adds
+      `rate_quantiles`, `quantile_levels` and `p_exceed` (P(rate>0.1/1.0 mm/h)
+      by linear CDF interpolation between quantiles, documented approximation).
+      12 tests. Open: benchmark CRPS from quantiles (pinball×2) + reliability
+      diagram for `p_exceed`; backend/web exposure of P(rain); a training run
+      (research, GPU). Acceptance unchanged: reliability in the benchmark,
+      sharper median than the deterministic baseline. Depends: 2.1, 3.2
 - [~] **2.3 Lagrangian input channels** — advected latest observation at each
       lead as model input. Landed (agent half): computed ON THE FLY in
       `ZarrCorrectionDataset`, no store rewrite — the legacy
