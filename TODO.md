@@ -703,6 +703,16 @@ on different rulers. Transparency is the only credible route to "reference".
       20 vs 42 min. The composite-driven input does not hurt on this day; repeat
       on a wet day, then a `pluvio-lowlatency` timer (side path) and the backend
       switch. Result: /opt/pluvio/serve/eval/lowlatency_20260903.{json,md}.
+      Wet day `--evaluate 2026-08-31` (3× the wet fraction): low-latency vs
+      regular CSI@0.1 0.174/0.164/0.151 vs 0.157/0.150/0.144, CSI@1 0.106/0.101/
+      0.089 vs 0.097/0.089/0.081, RMSE 1.546/1.522/1.498 vs 1.533/1.511/1.496
+      (within 1 %). Verdict: the composite-driven issue improves detection at
+      every lead and costs nothing measurable on RMSE. `pluvio-lowlatency`
+      timer installed 2026-09-04 (every 5 min at :01, SIDE path
+      serve/lowlatency_nowcast.npz). Remaining: backend switch to the side
+      path behind the 3.5 gate (compare the two npz streams for a day), and
+      cutting the composite lag (~20 min: 10-min archiver cadence + radar
+      latency) toward the < 10 min acceptance.
 - [ ] **4.2 Patch-based continental training** — random 192² patches over the
       wide composite; radar + motion + statics inputs, aux masked where absent.
       Lane: research. Depends: 1.1, wide archive depth.
