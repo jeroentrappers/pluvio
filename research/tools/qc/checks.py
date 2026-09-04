@@ -237,3 +237,21 @@ def evaluate_region(m: dict, gb: float | None, thresholds) -> list[str]:
     if gb is not None and abs(gb) > thresholds.gauge_bias_warn:
         verdicts.append("GAUGE-BIAS")
     return verdicts
+
+
+def issue_time_order(issue_time, tail: int = 1000, warn_tail: bool = True) -> "Check":
+    """Is ``issue_time`` strictly increasing? The whole array is reported
+    (the live store carries one historic out-of-order backfill block); only
+    disorder inside the newest ``tail`` issues is a live-health WARN, because
+    that is what a broken append would produce."""
+    t = np.asarray(issue_time, dtype="int64")
+    d = np.diff(t)
+    total_bad = int((d <= 0).sum())
+    tail_bad = int((d[-tail:] <= 0).sum()) if len(d) else 0
+    value = {"n": int(t.size), "non_increasing_steps": total_bad, "non_increasing_in_tail": tail_bad,
+             "tail": tail}
+    status = "warn" if (warn_tail and tail_bad) else "ok"
+    detail = (f"{tail_bad} non-increasing issue_time step(s) in the newest {tail} issues"
+              if tail_bad else f"strictly increasing in the newest {tail} issues"
+              + (f"; {total_bad} historic step(s) out of order" if total_bad else ""))
+    return Check(name="issue_time_order", status=status, value=value, detail=detail)

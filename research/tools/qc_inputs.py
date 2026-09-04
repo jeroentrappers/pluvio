@@ -186,11 +186,16 @@ def main(argv=None) -> int:
     stale_min = stale.value
     if stale.status == "warn":
         warn.append(f"STALE {stale.detail}")
+    order = checks.issue_time_order(t)
+    all_checks.append(order)
+    if order.status == "warn":
+        warn.append(f"ISSUE-TIME {order.detail}")
 
     generated = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     body = {
         "generated": generated,
         "newest_issue_age_min": stale_min,
+        "issue_time_order": order.value,
         "registration": registration_check(src, t, thresholds, warn, all_checks),
         "aux_alignment": aux_alignment_check(src, t, thresholds, warn, all_checks),
         "channels": channel_health_check(src, t, thresholds, warn, all_checks),

@@ -84,6 +84,17 @@ def model_grid_latlon(store_root):
     return grid, lat, lon
 
 
+def newest_issue_at(ds, t_epoch: int) -> int | None:
+    """Store index of the newest issue with issue_time <= t. Uses the dataset's
+    SORTED epoch view: the live store is not strictly monotonic (one
+    backfilled block on 2026-06-15 sits out of order), so a searchsorted on
+    the raw array would be wrong around it."""
+    pos = int(np.searchsorted(ds._sorted_epoch, t_epoch, side="right")) - 1
+    if pos < 0:
+        return None
+    return ds._epoch_to_idx[int(ds._sorted_epoch[pos])]
+
+
 def shifted_lead_index(leads_min, age_min: float, lead_min: int) -> int:
     """Index of the KNMI lead nearest to (age + lead), clamped to the issue's range."""
     target = age_min + lead_min
@@ -105,10 +116,10 @@ def build_lowlatency_input(ds, store_root, qpe: QpeTruth, t_epoch: int, lead_min
             raise RuntimeError(f"no composite frame at {dt.datetime.fromtimestamp(te, dt.UTC).isoformat()}")
         rate, bounds = got
         frames.append(sample_regular_raster(rate, bounds, lat, lon))
-    epochs = ds._issue_epoch
-    i0 = int(np.searchsorted(epochs, t_epoch, side="right") - 1)
-    if i0 < 0:
+    i0 = newest_issue_at(ds, t_epoch)
+    if i0 is None:
         raise RuntimeError("no store issue at or before the requested time")
+    epochs = ds._issue_epoch
     age_min = (t_epoch - int(epochs[i0])) / 60.0
     store_leads = [int(x) for x in np.asarray(store_root["leads_min"][:])]
     li = shifted_lead_index(store_leads, age_min, lead_min)
@@ -187,8 +198,8 @@ def evaluate_day(ds, store_root, qpe: QpeTruth, model, day: dt.date, leads, lat,
             # nearest to V - issue (the backend interpolates between served
             # leads; here the field is scored at ITS OWN valid time, at most
             # half a lead step from V — reported as mean |dV|).
-            i0 = int(np.searchsorted(epochs, W - int(knmi_publish_lag_min * 60), side="right") - 1)
-            if i0 >= 0:
+            i0 = newest_issue_at(ds, W - int(knmi_publish_lag_min * 60))
+            if i0 is not None:
                 want = (V - int(epochs[i0])) / 60.0
                 served = [ld for ld in ds.leads_min if ld > 0]
                 lead_reg = min(served, key=lambda ld: abs(ld - want))

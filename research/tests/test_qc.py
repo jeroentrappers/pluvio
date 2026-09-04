@@ -499,3 +499,14 @@ def test_msg_ir108_alignment_sign_is_positive_for_luminance():
     lum = (40.0 * radar + rng.normal(0, 5, radar.shape)).astype("float32")  # bright where wet
     assert checks.signed_corr(radar, lum, +1) > 0.9
     assert checks.signed_corr(radar, lum, -1) < 0
+
+
+def test_issue_time_order_warns_only_for_the_live_tail():
+    t = np.arange(0, 3000 * 1800, 1800, dtype="int64")
+    ok = checks.issue_time_order(t)
+    assert ok.status == "ok" and ok.value["non_increasing_steps"] == 0
+    hist = t.copy(); hist[100], hist[101] = hist[101], hist[100]      # historic swap: reported, not a warn
+    r = checks.issue_time_order(hist)
+    assert r.status == "ok" and r.value["non_increasing_steps"] == 1 and "historic" in r.detail
+    live = t.copy(); live[-2], live[-1] = live[-1], live[-2]           # disorder in the newest issues: warn
+    assert checks.issue_time_order(live).status == "warn"

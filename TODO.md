@@ -173,10 +173,11 @@ below every metric. Make eyes unnecessary.
       interrupted append cannot take down inference). Proven safe against the
       live legacy store layout and the v3 layout (byte-identical channel lists
       through train and infer paths). Merged 2026-09-03. Lane: agent.
-      Follow-up found 2026-09-03: the live store's `issue_time` is not strictly
-      monotonic (35754 issues, no zero slots) — audit for duplicates/out-of-
-      order appends (newest-first backfill?) and add a monotonicity check to
-      qc_inputs. Also: the hetz1 research checkout is not git — the first
+      Follow-up 2026-09-03/04: the live store's `issue_time` has exactly one
+      out-of-order block (a 2026-06-15 backfill: 10:00 followed by 06:30), no
+      duplicates; readers use the dataset's sorted view (`_sorted_epoch`), and
+      `qc_inputs` now reports `issue_time_order` and warns only on disorder in
+      the newest 1000 issues (what a broken append would produce). Also: the hetz1 research checkout is not git — the first
       deploy of the repo's `build_zarr.py` exposed a latent NameError
       (fixed e32148a); diff remote files before overwriting (see 1.8).
 - [x] **1.13 Backend pixel conventions** (merged 2026-09-03) — the backend
@@ -603,6 +604,8 @@ on different rulers. Transparency is the only credible route to "reference".
       Public route 2026-09-04: `GET /v1/scoreboard/` serves the nightly page
       (and `/v1/scoreboard/YYYY/MM/DD.json` the records) from the storage box
       mount; compose now declares the mount the production containers had.
+      Live 2026-09-04: https://pluvio.appmire.be/v1/scoreboard/ (backend image rebuilt).
+      Acceptance (nightly rows over days) accrues from here.
 - [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
       sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
       FSS numerator/denominator per threshold/scale), tagged with issue_time

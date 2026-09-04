@@ -4,6 +4,7 @@ aux carried forward — and the assembled input has the dataset's layout."""
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -95,3 +96,12 @@ def test_evaluate_day_scores_both_paths_on_the_same_valid_times(synthetic_store,
             assert p["csi"]["1.0"] == pytest.approx(1.0) and p["rmse"] == pytest.approx(0.0)
     assert res["leads"]["30"]["regular"]["mean_issue_age_min"] >= 30.0   # publish lag
     assert res["leads"]["30"]["lowlatency"]["mean_issue_age_min"] == 0.0
+
+
+def test_newest_issue_at_uses_the_sorted_view_of_an_unsorted_store():
+    ds = SimpleNamespace(_issue_epoch=np.array([100, 200, 400, 300, 500], dtype="int64"))  # 400/300 out of order
+    ds._sorted_epoch = np.sort(ds._issue_epoch)
+    ds._epoch_to_idx = {int(e): i for i, e in enumerate(ds._issue_epoch)}
+    assert ll.newest_issue_at(ds, 350) == 3       # epoch 300 lives at raw index 3
+    assert ll.newest_issue_at(ds, 450) == 2
+    assert ll.newest_issue_at(ds, 50) is None
