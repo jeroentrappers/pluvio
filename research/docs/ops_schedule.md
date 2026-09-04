@@ -35,6 +35,12 @@ is the single place that says what runs, when, and why.
 
 ## Static services (triggered by other units, not timers)
 
+Note (2026-09-04): the `pluvio-producer-model` image is built from
+`/opt/pluvio/build-model` (a June snapshot of research/model + tools, NOT the
+research checkout): deploying producer code means copying the changed files
+there and `docker build -t pluvio-producer-model:latest .`; the unit then runs
+the new image on its next chained start.
+
 | service | trigger | purpose |
 |---|---|---|
 | pluvio-live-zarr | chained | live store for the hybrid producer |

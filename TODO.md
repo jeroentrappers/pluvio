@@ -469,6 +469,16 @@ CSI decays. The objective is the biggest lever we own.
       rebuild + deploy the producer image; backend still cross-fades the
       hourly short/medium keyframes (morph or hold instead); evaluate the 2-6 h
       leads on the scoreboard over the coming days.
+      DEPLOYED 2026-09-04 07:55Z (producer image rebuilt from /opt/pluvio/build-model
+      with the repo's classical.py + produce_forecast.py): the hybrid's 2-6 h radar
+      arm now continues the model's own 120-min field (robust global motion from
+      the OPERA history: dx=+4 px/15 min on the 256² grid today) with the NWP
+      phase-corrected against it. Measured on the live 07:30Z cube: wet centroid
+      11→13→18→27 columns over 0–180 min (was 18→40 at the seam). Remaining
+      visual effect: the NWP's broad drizzle area enters at weight 0.5 (240 min)
+      and dominates the wet-mask centroid — a coverage/intensity-structure
+      mismatch, not motion; consider a coverage-aware blend (match wet fraction
+      before mixing) and morphing the hourly keyframes in the backend.
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored
