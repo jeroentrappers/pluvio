@@ -44,10 +44,17 @@ def render_job(job: dict, defaults: dict) -> tuple[str, str]:
     python = defaults.get("python", "python3")
     exec_line = str(job["exec"]).replace("{python}", python).strip()
     log = job.get("log")
-    if log:
-        # append to the same log file cron used, so nothing downstream changes
-        exec_line = f"/bin/sh -c {_sh_quote(exec_line + f' >> {log} 2>&1')}"
-    mounts = job.get("requires_mounts", defaults.get("requires_mounts") or [])
+    needs_shell = log or "&&" in exec_line or "|" in exec_line
+    if needs_shell:
+        # one shell wrapper: `&&` chains and the same log file cron used, so
+        # nothing downstream changes (the manifest must NOT pre-wrap in sh -c)
+        if exec_line.startswith("/bin/sh -c"):
+            raise ValueError(f"job {job['name']}: write the plain command; the generator adds the shell")
+        redirect = f" >> {log} 2>&1" if log else ""
+        exec_line = f"/bin/sh -c {_sh_quote(exec_line + redirect)}"
+    mounts = job.get("requires_mounts")
+    if mounts is None:
+        mounts = defaults.get("requires_mounts") or []
     lines = ["[Unit]", f"Description=Pluvio {job.get('description', job['name'])}"]
     if mounts:
         lines.append("RequiresMountsFor=" + " ".join(mounts))

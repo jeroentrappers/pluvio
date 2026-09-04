@@ -28,7 +28,9 @@ def test_render_produces_service_and_timer_with_log_redirect_and_env():
     assert "User=ansible" in svc and "Environment=PYTHONPATH=/opt/pluvio/research" in svc
     assert "/opt/pluvio/research/.venv/bin/python -m tools.build_zarr --append" in svc
     assert ">> /opt/pluvio/logs/serve.log 2>&1" in svc
-    assert "RequiresMountsFor=/mnt/storagebox" in svc
+    assert "RequiresMountsFor" not in svc            # local store + serve dir: runs even if the box is down
+    assert "RequiresMountsFor=/mnt/storagebox" in files["pluvio-rotate-to-nas.service"]
+    assert svc.count("/bin/sh -c") == 1              # one shell wrapper, not nested
     tmr = files["pluvio-append-infer.timer"]
     assert "OnCalendar=*:0/5" in tmr and "Persistent=true" in tmr
     # hand-written units are not rendered

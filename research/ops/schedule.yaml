@@ -16,46 +16,54 @@ jobs:
   - name: collect-knmi-radar
     on_calendar: "*:0/30"
     exec: /opt/pluvio/research/tools/pull_forward.sh knmi-radar
+    requires_mounts: []
     log: /opt/pluvio/logs/knmi-radar.log
     description: KNMI radar analysis/nowcast HDF5 pull-forward
   - name: collect-kmi-aws
     on_calendar: "*:0/10"
     exec: /opt/pluvio/research/tools/pull_forward.sh kmi-aws
+    requires_mounts: []
     log: /opt/pluvio/logs/kmi-aws.log
     description: KMI automatic weather stations
   - name: collect-knmi-aws
     on_calendar: "*:0/15"
     exec: /opt/pluvio/research/tools/pull_forward.sh knmi-aws
+    requires_mounts: []
     log: /opt/pluvio/logs/knmi-aws.log
     description: KNMI automatic weather stations
   - name: collect-meteosat
     on_calendar: "*:0/30"
     exec: /opt/pluvio/research/tools/pull_forward.sh meteosat
+    requires_mounts: []
     log: /opt/pluvio/logs/meteosat.log
     description: EUMETSAT MSG WMS frames
   - name: collect-alaro
     on_calendar: "0,6,12,18:30"
     exec: /opt/pluvio/research/tools/pull_forward.sh alaro
+    requires_mounts: []
     log: /opt/pluvio/logs/alaro.log
     description: ALARO NWP frames (4 runs/day)
   - name: collect-sst
     on_calendar: "06:00"
     exec: /opt/pluvio/research/tools/pull_forward.sh sst
+    requires_mounts: []
     log: /opt/pluvio/logs/sst.log
     description: OSTIA SST daily (published ~D+2 06:00; 96 h max-age)
   - name: collect-netatmo
     on_calendar: "*:0/30"
     exec: /opt/pluvio/research/tools/pull_forward.sh netatmo
+    requires_mounts: []
     log: /opt/pluvio/logs/netatmo.log
     description: Netatmo personal weather stations
   # ── store append + nowcast inference (was one */5 cron line) ──────────────
   - name: append-infer
     on_calendar: "*:0/5"
     exec: >-
-      /bin/sh -c '{python} -m tools.build_zarr --append --data /opt/pluvio/data --out /opt/pluvio/zarr/timeseries.zarr
+      {python} -m tools.build_zarr --append --data /opt/pluvio/data --out /opt/pluvio/zarr/timeseries.zarr
       && {python} -m model.infer_latest --zarr /opt/pluvio/zarr/timeseries.zarr
-      --checkpoint /opt/pluvio/research/checkpoints/pluvio_unet.pt --out /opt/pluvio/serve/model_nowcast.npz'
+      --checkpoint /opt/pluvio/research/checkpoints/pluvio_unet.pt --out /opt/pluvio/serve/model_nowcast.npz
     log: /opt/pluvio/logs/serve.log
+    requires_mounts: []   # store and serve dir are local; must run even if the storage box is down
     description: append new issues to the training store, then write the served nowcast npz
   - name: rotate-to-nas
     on_calendar: "01:45"
@@ -103,3 +111,7 @@ jobs:
     on_calendar: "02:30 UTC"
     managed: false
     description: nightly scoreboard for the previous UTC day
+  - name: producer
+    on_calendar: "*:06/5"
+    managed: false
+    description: classical/hybrid forecast producer chain (pluvio-producer.timer → live-zarr → producer-model)
