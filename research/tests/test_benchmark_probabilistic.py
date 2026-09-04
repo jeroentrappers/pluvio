@@ -36,7 +36,7 @@ def test_sample_stats_aggregate_reports_crps_and_reliability():
     rel = {1.0: (np.array([2.0] + [0] * 8 + [2.0]), np.array([0.0] * 9 + [2.0]), np.array([0.1] + [0] * 8 + [1.9]))}
     st.add(issue_epoch=0, n=4, sum_e=0.0, sum_abs_e=4.0, sum_sq_e=4.0,
            cat={1.0: (2, 0, 0)}, fss={1.0: {1: (0.0, 1.0)}}, sum_crps=1.0, rel=rel)
-    row = st.aggregate()[str(1.0)] if str(1.0) in st.aggregate() else list(st.aggregate().values())[0]
+    row = next(iter(st.aggregate().values()))
     assert row["mae"] == pytest.approx(1.0) and row["crps"] == pytest.approx(0.25)
     r = row["reliability"]
     assert r is not None and r["count"][0] == 2 and r["count"][-1] == 2
@@ -48,7 +48,7 @@ def test_deterministic_records_keep_crps_equal_to_mae():
     st = SampleStats([1.0], [1])
     st.add(issue_epoch=0, n=2, sum_e=1.0, sum_abs_e=3.0, sum_sq_e=5.0,
            cat={1.0: (1, 0, 1)}, fss={1.0: {1: (0.0, 1.0)}})
-    row = list(st.aggregate().values())[0]
+    row = next(iter(st.aggregate().values()))
     assert row["crps"] == row["mae"] == pytest.approx(1.5)
     assert row["reliability"] is None
     assert RELIABILITY_BINS == 10
