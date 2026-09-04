@@ -39,8 +39,13 @@ export interface ForecastDto {
   // One sprite sheet with every frame tiled — animate the whole horizon from a
   // single download instead of one request per frame.
   sprite?: SpriteDto | null
-  // Grid bounds for placing the overlay/sprite.
+  // Grid bounds — CELL CENTRES (the backend's data contract); kept for old servers.
   bounds?: Bounds | null
+  // Pixel-EDGE bounds: what the overlay/sprite image actually covers (half a
+  // cell further out per side). Prefer this for placement.
+  edge_bounds?: Bounds | null
+  // Pixel-EDGE bounds: what the overlay/sprite image actually covers. Prefer
+  // this for placement; `bounds` is half a cell too small on every side.
 }
 
 export interface Bounds {
@@ -65,6 +70,8 @@ export interface HistoryDto {
   frames: HistoryFrameDto[]
   sprite?: SpriteDto | null
   bounds?: Bounds | null
+  // observed cube: already pixel edges, mirrored by the backend
+  edge_bounds?: Bounds | null
 }
 
 export interface AnimationManifestDto {

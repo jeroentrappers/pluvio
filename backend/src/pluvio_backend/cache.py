@@ -120,7 +120,17 @@ class GridSpec:
     shape: tuple[int, int]  # (height, width)
 
     def to_dict(self) -> dict:
-        return {"bounds": dict(self.bounds), "shape": list(self.shape)}
+        w, s, e, n = self.edge_bounds()
+        return {
+            "bounds": dict(self.bounds),  # cell centres (the data contract)
+            "edge_bounds": {
+                "west": w,
+                "south": s,
+                "east": e,
+                "north": n,
+            },  # what a painter/client places
+            "shape": list(self.shape),
+        }
 
     def edge_bounds(self) -> tuple[float, float, float, float]:
         """(west, south, east, north) pixel-EDGE bounds — `bounds` inflated

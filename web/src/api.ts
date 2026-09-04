@@ -5,7 +5,9 @@ import type { Bounds, ForecastDto, HealthDto, HistoryDto , HistoryTilesDto} from
 
 // Geographic extent the radar composite PNG is rendered onto. Matches the
 // backend grid (cache.py) and the Flutter app's Env.radarBounds*; used as a
-// fallback when the manifest doesn't carry bounds.
+// fallback when the manifest doesn't carry bounds. NOTE: these are the legacy
+// CELL-CENTRE bounds — a server that sends `edge_bounds` wins, because the
+// image must be placed on pixel edges (half a cell further out per side).
 export const DEFAULT_BOUNDS: Bounds = { west: 1.5, east: 7.5, south: 48.9, north: 52.5 }
 
 // One lead-time of the forecast, normalised for the UI.
@@ -111,7 +113,7 @@ export async function getRadar(
     issuedAt: new Date(forecast.issued_at),
     location: forecast.location,
     modelVersion: forecast.model_version,
-    bounds: forecast.bounds ?? DEFAULT_BOUNDS,
+    bounds: forecast.edge_bounds ?? forecast.bounds ?? DEFAULT_BOUNDS,
     frames,
     sprite,
   }
@@ -187,7 +189,7 @@ export async function getHistory(
     issuedAt: observedAt,
     location: { lat, lon },
     modelVersion: 'observed-qpe',
-    bounds: dto.bounds ?? DEFAULT_BOUNDS,
+    bounds: dto.edge_bounds ?? dto.bounds ?? DEFAULT_BOUNDS,
     frames,
     sprite,
     tiles,

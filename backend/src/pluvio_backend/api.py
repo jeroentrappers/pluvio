@@ -112,8 +112,10 @@ class ForecastDto(BaseModel):
     # Sprite sheet: one image with every frame tiled, so the client animates the
     # whole horizon with a single download. {url, tile_w, tile_h, cols, rows}.
     sprite: dict | None = None
-    # Grid bounds [west, east, south, north] for placing the overlay/sprite.
+    # Grid bounds — CELL CENTRES (the data contract). Clients placing an
+    # image must use `edge_bounds` (half a cell further out on every side).
     bounds: dict[str, float] | None = None
+    edge_bounds: dict[str, float] | None = None
 
 
 class HistoryFrameDto(BaseModel):
@@ -133,6 +135,9 @@ class HistoryDto(BaseModel):
     frames: list[HistoryFrameDto]
     sprite: dict | None = None
     bounds: dict[str, float] | None = None
+    # observed-cube bounds are already pixel edges; mirrored here so clients
+    # can always read `edge_bounds`
+    edge_bounds: dict[str, float] | None = None
 
 
 class HealthDto(BaseModel):
@@ -273,6 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provenance=provenance or None,
             sprite=sprite_dto,
             bounds=meta.get("grid", {}).get("bounds"),
+            edge_bounds=meta.get("grid", {}).get("edge_bounds"),
         )
 
     @app.websocket("/v1/ws")
@@ -373,6 +379,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             frames=frames,
             sprite=sprite_dto,
             bounds=data["bounds"],
+            edge_bounds=data["bounds"],
         )
 
     @app.get("/v1/verify/issues")
@@ -474,6 +481,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "snapshot": snap.name,
             "band": band,
             "bounds": meta.get("grid", {}).get("bounds"),
+            "edge_bounds": meta.get("grid", {}).get("edge_bounds"),
             "frames": frames,
             "model_version": meta.get("model_version", settings.model_version),
         }

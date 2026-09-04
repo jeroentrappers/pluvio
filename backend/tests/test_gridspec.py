@@ -231,3 +231,15 @@ def test_forecast_cache_paints_fiducials_with_edge_bounds(tmp_path, monkeypatch)
         bounds={"west": 1.0, "east": 8.5, "south": 47.5, "north": 53.5}, shape=(192, 192)
     )
     assert cache._fiducial_bounds(other) == other.edge_bounds()
+
+
+def test_to_dict_publishes_edge_bounds_half_a_cell_out():
+    g = GridSpec(bounds={"west": 1.5, "east": 7.5, "south": 48.9, "north": 52.5}, shape=(100, 100))
+    d = g.to_dict()
+    dlon = (7.5 - 1.5) / 99
+    dlat = (52.5 - 48.9) / 99
+    assert d["bounds"] == g.bounds
+    assert d["edge_bounds"]["west"] == pytest.approx(1.5 - dlon / 2)
+    assert d["edge_bounds"]["east"] == pytest.approx(7.5 + dlon / 2)
+    assert d["edge_bounds"]["south"] == pytest.approx(48.9 - dlat / 2)
+    assert d["edge_bounds"]["north"] == pytest.approx(52.5 + dlat / 2)
