@@ -66,6 +66,16 @@ below every metric. Make eyes unnecessary.
       Next: physical values need a coverage service (WCS/GetCoverage) or a
       different product — probed 2026-09-04 (see log); until then document the
       channel as a mask in build_zarr's channel notes.
+      2026-09-04 later: the KMI open-data WCS (`/service/alaro/wcs`) serves the
+      physical field — `fetch_alaro_24h.py --wcs` now archives
+      `alaro_TPmm_<stamp>.tif` (float32 kg m⁻² per step; envelope 47.4–53.6 N,
+      so the north of the domain is NaN) every ALARO pull, and `build_zarr`
+      registers it as `alaro_precip_mm`. Serving is protected: recipe-less
+      checkpoints pin the 20 legacy aux names (`infer_latest.LEGACY_AUX_CHANNELS`).
+      Deployed on hetz1 (25 files on the first pull). Remaining: retrain with
+      the physical channel (needs a store rebuild/backfill — WCS has no
+      history, so the channel only exists from 2026-09-04 on), and the same
+      treatment for the other rendered ALARO layers if a coverage exists.
 - [x] **1.7 Archive retention audit** — audited 2026-09-03: `qpe_archive.py
       --prune` deletes only raw volumes/caches (coverage-guarded); day-zarrs are
       kept forever by design. The QPE archive is simply young (started
