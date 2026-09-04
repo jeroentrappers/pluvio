@@ -48,6 +48,17 @@ LOG = logging.getLogger("pluvio.infer_latest")
 LEADS = (30, 60, 90, 120)
 
 
+# The aux channel set every checkpoint trained before `channel_recipe` existed
+# (2026-09-03) was built on — the store's discovery order (sorted names).
+LEGACY_AUX_CHANNELS: tuple[str, ...] = (
+    "alaro_cape", "alaro_cloud", "alaro_mslp", "alaro_precip", "alaro_rh", "alaro_t2m",
+    "alaro_td2m", "alaro_wind_u", "alaro_wind_v",
+    "aws_humidity", "aws_pressure", "aws_temp", "aws_wind",
+    "msg_cth", "msg_gii_kindex", "msg_gii_liftedindex", "msg_ir108", "msg_rdt", "msg_wv062",
+    "sst",
+)
+
+
 def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
                            lagrangian_channels: int | None = None):
     """Build the ZarrCorrectionDataset that reproduces the input a checkpoint
@@ -78,6 +89,23 @@ def dataset_for_checkpoint(zarr_path, ckpt: dict, leads_min=LEADS, *,
         kwargs["history_tolerance_s"] = int(recipe["history_tolerance_s"])
     if recipe.get("aux_channels") is not None:
         kwargs["aux_channels"] = list(recipe["aux_channels"])
+    else:
+        # Pre-recipe checkpoint (the served pluvio_unet.pt): it was trained on
+        # exactly these 20 aux channels. Pin them instead of "every aux array
+        # in the store", so a channel ADDED to the live store (e.g.
+        # alaro_precip_mm) cannot renumber the inputs under the model. Stores
+        # that do not carry the full legacy set (synthetic/test stores) keep
+        # the dataset's own discovery.
+        import zarr
+
+        present = set(zarr.open_group(str(zarr_path), mode="r").array_keys())
+        if set(LEGACY_AUX_CHANNELS) <= present:
+            kwargs["aux_channels"] = list(LEGACY_AUX_CHANNELS)
+            extra = sorted(k for k in present if k not in LEGACY_AUX_CHANNELS
+                           and k.split("_")[0] in ("alaro", "aws", "msg", "sst"))
+            if extra:
+                LOG.info("recipe-less checkpoint: pinning the 20 legacy aux channels; "
+                         "ignoring store extras %s", extra)
     lag = (int(lagrangian_channels) if lagrangian_channels is not None
            else int(recipe.get("lagrangian_channels", 0)))
 

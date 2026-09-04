@@ -97,6 +97,12 @@ case "$SOURCE" in
                 --out "$STAGE_DIR/alaro" \
             || echo "  alaro $layer skipped (error)"
         done
+        # Physical precipitation (float32 kg m^-2 per step) via WCS — the WMS
+        # render above is a rain/no-rain mask (measured 2026-09-04).
+        python -m collectors.fetch_alaro_24h \
+            --layer Total_precipitation --wcs --hours 24 \
+            --out "$STAGE_DIR/alaro" \
+        || echo "  alaro TPmm (WCS) skipped (error)"
         ;;
     sst)
         # Copernicus OSTIA SST, daily L4. NRT lags ~1 day; pull the last 3 days

@@ -93,6 +93,41 @@ class WMSError(RuntimeError):
     """WMS returned an error body (often HTTP 200 with a ServiceException)."""
 
 
+WCS_URL = "https://opendata.meteo.be/service/alaro/wcs"
+WCS_COVERAGE = {"Total_precipitation": "alaro__Total_precipitation"}
+WCS_FILE_LAYER = {"Total_precipitation": "TPmm"}   # alaro_TPmm_<stamp>.tif: physical kg m^-2 per step
+
+
+def fetch_wcs_coverage(
+    client: httpx.Client,
+    layer: str,
+    when: datetime,
+    bbox: tuple[float, float, float, float],
+    out_path: pathlib.Path,
+) -> None:
+    """PHYSICAL values via WCS 2.0.1 GetCoverage (float32 GeoTIFF).
+
+    The WMS GetMap path only ever yields a rendered uint8 raster — for
+    Total_precipitation strictly {0, 255} (`raster` style) or {0, 1} (own
+    style), i.e. a rain/no-rain mask (measured 2026-09-04). The coverage
+    service returns the field itself. Its envelope is 47.4–53.6 N,
+    -0.14–9.25 E, so the north of the wide bbox is simply absent (NaN later).
+    """
+    minx, miny, maxx, maxy = bbox
+    params = [
+        ("service", "WCS"), ("version", "2.0.1"), ("request", "GetCoverage"),
+        ("coverageId", WCS_COVERAGE[layer]), ("format", "image/tiff"),
+        ("subset", f"Lat({miny},{maxy})"), ("subset", f"Long({minx},{maxx})"),
+        ("subset", f'time("{when.strftime("%Y-%m-%dT%H:%M:%S.000Z")}")'),
+    ]
+    r = client.get(WCS_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=120)
+    r.raise_for_status()
+    ctype = r.headers.get("content-type", "").lower()
+    if "tiff" not in ctype and "image" not in ctype:
+        raise WMSError(_service_exception(r.content) or f"non-image WCS response ({ctype})")
+    out_path.write_bytes(r.content)
+
+
 def _service_exception(body: bytes) -> str | None:
     """Pull the message out of a WMS ServiceExceptionReport, if present."""
     m = re.search(rb"<ServiceException[^>]*>([\s\S]*?)</ServiceException>", body)
@@ -130,8 +165,17 @@ def main(argv: list[str] | None = None) -> int:
             "the GeoTIFF fast path for some (CAPE, MSLP). See module docstring."
         ),
     )
+    parser.add_argument(
+        "--wcs",
+        action="store_true",
+        help="ALSO fetch the physical field via WCS GetCoverage as alaro_<code>_<stamp>.tif "
+             "(Total_precipitation → TPmm, float32 kg m^-2 per step).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
+    if args.wcs and args.layer not in WCS_COVERAGE:
+        LOG.error("--wcs is only mapped for %s", sorted(WCS_COVERAGE))
+        return 2
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
@@ -170,6 +214,18 @@ def main(argv: list[str] | None = None) -> int:
                 LOG.info("Wrote %s", target.name)
             except (httpx.HTTPError, WMSError) as exc:
                 LOG.warning("Failed %s: %s", stamp, exc)
+        if args.wcs:
+            code = WCS_FILE_LAYER[args.layer]
+            for when in wanted:
+                stamp = when.strftime("%Y%m%dT%H%M%SZ")
+                target = out_dir / f"alaro_{code}_{stamp}.tif"
+                if target.exists():
+                    continue
+                try:
+                    fetch_wcs_coverage(client, args.layer, when, bbox, target)
+                    LOG.info("Wrote %s (WCS, physical)", target.name)
+                except (httpx.HTTPError, WMSError) as exc:
+                    LOG.warning("WCS failed %s: %s", stamp, exc)
     return 0
 
 

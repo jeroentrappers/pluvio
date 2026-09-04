@@ -140,6 +140,12 @@ MSG_CHANNELS = [
 # rendered, unit-less field; physical values need a coverage service.
 ALARO_CHANNELS = [
     RasterChannel("alaro_precip", "alaro", "Total_precipitation", ALARO_BBOX, 90, "lum"),
+    # Physical precipitation (kg m^-2 per step, float32) via WCS GetCoverage —
+    # collectors/fetch_alaro_24h.py --wcs writes alaro_TPmm_<stamp>.tif. The
+    # coverage stops at 53.6 N, so the north of the domain is NaN. Serving
+    # checkpoints without a channel recipe pin the legacy 20-aux set, so this
+    # extra array does not change their inputs (infer_latest.LEGACY_AUX_CHANNELS).
+    RasterChannel("alaro_precip_mm", "alaro", "TPmm", ALARO_BBOX, 90, "lum"),
     RasterChannel("alaro_cloud", "alaro", "Inst_flx_Tot_Cld_cover", ALARO_BBOX, 90, "lum"),
     RasterChannel("alaro_wind_u", "alaro", "10_m_u__wind_component", ALARO_BBOX, 90, "lum"),
     RasterChannel("alaro_wind_v", "alaro", "10_m_v__wind_component", ALARO_BBOX, 90, "lum"),
