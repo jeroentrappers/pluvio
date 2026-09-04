@@ -30,7 +30,7 @@ def _qpe_day(root, day: dt.date, bounds, value_at_slot):
 
 def test_sample_regular_raster_is_exact_on_constant_and_zero_outside():
     rate = np.full((30, 30), 3.0, dtype="float32")
-    lat = np.array([[52.0, 55.0]]); lon = np.array([[4.0, 4.0]])   # 55 N is outside the 49–54 box
+    lat = np.array([[52.0, 55.0]]); lon = np.array([[4.0, 4.0]])   # 55 N is outside the 49-54 box
     out = ll.sample_regular_raster(rate, (1.0, 49.0, 8.0, 54.0), lat, lon)
     assert out[0, 0] == pytest.approx(3.0) and out[0, 1] == 0.0
 
@@ -47,8 +47,7 @@ def test_lowlatency_input_matches_dataset_layout_and_uses_composite_history(synt
     root = zarr.open_group(str(synthetic_store), mode="r")
     _grid, lat, lon = ll.model_grid_latlon(root)
     epochs = ds._issue_epoch
-    t = (int(epochs[10]) // 300 + 2) * 300                    # first 5-min slots after issue 10 (6-10 min later)
-    day = dt.datetime.fromtimestamp(t, dt.UTC).date()
+    t = (int(epochs[10]) // 300 + 2) * 300                    # first 5-min slots after issue 10 (6 to 10 min later)
     slots = {}
     for k in range(ds.history_steps):
         te = t - (ds.history_steps - 1 - k) * ds.history_step_min * 60
@@ -68,3 +67,31 @@ def test_lowlatency_input_matches_dataset_layout_and_uses_composite_history(synt
     H = ds.history_steps
     assert x[H + 1] == pytest.approx(ref[H + 1])               # lead plane identical
     np.testing.assert_array_equal(x[H + 4:], ref[H + 4:])      # aux + statics carried forward verbatim
+
+
+def test_evaluate_day_scores_both_paths_on_the_same_valid_times(synthetic_store, tmp_path):
+    import torch
+
+    ds = ZarrCorrectionDataset(synthetic_store, leads_min=(30, 60, 90), build_index=False)
+    root = zarr.open_group(str(synthetic_store), mode="r")
+    _grid, lat, lon = ll.model_grid_latlon(root)
+    epochs = ds._issue_epoch
+    day = dt.datetime.fromtimestamp(int(epochs[12]), dt.UTC).date()
+    qroot = tmp_path / "qpe"
+    for d in (day - dt.timedelta(days=1), day, day + dt.timedelta(days=1)):
+        _qpe_day(qroot, d, (0.0, 48.0, 9.0, 55.0), {s: 2.0 for s in range(288)})   # wet everywhere, always
+    qpe = QpeTruth(qroot)
+
+    class Two(torch.nn.Module):                        # predicts 2 mm/h everywhere → perfect vs the truth
+        def forward(self, x):
+            return torch.full((x.shape[0], 1, *x.shape[-2:]), 2.0)
+
+    res = ll.evaluate_day(ds, root, qpe, Two(), day, [30, 60], lat, lon, ds.aux_channels,
+                          wallclock_lag_min=0.0, step_min=5)
+    for L in ("30", "60"):
+        for path in ("lowlatency", "regular"):
+            p = res["leads"][L][path]
+            assert p["n_fields"] > 0, (L, path)
+            assert p["csi"]["1.0"] == pytest.approx(1.0) and p["rmse"] == pytest.approx(0.0)
+    assert res["leads"]["30"]["regular"]["mean_issue_age_min"] >= 30.0   # publish lag
+    assert res["leads"]["30"]["lowlatency"]["mean_issue_age_min"] == 0.0
