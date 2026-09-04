@@ -490,7 +490,6 @@ def test_msg_ir108_alignment_sign_is_positive_for_luminance():
     # The stored channel is rendered-image luminance (cold tops BRIGHT), so a
     # correctly registered IR field correlates positively with rain; the check
     # must use sign=+1 (sign=-1 was a false alarm on every wet hour).
-    import ast
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parents[1] / "tools" / "qc_inputs.py"
