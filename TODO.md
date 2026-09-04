@@ -103,6 +103,14 @@ below every metric. Make eyes unnecessary.
       overlay covers NL; fiducial round-trip passes on the new box. Lane: ops.
       Depends: v3 convergence, 1.1, 1.13
 
+      Code half DONE 2026-09-04: backend publishes `edge_bounds` (grid.json,
+      animation manifest, /v1/forecast, /v1/history) next to the cell-centre
+      `bounds`; the web client places overlay + sprite on `edge_bounds` when
+      present (fallback: legacy box) — deployed (web bundle + backend image).
+      Still open for the switch itself: per-band grid.json (mixed-grid
+      mislabel), widen the cache default grid / point shards / `/v1/forecast`
+      location check, Flutter `Env.radarBounds*` → edge bounds, and the
+      `infer_latest` change once a converged full-Benelux model exists.
 - [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
       `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
