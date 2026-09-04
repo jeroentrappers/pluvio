@@ -560,9 +560,17 @@ on different rulers. Transparency is the only credible route to "reference".
       and the markdown table; per-lead stratified sampling was already in
       `_select_samples` (verified with a test); sidecar `<out>.samples.jsonl`
       manifest, `sample_set_hash` now hashes that manifest. Lane: agent.
-- [ ] **3.5 Deployment gate** — checkpoint swap requires benchmark win + a
-      canary hour where old and new fields are both archived and diffed.
-      Lane: ops. Depends: 3.2
+- [~] **3.5 Deployment gate** — `research/tools/promote_checkpoint.py`
+      (2026-09-04): `gate` compares two frozen-benchmark JSONs on the same
+      sample set (adequate; at 1 mm/h not significantly worse on CSI, FSS3 or
+      RMSE at any lead — candidate CI clear of the incumbent's point — and
+      significantly better on at least one), `canary` checks N paired nowcast
+      npz (same issue, finite, plausible max, wet fraction within 3×, field
+      RMSE ≤ 2 mm/h), `swap` replaces the checkpoint atomically keeping the
+      previous file and a promotion record; refuses without both verdicts.
+      7 tests. Open (ops): a canary timer that runs infer_latest with the
+      candidate to a side path for an hour, and wiring the swap into the
+      research checkout on hetz1. Lane: ops. Depends: 3.2
 - [~] **3.7 Buienradar EU composite + forecast archive** —
       `research/tools/buienradar_eu.py` (+ 95 offline tests): archives the
       Europe rain-radar composite as a continuous linear history and every
