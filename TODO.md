@@ -737,8 +737,20 @@ on different rulers. Transparency is the only credible route to "reference".
 ## Epic 5 — Product: parity with Buienradar, then past it (days 61–90)
 
 - [ ] **5.1 Point-forecast precompute + push alerts** ("rain at your location
-      in 20 min"). Lane: agent + ops.
-- [ ] **5.2 Per-location narrative** with honest confidence across bands.
+      in 20 min"). POSTPONED by decision 2026-09-04 (channel, alert rule and
+      saved locations undecided; mobile app out of scope for now). Lane: agent + ops.
+- [~] **5.2 Per-location narrative** — web only (mobile app out of scope),
+      Buienradar style, language = the web app's selection (en/nl/fr/de).
+      `web/src/domain/narrative.ts` (2026-09-04): pure function over the
+      forecast frames → i18n parts: dry horizon / raining now + when it turns
+      dry / dry until … then {light|moderate|heavy} rain until … / rain to the
+      end of the horizon / a second shower; short gaps merged; times in the
+      viewer's clock. Beyond the radar band one hedged sentence names the
+      source ("possible … (weather model, less certain)") — the honest
+      confidence rule. Replaces the one-line headline in forecast and timeline
+      modes; deployed. Open: the per-band confidence bar next to the sentence,
+      and running `narrative.test.ts` (written; vitest could not be installed
+      in this environment — registry resolution errors).
 - [ ] **5.3 Precipitation type (snow/hail) and lightning** (runbook exists).
 - [ ] **5.4 Public API, embeddable widget, share links.**
 

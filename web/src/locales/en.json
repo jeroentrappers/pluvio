@@ -70,5 +70,25 @@
   "scoresTitle": "Score vs observed",
   "empty": "No archived forecast runs yet — new runs appear within minutes.",
   "headline": "Past forecasts, replayed against what actually fell."
+ },
+ "narrative": {
+  "dryHorizon": "Dry for the next {{hours}} hours.",
+  "rainingOn": "It's raining now and it keeps raining for the next {{hours}} hours.",
+  "rainingUntil": "It's raining now, dry again around {{time}}.",
+  "again": "Around {{time}} {{intensity}} again.",
+  "dryUntil": "Dry until about {{start}}, then {{intensity}} until about {{end}}.",
+  "dryUntilOpenEnd": "Dry until about {{start}}, then {{intensity}} for the rest of the next {{hours}} hours.",
+  "possibleLater": "Later, around {{time}}, {{intensity}} is possible ({{source}}, less certain).",
+  "intensity": {
+   "light": "light rain",
+   "moderate": "moderate rain",
+   "heavy": "heavy rain",
+   "violent": "very heavy rain"
+  },
+  "source": {
+   "nwp": "weather model",
+   "blend": "radar + model",
+   "model": "model"
+  }
  }
 }

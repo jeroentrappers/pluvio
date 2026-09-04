@@ -70,5 +70,25 @@
   "scoresTitle": "Vergleich mit Messung",
   "empty": "Noch keine archivierten Läufe — neue Läufe erscheinen in wenigen Minuten.",
   "headline": "Frühere Vorhersagen, abgespielt gegen den tatsächlichen Niederschlag."
+ },
+ "narrative": {
+  "dryHorizon": "In den nächsten {{hours}} Stunden bleibt es trocken.",
+  "rainingOn": "Es regnet jetzt und es regnet die nächsten {{hours}} Stunden weiter.",
+  "rainingUntil": "Es regnet jetzt, gegen {{time}} wird es trocken.",
+  "again": "Gegen {{time}} erneut {{intensity}}.",
+  "dryUntil": "Trocken bis etwa {{start}}, danach {{intensity}} bis etwa {{end}}.",
+  "dryUntilOpenEnd": "Trocken bis etwa {{start}}, danach {{intensity}} für den Rest der nächsten {{hours}} Stunden.",
+  "possibleLater": "Später, gegen {{time}}, ist {{intensity}} möglich ({{source}}, weniger sicher).",
+  "intensity": {
+   "light": "leichter Regen",
+   "moderate": "mäßiger Regen",
+   "heavy": "starker Regen",
+   "violent": "sehr starker Regen"
+  },
+  "source": {
+   "nwp": "Wettermodell",
+   "blend": "Radar + Modell",
+   "model": "Modell"
+  }
  }
 }

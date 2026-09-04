@@ -70,5 +70,25 @@
   "scoresTitle": "Score par rapport à l'observé",
   "empty": "Aucun run archivé pour l'instant — les nouveaux runs apparaissent en quelques minutes.",
   "headline": "Les prévisions passées, rejouées face à ce qui est réellement tombé."
+ },
+ "narrative": {
+  "dryHorizon": "Pas de pluie durant les {{hours}} prochaines heures.",
+  "rainingOn": "Il pleut maintenant et la pluie persiste durant les {{hours}} prochaines heures.",
+  "rainingUntil": "Il pleut maintenant, retour au sec vers {{time}}.",
+  "again": "Vers {{time}}, à nouveau {{intensity}}.",
+  "dryUntil": "Sec jusqu'à environ {{start}}, puis {{intensity}} jusqu'à environ {{end}}.",
+  "dryUntilOpenEnd": "Sec jusqu'à environ {{start}}, puis {{intensity}} pour le reste des {{hours}} prochaines heures.",
+  "possibleLater": "Plus tard, vers {{time}}, {{intensity}} possible ({{source}}, moins certain).",
+  "intensity": {
+   "light": "pluie légère",
+   "moderate": "pluie modérée",
+   "heavy": "forte pluie",
+   "violent": "très forte pluie"
+  },
+  "source": {
+   "nwp": "modèle météo",
+   "blend": "radar + modèle",
+   "model": "modèle"
+  }
  }
 }

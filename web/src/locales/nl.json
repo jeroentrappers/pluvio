@@ -70,5 +70,25 @@
   "scoresTitle": "Score t.o.v. gemeten",
   "empty": "Nog geen gearchiveerde runs — nieuwe runs verschijnen binnen enkele minuten.",
   "headline": "Eerdere voorspellingen, vergeleken met wat er echt viel."
+ },
+ "narrative": {
+  "dryHorizon": "Het blijft de komende {{hours}} uur droog.",
+  "rainingOn": "Het regent nu en het blijft de komende {{hours}} uur regenen.",
+  "rainingUntil": "Het regent nu, rond {{time}} wordt het droog.",
+  "again": "Rond {{time}} opnieuw {{intensity}}.",
+  "dryUntil": "Droog tot ongeveer {{start}}, daarna {{intensity}} tot ongeveer {{end}}.",
+  "dryUntilOpenEnd": "Droog tot ongeveer {{start}}, daarna {{intensity}} voor de rest van de komende {{hours}} uur.",
+  "possibleLater": "Later, rond {{time}}, is {{intensity}} mogelijk ({{source}}, minder zeker).",
+  "intensity": {
+   "light": "lichte regen",
+   "moderate": "matige regen",
+   "heavy": "zware regen",
+   "violent": "zeer zware regen"
+  },
+  "source": {
+   "nwp": "weermodel",
+   "blend": "radar + model",
+   "model": "model"
+  }
  }
 }

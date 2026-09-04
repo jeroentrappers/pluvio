@@ -10,6 +10,7 @@ import TimelineSlider from './components/TimelineSlider'
 import ForecastChart from './components/ForecastChart'
 import PrecipitationLegend from './components/PrecipitationLegend'
 import SourceBadge from './components/SourceBadge'
+import { narrativeParts } from './domain/narrative'
 import VerifyView from './components/VerifyView'
 
 // One animation tick. Observed history serves ~109 motion-interpolated frames
@@ -184,16 +185,16 @@ export default function App() {
       : { west: 1.5, east: 7.5, south: 48.9, north: 52.5 }
   const mapDomain = pair ? pair.hist.bounds : undefined
 
+  // Buienradar-style narrative (5.2): when it starts, when it stops, and how
+  // certain we are, in the app's language. Falls back to the old one-liner
+  // when the narrative has nothing to say.
   const headline = (() => {
     if (!ok) return ''
     if (mode === 'history') return t('history.headline')
-    if (mode === 'timeline') {
-      const m = minutesUntilRain(pair ? pair.fc : ok.data)
-      if (m === null) return t('nowcast.dry')
-      if (m === 0) return t('nowcast.raining')
-      return t('nowcast.rainInMinutes', { minutes: m })
-    }
-    const m = minutesUntilRain(ok.data)
+    const data = mode === 'timeline' && pair ? pair.fc : ok.data
+    const parts = narrativeParts(data.frames, data.issuedAt, i18n.language)
+    if (parts.length) return parts.map((p) => t(p.key, p.params)).join(' ')
+    const m = minutesUntilRain(data)
     if (m === null) return t('nowcast.dry')
     if (m === 0) return t('nowcast.raining')
     return t('nowcast.rainInMinutes', { minutes: m })
