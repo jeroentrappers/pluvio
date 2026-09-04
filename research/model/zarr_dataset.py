@@ -217,6 +217,41 @@ def repair_edge_flow(vy: np.ndarray, vx: np.ndarray, valid: np.ndarray,
     return out_y, out_x
 
 
+def assemble_input(history_frames, nowcast_at_lead: np.ndarray, lead_min: int,
+                   valid_time: datetime, aux_names, aux_raw, static_planes,
+                   lagrangian_planes=()) -> np.ndarray:
+    """The model input from explicit arrays — the one definition of the
+    channel layout, shared by ``ZarrCorrectionDataset.build_input`` (store
+    indices) and the low-latency path (4.1: composite frames + carried-forward
+    aux). Order: history (oldest→newest) | nowcast@lead | lead/120 |
+    tod sin | tod cos | aux (normalised, in ``aux_names`` order) | statics
+    (already normalised) | Lagrangian planes. NaN/inf → 0 at the end."""
+    history_frames = list(history_frames)
+    n = len(history_frames) + 4 + len(aux_raw) + len(static_planes) + len(lagrangian_planes)
+    hw = np.asarray(nowcast_at_lead).shape
+    chans = np.empty((n, *hw), dtype="float32")
+    H = len(history_frames)
+    for i, fr in enumerate(history_frames):
+        chans[i] = fr
+    chans[H] = nowcast_at_lead
+    chans[H + 1] = lead_min / 120.0
+    hour = valid_time.hour + valid_time.minute / 60.0
+    chans[H + 2] = np.sin(2 * np.pi * hour / 24)
+    chans[H + 3] = np.cos(2 * np.pi * hour / 24)
+    c = H + 4
+    for name, arr in zip(aux_names, aux_raw, strict=True):
+        chans[c] = _normalise(name, np.asarray(arr))
+        c += 1
+    for plane in static_planes:
+        chans[c] = plane
+        c += 1
+    for plane in lagrangian_planes:
+        chans[c] = plane
+        c += 1
+    np.nan_to_num(chans, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return chans
+
+
 def _normalise(name: str, arr: np.ndarray) -> np.ndarray:
     """Bring each channel family to ~O(1). aws_* are already normalised in the
     builder; the rendered MSG/ALARO bytes go to [0,1]; SST/static get sensible
@@ -495,40 +530,22 @@ class ZarrCorrectionDataset(Dataset):
         Shared by training (__getitem__) and live inference (infer_latest)."""
         root = self._open()
         radar = root["radar"]
-        H = self.history_steps
         lead_idx = self._lead_to_idx[lead_min]
-        chans = np.empty((self.n_channels, *self.grid_hw), dtype="float32")
 
         issue_block = np.asarray(radar[issue_idx])             # (n_lead, H, W)
-        for i, hidx in enumerate(history_idx):
-            chans[i] = (issue_block[0] if hidx == issue_idx
-                        else np.asarray(radar[hidx, 0]))
-        chans[H] = issue_block[lead_idx]                       # operational nowcast @ lead
-        chans[H + 1] = lead_min / 120.0
+        history = [(issue_block[0] if hidx == issue_idx else np.asarray(radar[hidx, 0]))
+                   for hidx in history_idx]
         valid = (datetime.fromtimestamp(int(self._issue_epoch[issue_idx]), tz=timezone.utc)
                  + timedelta(minutes=lead_min))
-        hour = valid.hour + valid.minute / 60.0
-        chans[H + 2] = np.sin(2 * np.pi * hour / 24)
-        chans[H + 3] = np.cos(2 * np.pi * hour / 24)
-
-        c = H + 4
-        for name in self.aux_channels:
-            chans[c] = _normalise(name, np.asarray(root[name][issue_idx]))
-            c += 1
-        if self.static_channels:
-            if self._static_cache is None:
-                self._static_cache = {n: _normalise(n, np.asarray(root[n][:]))
-                                      for n in self.static_channels}
-            for name in self.static_channels:
-                chans[c] = self._static_cache[name]
-                c += 1
-        if self.lagrangian_channels:
-            for plane in self._lagrangian_planes(issue_idx, lead_min, history_idx,
-                                                 issue_block[0]):
-                chans[c] = plane
-                c += 1
-        np.nan_to_num(chans, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        return chans
+        aux = [np.asarray(root[name][issue_idx]) for name in self.aux_channels]
+        if self.static_channels and self._static_cache is None:
+            self._static_cache = {n: _normalise(n, np.asarray(root[n][:]))
+                                  for n in self.static_channels}
+        statics = [self._static_cache[n] for n in self.static_channels] if self.static_channels else []
+        lagr = (list(self._lagrangian_planes(issue_idx, lead_min, history_idx, issue_block[0]))
+                if self.lagrangian_channels else [])
+        return assemble_input(history, issue_block[lead_idx], lead_min, valid,
+                              self.aux_channels, aux, statics, lagr)
 
     # ────────────────────────────────────────────── Lagrangian channels (2.3)
 

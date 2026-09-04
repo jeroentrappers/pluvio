@@ -164,6 +164,45 @@ def exceedance_from_quantiles(rate_q: np.ndarray, levels, thresholds) -> np.ndar
         out[t] = (1.0 - cdf).astype("float32")
     return np.clip(out, 0.0, 1.0)
 
+LEGACY_SERVING_BOUNDS = (1.5, 48.9, 7.5, 52.5)   # backend cache.DEFAULT_BOUNDS (cell centres)
+LEGACY_SERVING_SHAPE = (100, 100)
+
+
+def to_serving_grid(rates: np.ndarray, store_grid, legacy_latlon=None):
+    """(out_rates, out_bounds) for the served npz. A Grid-contract store is
+    already the regular lat/lon serving grid; the legacy KNMI-stereo store is
+    reprojected onto the backend's Belgium box (cell-centre bounds, row 0 =
+    north) with scipy so the backend stays slim."""
+    if store_grid is not None:
+        return rates, np.asarray(store_grid.bounds, dtype="float64")
+    from scipy.interpolate import griddata
+
+    glat, glon = legacy_latlon
+    be_w, be_s, be_e, be_n = LEGACY_SERVING_BOUNDS
+    be_h, be_wid = LEGACY_SERVING_SHAPE
+    be_lon = np.linspace(be_w, be_e, be_wid)
+    be_lat = np.linspace(be_n, be_s, be_h)
+    be_lon2, be_lat2 = np.meshgrid(be_lon, be_lat)
+    pts = np.column_stack([glon.ravel(), glat.ravel()])
+    out = np.zeros((rates.shape[0], be_h, be_wid), dtype="float32")
+    for i in range(rates.shape[0]):
+        g = griddata(pts, rates[i].ravel(), (be_lon2, be_lat2), method="linear", fill_value=0.0)
+        out[i] = np.clip(np.nan_to_num(g, nan=0.0), 0.0, None).astype("float32")
+    return out, np.asarray(LEGACY_SERVING_BOUNDS, dtype="float64")
+
+
+def write_nowcast_npz(out: pathlib.Path, leads, rates: np.ndarray, bounds: np.ndarray,
+                      issue_epoch: int, extras: dict | None = None) -> pathlib.Path:
+    """Atomic write (temp + rename) so the backend never reads a half-written file."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=out.parent, suffix=".npz", delete=False) as tf:
+        tmp = pathlib.Path(tf.name)
+    np.savez(tmp, leads=np.asarray(leads, dtype="int16"), rates=rates, bounds=bounds,
+             issue_epoch=np.int64(issue_epoch), **(extras or {}))
+    tmp.replace(out)
+    out.chmod(0o644)  # the backend worker container reads this as a different uid
+    return out
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -257,47 +296,17 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 rates[i] = np.clip(pred[0], 0.0, None).astype("float32")  # rain ≥ 0
 
-    if store_grid is not None:
-        # v3: the store is already the regular lat/lon serving grid — emit it
-        # as-is, bounds/shape from the Grid contract.
-        out_rates = rates
-        out_bounds = np.asarray(store_grid.bounds, dtype="float64")
-    else:
-        # legacy v2: reproject the KNMI-stereo fields onto the backend's
-        # regular Belgium grid here (scipy is available in this venv) so the
-        # backend stays slim. Must match backend cache.DEFAULT_BOUNDS /
-        # DEFAULT_GRID_SHAPE.
-        from scipy.interpolate import griddata
-        BE_W, BE_S, BE_E, BE_N = 1.5, 48.9, 7.5, 52.5
-        BE_H = BE_WID = 100
-        be_lon = np.linspace(BE_W, BE_E, BE_WID)
-        be_lat = np.linspace(BE_N, BE_S, BE_H)        # row 0 = north (backend convention)
-        be_LON, be_LAT = np.meshgrid(be_lon, be_lat)
-        pts = np.column_stack([glon.ravel(), glat.ravel()])
-        be_rates = np.zeros((rates.shape[0], BE_H, BE_WID), dtype="float32")
-        for i in range(rates.shape[0]):
-            g = griddata(pts, rates[i].ravel(), (be_LON, be_LAT), method="linear", fill_value=0.0)
-            be_rates[i] = np.clip(np.nan_to_num(g, nan=0.0), 0.0, None).astype("float32")
-        out_rates = be_rates
-        out_bounds = np.asarray([BE_W, BE_S, BE_E, BE_N], dtype="float64")
+    out_rates, out_bounds = to_serving_grid(rates, store_grid, None if store_grid is not None else (glat, glon))
 
-    out = pathlib.Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    # atomic write (temp + rename) so the backend never reads a half-written file
-    with tempfile.NamedTemporaryFile(dir=out.parent, suffix=".npz", delete=False) as tf:
-        tmp = pathlib.Path(tf.name)
-    np.savez(tmp, leads=np.asarray((0, *LEADS), dtype="int16"), rates=out_rates,
-             bounds=out_bounds, issue_epoch=np.int64(issue_epoch),
-             # Quantile extras only on the Grid-contract path: the legacy path
-             # reprojects the median onto the Belgium box and the quantile
-             # stack would sit on a different grid than `rates`.
-             **({"quantile_levels": np.asarray(quantiles, dtype="float32"),
-                 "rate_quantiles": rate_q,
-                 "p_exceed_thresholds": np.asarray(EXCEED_THRESHOLDS, dtype="float32"),
-                 "p_exceed": exceedance_from_quantiles(rate_q, quantiles, EXCEED_THRESHOLDS)}
-                if (rate_q is not None and store_grid is not None) else {}))
-    tmp.replace(out)
-    out.chmod(0o644)  # the backend worker container reads this as a different uid
+    extras = ({"quantile_levels": np.asarray(quantiles, dtype="float32"),
+               "rate_quantiles": rate_q,
+               "p_exceed_thresholds": np.asarray(EXCEED_THRESHOLDS, dtype="float32"),
+               "p_exceed": exceedance_from_quantiles(rate_q, quantiles, EXCEED_THRESHOLDS)}
+              # Quantile extras only on the Grid-contract path: the legacy path
+              # reprojects the median onto the Belgium box and the quantile
+              # stack would sit on a different grid than `rates`.
+              if (rate_q is not None and store_grid is not None) else {})
+    out = write_nowcast_npz(pathlib.Path(args.out), (0, *LEADS), out_rates, out_bounds, issue_epoch, extras)
     LOG.info("wrote %s — leads=%s, grid=%s max=%.2f mm/h, issue=%s",
              out, (0, *LEADS), out_rates.shape[-2:], float(out_rates.max()), issue_dt.isoformat())
     return 0
