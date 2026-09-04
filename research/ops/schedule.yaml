@@ -65,6 +65,13 @@ jobs:
     log: /opt/pluvio/logs/serve.log
     requires_mounts: []   # store and serve dir are local; must run even if the storage box is down
     description: append new issues to the training store, then write the served nowcast npz
+  - name: lowlatency
+    on_calendar: "*:1/5"
+    exec: >-
+      {python} -m tools.lowlatency_infer --zarr /opt/pluvio/zarr/timeseries.zarr --qpe-root /mnt/storagebox/qpe
+      --checkpoint /opt/pluvio/research/checkpoints/pluvio_unet.pt --out /opt/pluvio/serve/lowlatency_nowcast.npz
+    log: /opt/pluvio/logs/lowlatency.log
+    description: 5-min nowcast issue from the composite (4.1) to a SIDE path; not served until evaluated
   - name: canary
     on_calendar: "*:2/5"
     exec: "{python} -m tools.canary_tick"
