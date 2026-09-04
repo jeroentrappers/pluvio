@@ -430,7 +430,7 @@ CSI decays. The objective is the biggest lever we own.
       the ±7 px radius on low-contrast tails. Merged b03b2a6. Open: backend
       image rebuild + deploy to put it on the serving path (ops). Lane: agent.
 
-- [ ] **2.8 Motion-consistent radar→NWP handoff** — measured 2026-09-03 on the
+- [~] **2.8 Motion-consistent radar→NWP handoff** — measured 2026-09-03 on the
       09:00Z run: the nowcast band advects cells east (wet centroid col 83→96
       by 60 min; KNMI analysis history and the operational nowcast agree on the
       direction), but from 2 h on the rain "comes back from the east": the
@@ -447,6 +447,17 @@ CSI decays. The objective is the biggest lever we own.
       a separately labelled regime); benchmark the handoff on the 2–6 h leads
       (scoreboard forecast kind, CSI≈0 there today). Lane: research + agent.
 
+      DONE 2026-09-04 (producer side): `classical.seamless_cube(phase_correct=True)`
+      measures the radar-vs-NWP phase offset at the nowcast horizon (FFT phase
+      correlation, refused when either field is dry or the shift exceeds a
+      quarter grid), shifts the NWP onto the radar frame through the whole
+      blend window and relaxes the shift linearly over the next 12 h of the
+      outlook; the offset is recorded in the cube (`phase_offset_px`) and
+      logged by the producer. Tests reproduce the reversal with the old fade
+      and its absence with the correction (test_classical_handoff.py). Open:
+      rebuild + deploy the producer image; backend still cross-fades the
+      hourly short/medium keyframes (morph or hold instead); evaluate the 2-6 h
+      leads on the scoreboard over the coming days.
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored

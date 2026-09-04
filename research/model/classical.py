@@ -65,6 +65,9 @@ class ClassicalForecast:
     source: list[str]      # (n_lead,) one of {"nowcast", "blend", "nwp"}
     confidence: np.ndarray  # (n_lead,) in [0, 1]
     engine: str            # "pysteps" | "fallback-phasecorr"
+    # (dy, dx) px by which the NWP field was shifted onto the radar frame at
+    # the nowcast horizon (None when the blend had no NWP or was not corrected).
+    phase_offset_px: tuple[float, float] | None = None
 
 
 # ───────────────────────────────────────────────────────── optical flow nowcast
@@ -202,6 +205,42 @@ def source_for_lead(lead_min: int) -> str:
     return "nwp"
 
 
+MIN_WET_FRAC_FOR_PHASE = 0.005   # both fields need rain to estimate an offset
+PHASE_RELAX_MIN = 720            # relax the NWP phase correction over 12 h past the blend
+MAX_PHASE_SHIFT_FRAC = 0.25      # never shift NWP by more than a quarter grid
+
+
+def nwp_phase_offset(radar_field: np.ndarray, nwp_field: np.ndarray,
+                     wet_thr: float = 0.1) -> tuple[float, float]:
+    """(dy, dx) px to advect ``nwp_field`` by so its rain sits where
+    ``radar_field`` has it (FFT phase correlation on log rates). Zero when
+    either field is essentially dry or the estimate exceeds a quarter grid —
+    a wild offset says the two fields describe different weather, and then
+    moving the NWP would fake agreement rather than remove a phase error."""
+    a = np.nan_to_num(np.asarray(radar_field, dtype="float32"), nan=0.0)
+    b = np.nan_to_num(np.asarray(nwp_field, dtype="float32"), nan=0.0)
+    if (a > wet_thr).mean() < MIN_WET_FRAC_FOR_PHASE or (b > wet_thr).mean() < MIN_WET_FRAC_FOR_PHASE:
+        return 0.0, 0.0
+    # _global_motion_phasecorr(a, b) is the content motion a→b; to put b's
+    # content where a's is, advect b by the opposite of that motion.
+    my, mx = _global_motion_phasecorr(a, b)
+    dy, dx = -my, -mx
+    h, w = a.shape
+    if abs(dy) > MAX_PHASE_SHIFT_FRAC * h or abs(dx) > MAX_PHASE_SHIFT_FRAC * w:
+        LOG.warning("nwp phase offset (%.0f, %.0f) px exceeds a quarter grid — not applied", dy, dx)
+        return 0.0, 0.0
+    return float(dy), float(dx)
+
+
+def _phase_relax(lead_min: float) -> float:
+    """Fraction of the NWP phase correction still applied at ``lead_min``:
+    1.0 through the blend window, then linearly to 0.0 over PHASE_RELAX_MIN."""
+    if lead_min <= BLEND_END_MIN:
+        return 1.0
+    frac = (lead_min - BLEND_END_MIN) / PHASE_RELAX_MIN
+    return float(max(0.0, 1.0 - frac))
+
+
 def _blend_weight(lead_min: float) -> float:
     """Radar weight in the 2–6 h handoff: 1.0 at the nowcast horizon, smoothly
     to 0.0 at the blend horizon (cosine taper)."""
@@ -223,8 +262,23 @@ def seamless_cube(
     dt_min: float,
     aifs_rates=None,
     prefer_pysteps: bool = True,
+    phase_correct: bool = True,
 ) -> ClassicalForecast:
     """Assemble the full 0–240 h classical cube.
+
+    The 2–6 h handoff is NOT a pointwise cross-fade any more (2.8): with
+    ``phase_correct`` the NWP field is shifted onto the radar frame by the
+    phase offset measured at the nowcast horizon and kept there through the
+    whole blend window, so the composition stays co-located with the radar
+    cells and moves with them; the shift then relaxes linearly to zero over
+    the next ``PHASE_RELAX_MIN`` minutes of the pure-NWP outlook, where the
+    hourly cadence carries no expectation of cell continuity. A pointwise
+    fade between two fields that place rain in different spots moves the
+    visible centre of mass from one to the other as the weight decays —
+    cells appeared to travel backwards against their own motion (measured
+    2026-09-03: eastward radar cells, NWP rain 10–20 cells west). Relaxing
+    the shift inside the blend window would reproduce that drift, only
+    smoother, so it is deferred past it.
 
     Args:
         history: (T, H, W) recent OPERA RATE analyses (oldest→newest), mm/h.
@@ -248,6 +302,17 @@ def seamless_cube(
     else:
         aifs = None
 
+    offset: tuple[float, float] | None = None
+    if aifs is not None and phase_correct:
+        # Offset at the nowcast horizon: the last lead the radar arm owns
+        # outright (w == 1), or the first blend lead when 120 is not served.
+        anchor = max([i for i, l in enumerate(leads) if l <= NOWCAST_END_MIN] or [0])
+        offset = nwp_phase_offset(nowcast[anchor], aifs[anchor])
+        if offset != (0.0, 0.0):
+            LOG.info("nwp phase offset at %d min: dy=%.1f dx=%.1f px (held through %d min, "
+                     "relaxed to 0 by %d min)", leads[anchor], offset[0], offset[1],
+                     BLEND_END_MIN, BLEND_END_MIN + PHASE_RELAX_MIN)
+
     rates = np.empty_like(nowcast)
     source: list[str] = []
     for i, lead in enumerate(leads):
@@ -260,7 +325,11 @@ def seamless_cube(
             rates[i] = nowcast[i]
             source.append("nowcast")
         else:
-            rates[i] = w * nowcast[i] + (1.0 - w) * aifs[i]
+            nwp = aifs[i]
+            r = _phase_relax(lead)
+            if offset is not None and offset != (0.0, 0.0) and r > 0.0:
+                nwp = _advect_semilagrangian(nwp, offset[0] * r, offset[1] * r, 1)
+            rates[i] = w * nowcast[i] + (1.0 - w) * nwp
             source.append(source_for_lead(lead))
 
     return ClassicalForecast(
@@ -269,4 +338,5 @@ def seamless_cube(
         source=source,
         confidence=confidence_for_leads(leads),
         engine=engine,
+        phase_offset_px=offset,
     )

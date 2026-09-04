@@ -137,6 +137,9 @@ def produce_classical(storage: pathlib.Path, leads, max_age_min: int):
     hist, issue_dt = _opera_history(storage, n_frames=6, max_age_min=max_age_min)
     aifs = _aifs_cube(storage, leads, issue_dt)
     fc = seamless_cube(hist, leads, dt_min=OPERA_DT_MIN, aifs_rates=aifs)
+    if fc.phase_offset_px is not None:
+        LOG.info("classical: NWP phase offset at handoff dy=%.1f dx=%.1f px",
+                 fc.phase_offset_px[0], fc.phase_offset_px[1])
     return fc.rates, fc.source, fc.confidence, fc.engine, issue_dt
 
 
