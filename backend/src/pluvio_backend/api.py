@@ -148,6 +148,14 @@ class HealthDto(BaseModel):
     model_version: str
 
 
+def _band_grid(meta: dict, band: str) -> dict:
+    """The grid a band's overlays were rendered on: its own entry in
+    grid.json's `bands` when recorded (1.9 per-band footprints), else the
+    snapshot-wide `grid` (older snapshots)."""
+    bands = meta.get("bands") or {}
+    return bands.get(band) or meta.get("grid") or {}
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     cache = ForecastCache(settings.cache_root)
@@ -277,8 +285,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             frames=frames,
             provenance=provenance or None,
             sprite=sprite_dto,
-            bounds=meta.get("grid", {}).get("bounds"),
-            edge_bounds=meta.get("grid", {}).get("edge_bounds"),
+            bounds=_band_grid(meta, "nowcast").get("bounds"),
+            edge_bounds=_band_grid(meta, "nowcast").get("edge_bounds"),
         )
 
     @app.websocket("/v1/ws")
@@ -499,8 +507,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = {
             "snapshot": snap.name,
             "band": band,
-            "bounds": meta.get("grid", {}).get("bounds"),
-            "edge_bounds": meta.get("grid", {}).get("edge_bounds"),
+            "bounds": _band_grid(meta, band).get("bounds"),
+            "edge_bounds": _band_grid(meta, band).get("edge_bounds"),
             "frames": frames,
             "model_version": meta.get("model_version", settings.model_version),
         }

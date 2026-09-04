@@ -192,3 +192,13 @@ def test_scoreboard_routes_serve_the_generated_files_or_404(tmp_path, monkeypatc
     )
     assert client.get("/v1/scoreboard/2026/09/03.json").json()["day"] == "2026-09-03"
     assert client.get("/v1/scoreboard/2026/09/04.json").status_code == 404
+
+
+def test_band_grid_prefers_the_bands_own_entry_then_the_snapshot_grid():
+    from pluvio_backend.api import _band_grid
+
+    meta = {"grid": {"bounds": "snap"}, "bands": {"nowcast": {"bounds": "nc"}}}
+    assert _band_grid(meta, "nowcast")["bounds"] == "nc"
+    assert _band_grid(meta, "short")["bounds"] == "snap"
+    assert _band_grid({"grid": {"bounds": "snap"}}, "nowcast")["bounds"] == "snap"
+    assert _band_grid({}, "nowcast") == {}

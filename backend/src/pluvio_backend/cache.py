@@ -208,6 +208,7 @@ class ForecastCache:
         model_version: str,
         extras: dict | None = None,
         grid: GridSpec | None = None,
+        band_grids: dict[str, GridSpec] | None = None,
     ) -> None:
         """`grid` overrides `self.grid` for the recorded bounds/shape — pass
         the actual GridSpec a band was served on (e.g. read from a v3/full-
@@ -219,7 +220,26 @@ class ForecastCache:
             "issued_at": self._stamp_from_dir(snapshot_dir),
             **(extras or {}),
         }
+        # Per-band footprints (1.9): each band may be served on its own grid
+        # (a 192² full-Benelux nowcast beside a 100² short band). Keep what
+        # earlier ticks recorded and add/replace this band's entry, so the API
+        # can label every band's overlays by the grid they were rendered on.
+        bands = dict(self.snapshot_band_grids(snapshot_dir))
+        for name, g in (band_grids or {}).items():
+            bands[name] = g.to_dict()
+        if bands:
+            body["bands"] = bands
         (snapshot_dir / "grid.json").write_text(json.dumps(body, indent=2), encoding="utf-8")
+
+    def snapshot_band_grids(self, snapshot_dir: pathlib.Path) -> dict:
+        """`bands` recorded in a snapshot's grid.json ({band: grid dict}), or {}."""
+        meta_path = snapshot_dir / "grid.json"
+        if not meta_path.exists():
+            return {}
+        try:
+            return dict(json.loads(meta_path.read_text(encoding="utf-8")).get("bands") or {})
+        except OSError, ValueError:
+            return {}
 
     def write_band(
         self,

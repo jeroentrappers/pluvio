@@ -108,7 +108,11 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
     # widening the cache grid to match).
     meta_grid = used_grid if band_name == "nowcast" else (cache.snapshot_grid(snap) or cache.grid)
     cache.write_grid_metadata(
-        snap, model_version=settings.model_version, extras=extras, grid=meta_grid
+        snap,
+        model_version=settings.model_version,
+        extras=extras,
+        grid=meta_grid,
+        band_grids={band_name: used_grid},
     )
     cache.mark_complete(snap, summary={"refreshed_band": band_name, "bands": sorted(all_bands)})
 

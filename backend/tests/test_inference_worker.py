@@ -161,3 +161,22 @@ def test_a_later_band_tick_keeps_the_recorded_footprint(_settings) -> None:
     assert snap is not None
     meta = json.loads((snap / "grid.json").read_text())
     assert meta["grid"]["bounds"] == FULL_BENELUX.bounds
+
+
+def test_grid_json_records_each_bands_own_footprint(_settings) -> None:
+    """1.9: a 192x192 nowcast beside a legacy-grid short band — grid.json keeps
+    one entry per band, so the API labels each band's overlays by the grid
+    they were rendered on instead of the snapshot-wide footprint."""
+    import json
+
+    run_tick("nowcast", infer=_infer_on(FULL_BENELUX, 1.0))
+    run_tick("short", infer=_const_infer(0.2))
+    cache = ForecastCache(_settings.cache_root)
+    snap = cache.latest_snapshot()
+    assert snap is not None
+    meta = json.loads((snap / "grid.json").read_text())
+    assert meta["bands"]["nowcast"]["bounds"] == FULL_BENELUX.bounds
+    assert meta["bands"]["nowcast"]["shape"] == list(FULL_BENELUX.shape)
+    assert meta["bands"]["short"]["shape"] == list(cache.grid.shape)
+    assert meta["bands"]["short"]["bounds"] == cache.grid.bounds
+    assert "edge_bounds" in meta["bands"]["short"]
