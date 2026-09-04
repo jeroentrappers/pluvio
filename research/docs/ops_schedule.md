@@ -18,7 +18,7 @@ is the single place that says what runs, when, and why.
 | */5 | `build_zarr --append` → `model.infer_latest` | feature store append + v2 nowcast → `serve/model_nowcast.npz` (tightened from */15 on 2026-09-02) |
 | 01:45 | `rotate_to_nas.py` | stage → NAS rotation |
 
-## systemd timers (already declared)
+## systemd timers (the complete schedule since 2026-09-04 — see research/ops/schedule.yaml; cron is empty)
 
 | timer | cadence | purpose |
 |---|---|---|

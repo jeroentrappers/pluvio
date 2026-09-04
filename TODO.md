@@ -62,11 +62,16 @@ below every metric. Make eyes unnecessary.
       2026-08-31) — composite truth exists for days, RAC carries the history.
       Follow-up: write the retention classes into a manifest (raw 3 d, OPERA
       7 d, composite/QPE/forecast archives forever). Lane: ops.
-- [ ] **1.8 Operations as declared state** — every recurring job a systemd
-      unit generated from one manifest (append+infer cron, producers, QC,
-      archives); asusprime training under a persistent job runner (supervisor
-      loop is the prototype); laptop is a client, never an orchestrator.
-      Acceptance: `systemctl list-timers` is the complete schedule; no crontab.
+- [x] **1.8 Operations as declared state** — `research/ops/schedule.yaml` lists
+      every recurring job on hetz1 (19); `tools/gen_systemd.py` renders the
+      managed ones into unit + timer files (`render`), reports drift against
+      /etc/systemd/system (`diff`: changed / missing / unknown timers). Applied
+      2026-09-04: the 9 crontab jobs (7 pull_forward collectors, append+infer,
+      rotate_to_nas) became `pluvio-collect-*`, `pluvio-append-infer`,
+      `pluvio-rotate-to-nas` timers; crontab is empty (backup in
+      /opt/pluvio/logs/crontab.backup.20260904); `diff` is clean. Local-only
+      jobs carry no storage-box mount dependency so collection survives a box
+      outage. Still on asusprime: the training supervisor loop (not systemd).
       Lane: ops.
 - [ ] **1.9 Serving box → full Benelux** — once v3 converges: `infer_latest`
       bounds/shape from the store `Grid`, backend `DEFAULT_GRID`/bounds, web
