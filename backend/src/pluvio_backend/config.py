@@ -38,6 +38,9 @@ class Settings(BaseSettings):
 
     # Model
     model_version: str = Field(default="stub-0.1")
+    # Public scoreboard (tools/scoreboard.py writes <dir>/index.html and
+    # <dir>/YYYY/MM/DD.json on the storage box; the container sees it here).
+    scoreboard_dir: pathlib.Path = Field(default=pathlib.Path("/storagebox/scoreboard"))
 
     @property
     def cors_origin_list(self) -> list[str]:

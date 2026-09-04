@@ -27,6 +27,8 @@ services:
     volumes:
       - cache:/data/forecasts
       - /opt/pluvio/serve:/opt/pluvio/serve:ro
+      # Verify page + scoreboard read the storage box archives (as production does).
+      - /mnt/storagebox:/storagebox:ro
     # Bind to loopback only — Traefik (when in the `prod` profile) routes
     # public traffic over the internal docker network. In dev this is the
     # endpoint you curl directly.
@@ -60,6 +62,8 @@ services:
     volumes:
       - cache:/data/forecasts
       - /opt/pluvio/serve:/opt/pluvio/serve:ro
+      # Verify page + scoreboard read the storage box archives (as production does).
+      - /mnt/storagebox:/storagebox:ro
     restart: unless-stopped
     # The worker doesn't serve HTTP, but it inherits the image's HEALTHCHECK
     # (which curls :8000/healthz) — turn that off so the container doesn't

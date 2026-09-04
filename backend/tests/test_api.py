@@ -168,3 +168,27 @@ def test_manifest_reports_the_grid_the_band_was_served_on(tmp_path) -> None:
     assert body["bounds"] == FULL_BENELUX.bounds
     assert body["bounds"] != cache.grid.bounds  # the legacy default, still in place
     assert len(body["frames"]) == n_leads
+
+
+def test_scoreboard_routes_serve_the_generated_files_or_404(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from pluvio_backend import api as api_mod
+    from pluvio_backend.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "scoreboard_dir", tmp_path)
+    app = api_mod.create_app()
+    client = TestClient(app)
+    assert client.get("/v1/scoreboard/").status_code == 404
+    (tmp_path / "index.html").write_text("<title>Pluvio scoreboard</title>")
+    (tmp_path / "2026" / "09").mkdir(parents=True)
+    (tmp_path / "2026" / "09" / "03.json").write_text('{"day": "2026-09-03"}')
+    r = client.get("/v1/scoreboard/")
+    assert (
+        r.status_code == 200
+        and "scoreboard" in r.text
+        and r.headers["content-type"].startswith("text/html")
+    )
+    assert client.get("/v1/scoreboard/2026/09/03.json").json()["day"] == "2026-09-03"
+    assert client.get("/v1/scoreboard/2026/09/04.json").status_code == 404

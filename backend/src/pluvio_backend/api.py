@@ -382,6 +382,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             edge_bounds=data["bounds"],
         )
 
+    @app.get("/v1/scoreboard/", include_in_schema=False)
+    @app.get("/v1/scoreboard/index.html", include_in_schema=False)
+    def scoreboard_page() -> FileResponse:
+        """The nightly scoreboard page (tools/scoreboard.py) — static HTML with
+        inline CSS, rewritten every night; 404 until the first run has landed."""
+        page = settings.scoreboard_dir / "index.html"
+        if not page.is_file():
+            raise HTTPException(status_code=404, detail="scoreboard not generated yet")
+        return FileResponse(
+            page, media_type="text/html", headers={"Cache-Control": "public, max-age=600"}
+        )
+
+    @app.get("/v1/scoreboard/{year}/{month}/{day}.json")
+    def scoreboard_day(year: int, month: int, day: int) -> FileResponse:
+        rec = settings.scoreboard_dir / f"{year:04d}" / f"{month:02d}" / f"{day:02d}.json"
+        if not rec.is_file():
+            raise HTTPException(status_code=404, detail="no scoreboard record for that day")
+        return FileResponse(rec, media_type="application/json")
+
     @app.get("/v1/verify/issues")
     def verify_issues() -> list:
         return verify.list_issues()

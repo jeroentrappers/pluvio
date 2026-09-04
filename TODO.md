@@ -600,6 +600,9 @@ on different rulers. Transparency is the only credible route to "reference".
       day, cross-check against qc_inputs' registration fit, and confirm the
       composite slot/units before quoting numbers. Timer installed 02:30 UTC.
       Buienradar point rows start 2026-09-03 (n_matched 0 for 09-02 is expected).
+      Public route 2026-09-04: `GET /v1/scoreboard/` serves the nightly page
+      (and `/v1/scoreboard/YYYY/MM/DD.json` the records) from the storage box
+      mount; compose now declares the mount the production containers had.
 - [x] **3.6 Benchmark statistics** — `research/tools/_stats.py`: per-sample
       sufficient statistics (contingency counts, sum/sum-abs/sum-sq error,
       FSS numerator/denominator per threshold/scale), tagged with issue_time
@@ -693,6 +696,13 @@ on different rulers. Transparency is the only credible route to "reference".
       issue at the longer lead) to quantify latency gain vs shift loss; a
       `pluvio-lowlatency` timer writing only the side path; then decide.
       Acceptance: median issue age < 10 min without losing skill. Lane: ops + research.
+      `--evaluate 2026-09-03` (288 wall-clock times, composite lag 20 min vs
+      KNMI publish lag 30 min, same model): low-latency vs regular — CSI@0.1
+      0.119/0.111/0.104 vs 0.107/0.100/0.097 at 30/60/90 min, RMSE 0.304/0.297/
+      0.299 vs 0.307/0.306/0.306, CSI@1 within noise (light-rain day), issue age
+      20 vs 42 min. The composite-driven input does not hurt on this day; repeat
+      on a wet day, then a `pluvio-lowlatency` timer (side path) and the backend
+      switch. Result: /opt/pluvio/serve/eval/lowlatency_20260903.{json,md}.
 - [ ] **4.2 Patch-based continental training** — random 192² patches over the
       wide composite; radar + motion + statics inputs, aux masked where absent.
       Lane: research. Depends: 1.1, wide archive depth.
