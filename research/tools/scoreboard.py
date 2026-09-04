@@ -109,7 +109,7 @@ QPE_SLOT_S = 86400 // QPE_SLOTS_PER_DAY          # 300 s, matches qpe_archive
 # value is NaN — unobserved, not dry.
 DEFAULT_MIN_BLOCK_COVERAGE = 0.5
 
-DEFAULT_KINDS = ("forecast", "nowcast")
+DEFAULT_KINDS = ("forecast", "nowcast", "lowlatency")  # lowlatency: 4.1 side path (from 2026-09-04)
 DEFAULT_THRESHOLDS = (0.1, 1.0)
 DEFAULT_FSS_SCALES = (1, 3)
 DEFAULT_POINT_THRESHOLDS = (0.1, 1.0)

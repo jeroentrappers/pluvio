@@ -23,6 +23,9 @@ LOG = logging.getLogger("pluvio.forecast_archive")
 SOURCES = {
     "forecast": "/opt/pluvio/serve/model_forecast.npz",
     "nowcast": "/opt/pluvio/serve/model_nowcast.npz",
+    # 4.1 side path (composite-driven 5-min issues); archived so the nightly
+    # scoreboard can compare it with the served nowcast on real serving data.
+    "lowlatency": "/opt/pluvio/serve/lowlatency_nowcast.npz",
 }
 
 
