@@ -11,7 +11,7 @@ continuously-measured check:
                  newest radar analysis frames (mapped via model.geo) and the
                  ground-truthed serving composite at identical valid times.
                  WARN when |offset| > 0.07 deg or peak corr < 0.25.
-  aux alignment  correlation of alaro_precip / msg_ir108 (inverted) against
+  aux alignment  correlation of alaro_precip / msg_ir108 (luminance) against
                  radar at the SAME grid indices for wet issues — internal
                  misregistration of inputs shows as near-zero or negative
                  correlation where physics demands strong coupling.
@@ -110,7 +110,10 @@ def aux_alignment_check(src, t, thresholds, warn: list, all_checks: list) -> dic
     out = {}
     pairs = [("alaro_precip", +1)]
     if "msg_ir108" in src:
-        pairs.append(("msg_ir108", -1))   # cold tops ↔ rain: negative corr
+        # msg_ir108 in the store is band-1 LUMINANCE of the rendered IR image
+        # (0-255; cold tops are bright), not a Kelvin brightness temperature —
+        # so rain correlates POSITIVELY with it (+0.26 measured 2026-09-04).
+        pairs.append(("msg_ir108", +1))
     for name, sign in pairs:
         if name not in src:
             continue

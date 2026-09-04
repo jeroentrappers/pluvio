@@ -484,3 +484,19 @@ def test_qc_inputs_cli_exits_1_on_stale_issue(tmp_path, monkeypatch):
     assert any("STALE" in w for w in body["warnings"])
     assert body["verdict"]["summary"] in ("warn", "crit")
     assert any(c["name"] == "staleness" and c["status"] != "ok" for c in body["verdict"]["checks"])
+
+
+def test_msg_ir108_alignment_sign_is_positive_for_luminance():
+    # The stored channel is rendered-image luminance (cold tops BRIGHT), so a
+    # correctly registered IR field correlates positively with rain; the check
+    # must use sign=+1 (sign=-1 was a false alarm on every wet hour).
+    import ast
+    import pathlib
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "tools" / "qc_inputs.py"
+    assert '("msg_ir108", +1)' in src.read_text()
+    rng = np.random.default_rng(0)
+    radar = rng.uniform(0, 5, (24, 24)).astype("float32")
+    lum = (40.0 * radar + rng.normal(0, 5, radar.shape)).astype("float32")  # bright where wet
+    assert checks.signed_corr(radar, lum, +1) > 0.9
+    assert checks.signed_corr(radar, lum, -1) < 0
