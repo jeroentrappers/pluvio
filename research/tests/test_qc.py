@@ -517,6 +517,6 @@ def test_channel_health_distinguishes_a_young_channel_from_a_dead_one():
     young = np.full((48, 4, 4), np.nan, dtype="float32"); young[40:] = 0.5      # started 8 issues ago
     c = checks.channel_health(young, "alaro_precip_mm", th)
     assert c.status == "ok" and c.value["started_issues_ago"] == 8 and c.value["nan_frac"] > 0.8
-    dead = np.full((48, 4, 4), 0.5, dtype="float32"); dead[8:] = np.nan          # finite once, NaN since
+    dead = np.full((48, 4, 4), 0.5, dtype="float32"); dead[4:] = np.nan          # finite once, NaN since (>90 %)
     assert checks.channel_health(dead, "alaro_precip_mm", th).status == "warn"
     assert checks.channel_health(np.full((48, 4, 4), np.nan, dtype="float32"), "sst", th).status == "warn"
