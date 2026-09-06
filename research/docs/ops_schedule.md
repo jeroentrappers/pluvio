@@ -105,6 +105,45 @@ and the `aifs/dwd/era5/icon-d2/rtcor/mtg` forwarders), mountpoint emptied and
 `chattr +i`-ed, `pluvio-storagebox-watchdog` deployed (2-min I/O probe,
 auto-remount, auto re-arm, verdict into the QC report).
 
-Still needed from Hetzner: the box itself. Recovery is automatic once port
-445 answers; check `systemctl status pluvio-storagebox-watchdog` and
-`serve/storagebox_watchdog.json`.
+Hetzner confirmed it at 08:09 UTC ("Storage Box host FSN1-BX487 not
+accessible", investigating); our first CIFS stall was 07:47 UTC, ~20 min
+earlier.
+
+### Local capture during the outage (2026-09-06)
+
+Rather than lose every raw feed for the duration, the seven box-bound
+collectors write to `/opt/pluvio/outage-capture/<source>/` through systemd
+drop-ins (`/etc/systemd/system/<unit>.service.d/outage-local.conf`):
+
+| unit | normally writes | during the outage |
+|---|---|---|
+| be-radar-volumes | /mnt/storagebox/be_radar | /opt/pluvio/outage-capture/be_radar |
+| dwd-sweeps | /mnt/storagebox/dwd_vol | …/dwd_vol |
+| knmi-rtcor-forward | /mnt/storagebox/knmi | …/knmi |
+| aifs-forward, era5-forward, icon-d2-forward, mtg-l2-forward | /mnt/storagebox/{aifs,era5,icon_d2,mtg_l2} | …/{aifs,era5,icon_d2,mtg_l2} |
+
+The three shell collectors take their target from an env var
+(`BE_RADAR_OUT`, `DWD_OUT`, `KNMI_RTCOR_OUT`) and each refuses to run below a
+50 GB free-space floor, which now applies to the root filesystem — that is
+the guard against filling `/`. The four docker collectors have their `-v`
+bind rewritten in the drop-in.
+
+**Merge-back, when the box returns** (the watchdog remounts and re-arms
+timers by itself; this part is deliberately manual):
+
+```
+systemctl stop be-radar-volumes.timer dwd-sweeps.timer knmi-rtcor-forward.timer \
+                aifs-forward.timer era5-forward.timer icon-d2-forward.timer mtg-l2-forward.timer
+for d in be_radar dwd_vol knmi aifs era5 icon_d2 mtg_l2; do
+  rsync -a --remove-source-files /opt/pluvio/outage-capture/$d/ /mnt/storagebox/$d/
+done
+rsync -a --remove-source-files /opt/pluvio/mount-shadow-<stamp>/ /mnt/storagebox/   # the umount -l shadow
+rm -f /etc/systemd/system/*.service.d/outage-local.conf && systemctl daemon-reload
+systemctl start …the timers again…
+```
+
+What is NOT recoverable this way: everything that already lived only on the
+box (QPE day-zarrs, forecast archive, wide archive, external baselines,
+buienradar_eu, RAC corpus) — those come back with the box, or not at all. A
+second Storage Box would take new writes and give somewhere to rsync the
+local capture, but it does not restore that history.
