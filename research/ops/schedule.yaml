@@ -72,6 +72,16 @@ jobs:
       --checkpoint /opt/pluvio/research/checkpoints/pluvio_unet.pt --out /opt/pluvio/serve/lowlatency_nowcast.npz
     log: /opt/pluvio/logs/lowlatency.log
     description: 5-min nowcast issue from the composite (4.1) to a SIDE path; not served until evaluated
+  - name: storagebox-watchdog
+    on_calendar: "*:0/2"
+    exec: "{python} -m tools.storagebox_watchdog"
+    log: /opt/pluvio/logs/storagebox_watchdog.log
+    requires_mounts: []   # it exists to watch that mount; it must not depend on it
+    user: root            # needs systemctl start + chattr on the mountpoint
+    description: >-
+      storage-box mount watchdog (2026-09-06 outage): I/O probe under a timeout,
+      keeps the detached mountpoint empty+immutable, remounts and re-arms the
+      dependent timers when the box answers again
   - name: canary
     on_calendar: "*:2/5"
     exec: "{python} -m tools.canary_tick"

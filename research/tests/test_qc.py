@@ -520,3 +520,26 @@ def test_channel_health_distinguishes_a_young_channel_from_a_dead_one():
     dead = np.full((48, 4, 4), 0.5, dtype="float32"); dead[4:] = np.nan          # finite once, NaN since (>90 %)
     assert checks.channel_health(dead, "alaro_precip_mm", th).status == "warn"
     assert checks.channel_health(np.full((48, 4, 4), np.nan, dtype="float32"), "sst", th).status == "warn"
+
+
+def test_storagebox_state_folds_the_watchdog_verdict_into_qc(tmp_path):
+    import datetime as _dt
+    import json as _json
+
+    now = _dt.datetime(2026, 9, 6, 12, 0, tzinfo=_dt.UTC)
+    p = tmp_path / "sb.json"
+    assert checks.storagebox_state(p, now).status == "warn"          # no report at all
+
+    p.write_text(_json.dumps({"checked_at": (now - _dt.timedelta(minutes=1)).isoformat(),
+                              "status": "ok", "port_open": True, "io_ok": True, "io_detail": "ok"}))
+    ok = checks.storagebox_state(p, now)
+    assert ok.status == "ok" and ok.value["state"] == "ok"
+
+    p.write_text(_json.dumps({"checked_at": (now - _dt.timedelta(minutes=40)).isoformat(),
+                              "status": "ok", "port_open": True, "io_ok": True, "io_detail": "ok"}))
+    assert checks.storagebox_state(p, now).status == "warn"          # watchdog itself stopped
+
+    p.write_text(_json.dumps({"checked_at": now.isoformat(), "status": "box_unreachable",
+                              "port_open": False, "io_ok": False, "io_detail": "mount unit inactive"}))
+    bad = checks.storagebox_state(p, now)
+    assert bad.status == "warn" and "box_unreachable" in bad.detail

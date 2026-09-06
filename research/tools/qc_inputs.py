@@ -186,6 +186,14 @@ def main(argv=None) -> int:
     stale_min = stale.value
     if stale.status == "warn":
         warn.append(f"STALE {stale.detail}")
+    # Storage-box health, as recorded by tools.storagebox_watchdog: the
+    # 2026-09-06 outage was invisible for ~40 min because nothing watched the
+    # mount, so its verdict belongs in the QC report the timers surface.
+    sb = checks.storagebox_state()
+    all_checks.append(sb)
+    if sb.status == "warn":
+        warn.append(f"STORAGEBOX {sb.detail}")
+
     order = checks.issue_time_order(t)
     all_checks.append(order)
     if order.status == "warn":
@@ -196,6 +204,7 @@ def main(argv=None) -> int:
         "generated": generated,
         "newest_issue_age_min": stale_min,
         "issue_time_order": order.value,
+        "storagebox": sb.value,
         "registration": registration_check(src, t, thresholds, warn, all_checks),
         "aux_alignment": aux_alignment_check(src, t, thresholds, warn, all_checks),
         "channels": channel_health_check(src, t, thresholds, warn, all_checks),

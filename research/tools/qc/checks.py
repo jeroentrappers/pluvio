@@ -9,6 +9,7 @@ either a plain value/dict or a `verdict.Check`. The CLIs (`qc_inputs.py`,
 from __future__ import annotations
 
 import glob
+import json
 import pathlib
 from datetime import UTC, datetime
 
@@ -263,3 +264,39 @@ def issue_time_order(issue_time, tail: int = 1000, warn_tail: bool = True) -> "C
               if tail_bad else f"strictly increasing in the newest {tail} issues"
               + (f"; {total_bad} historic step(s) out of order" if total_bad else ""))
     return Check(name="issue_time_order", status=status, value=value, detail=detail)
+
+
+STORAGEBOX_STATE = pathlib.Path("/opt/pluvio/serve/storagebox_watchdog.json")
+STORAGEBOX_STALE_MIN = 15   # the watchdog runs every 2 min
+
+
+def storagebox_state(path=None, now=None) -> "Check":
+    """The storage-box watchdog's own verdict, folded into the QC report.
+
+    A missing or stale state file is itself a WARN: it means the watchdog is
+    not running, which is the condition that let the 2026-09-06 mount outage
+    go unnoticed for 40 minutes.
+    """
+    p = pathlib.Path(path or STORAGEBOX_STATE)
+    now = now or datetime.now(UTC)
+    if not p.exists():
+        return Check(name="storagebox", status="warn", value={"state": "no report"},
+                     detail=f"no watchdog report at {p} — is pluvio-storagebox-watchdog running?")
+    try:
+        body = json.loads(p.read_text())
+    except (OSError, ValueError) as exc:
+        return Check(name="storagebox", status="warn", value={"state": "unreadable"},
+                     detail=f"watchdog report unreadable: {exc}")
+    age_min = (now - datetime.fromisoformat(body["checked_at"])).total_seconds() / 60.0
+    value = {"state": body.get("status"), "age_min": round(age_min, 1),
+             "port_open": body.get("port_open"), "io_ok": body.get("io_ok"),
+             "actions": body.get("actions") or []}
+    if age_min > STORAGEBOX_STALE_MIN:
+        return Check(name="storagebox", status="warn", value=value,
+                     detail=f"watchdog report is {age_min:.0f} min old (> {STORAGEBOX_STALE_MIN})")
+    if body.get("status") not in ("ok", "recovered"):
+        return Check(name="storagebox", status="warn", value=value,
+                     detail=f"mount {body.get('status')} (port_open={body.get('port_open')}, "
+                            f"io={body.get('io_detail')})")
+    return Check(name="storagebox", status="ok", value=value,
+                 detail=f"mount {body.get('status')}")

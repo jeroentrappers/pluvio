@@ -35,6 +35,12 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+# Imported at module scope, NOT inside polar_to_grid: this module is used from
+# ProcessPoolExecutor workers (produce_observed, qpe_archive) forked from a
+# multi-threaded parent, and an import inside the child can deadlock on the
+# import lock the parent held at fork time.
+from model.motion import _native  # noqa: E402
+
 LOG = logging.getLogger("pluvio.radar_single_site")
 
 VOLUMES = pathlib.Path("/mnt/storagebox/radar_volumes")
@@ -393,8 +399,6 @@ def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0,
     h, wd = grid_shape
     vals = np.asarray(rate).ravel()
     ok = np.isfinite(vals) & (g["heights"] <= max_beam_m) & g["inb"]
-
-    from model.motion import _native
 
     nat = _native()
     if nat is not None:
