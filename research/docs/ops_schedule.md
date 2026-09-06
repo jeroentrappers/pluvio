@@ -54,6 +54,40 @@ the new image on its next chained start.
 Lagrangian blend, 2-min morph, overlays/sprites), `web` (nginx, build context
 `/opt/web`), `traefik`, `cache` (named volume).
 
+## Upstream availability — read this BEFORE deleting anything
+
+Size is not the question; **replaceability** is. Several feeds are captured
+forward *because no upstream history exists*: delete them and the record is
+gone for good, which also removes them as future training inputs. Audited
+2026-09-06 (836 GB on the box):
+
+| collection | size | upstream availability | verdict |
+|---|---|---|---|
+| `knmi_vol` | 220 GB | **re-downloadable** (KNMI archives volumes to 2019) — it is explicitly a cache, 2-day retention | reclaim (see the prune bug below) |
+| `radar_volumes` | 182 GB | BE comes from the `openradar-24h` bucket, DWD/others keep ~24–48 h — **forward capture**, but distilled into the QPE day-zarrs at ~760:1 | keep the 3-day window; the QPE archive is the permanent record |
+| `data/sources` | 122 GB | OSM planet/Europe/Belgium + Natural Earth — **the GPSinfo tiles project's**, not Pluvio's | not ours to reclaim |
+| `dwd_vol` | 57 GB | DWD opendata ~24–48 h — **forward capture**, distilled into QPE | keep the 3-day window |
+| `mtg_l2` + `mtg_li` | 42 GB | EUMETSAT, limited Data Store retention — **forward capture**; read by `build_seamless_zarr` | keep |
+| `icon_d2` | 29 GB | DWD opendata ~24 h — **forward capture**, 3 months accumulated since 2026-06-17 | keep: irreplaceable, a future training input |
+| `opera` | 28 GB | no public archive for us — **forward capture**; 7-day window by choice | keep the window |
+| `pluvio` | 19 GB | our own rotated stage | keep |
+| `aifs` | 11 GB | ECMWF open data, rolling ~4 days — **forward capture** | keep |
+| `knmi_rtcor` | 9.4 GB | re-downloadable (KNMI Data Platform) | keep, cheap |
+| `era5` | 7.1 GB | re-downloadable (Copernicus CDS, slow) — exists *because* AIFS cannot be backfilled | keep: it is the history arm of the AIFS pairing |
+| `radklim` / `radklim_old` | 8.2 GB | DWD published climate archive — re-downloadable | `radklim_old` is superseded; reclaim it |
+| QPE, forecast/wide archives, external baselines, buienradar_eu, scoreboard | < 3 GB total | our own derived records | permanent |
+
+### Why it filled up (a bug, not neglect)
+
+`pluvio-qpe-prune` archives first (`--max-stamps 96`) and prunes second, so a
+slow archive pass eats the 2-hour `TimeoutStartSec` and the prune never runs —
+it logged a cache prune **once in thirty days**. On top of that the cache
+prune skips any day whose QPE coverage is < 90 %, and the QPE archive only
+starts 2026-08-31, so every cache day before that is unprunable by design
+even though the data is re-fetchable. Fixes: split archiving and pruning into
+separate units, and make the cache prune age-based (a cache is re-fetchable
+by definition). Deletes should go over the storage-box SSH, not the mount.
+
 ## Retention classes (audited 2026-09-03)
 
 | class | retention | where |
