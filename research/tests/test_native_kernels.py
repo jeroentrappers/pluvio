@@ -14,6 +14,17 @@ from model import motion
 
 native = pytest.importorskip("pluvio_native", reason="research/native not built")
 
+# Every compiled backend importable here is held to the same contract: the
+# C++ (research/native) and the Rust (research/native_rs) must both be
+# bit-for-bit identical to the Python reference AND to each other.
+BACKENDS = {"c++": native}
+try:  # pragma: no cover - depends on what is built on this machine
+    import pluvio_native_rs
+
+    BACKENDS["rust"] = pluvio_native_rs
+except ImportError:
+    pass
+
 
 def _reference_block_flow(a, b, **kw):
     saved = motion._NATIVE
@@ -39,9 +50,11 @@ def _wet_pair(seed: int, hw=(192, 192), n_cells=6, shift=(3, -2)):
     return a, np.clip(b, 0, None).astype("float32")
 
 
+@pytest.mark.parametrize("backend", sorted(BACKENDS))
 @pytest.mark.parametrize("seed", [0, 1, 2])
 @pytest.mark.parametrize("subpixel", [False, True])
-def test_block_flow_matches_the_python_reference_bit_for_bit(seed, subpixel):
+def test_block_flow_matches_the_python_reference_bit_for_bit(backend, seed, subpixel, monkeypatch):
+    monkeypatch.setattr(motion, "_NATIVE", BACKENDS[backend])
     a, b = _wet_pair(seed)
     kw = {"max_shift": 12, "blocks": 4, "subpixel": subpixel}
     vy_n, vx_n, ok_n = motion.block_flow(a, b, **kw)
@@ -142,3 +155,30 @@ def test_python_fallback_when_the_extension_is_disabled(monkeypatch):
     monkeypatch.setattr(motion, "_NATIVE", native)
     for x, y in zip(fallback, motion.block_flow(a, b, max_shift=6, blocks=4), strict=True):
         np.testing.assert_array_equal(x, y)
+
+
+@pytest.mark.skipif(len(BACKENDS) < 2, reason="only one compiled backend built here")
+def test_every_compiled_backend_agrees_with_every_other():
+    """The C++ and the Rust kernels must be interchangeable, not merely both
+    'close enough' to Python — a caller may run either."""
+    a, b = _wet_pair(21)
+    la, lb = np.log1p(np.maximum(a, 0.0)), np.log1p(np.maximum(b, 0.0))
+    wet = la > np.log1p(motion.WET_THR)
+    outs = {name: mod.block_flow(la, lb, wet, 12, 4, motion.MIN_WET_FRAC, True, 1)
+            for name, mod in BACKENDS.items()}
+    ref_name, ref = next(iter(outs.items()))
+    for name, got in outs.items():
+        for x, y in zip(ref, got, strict=True):
+            np.testing.assert_array_equal(x, y, err_msg=f"{name} differs from {ref_name}")
+
+    rng = np.random.default_rng(3)
+    n, h, wd = 5000, 32, 32
+    args = (rng.uniform(0, 20, n), rng.integers(0, h, n).astype("int64"),
+            rng.integers(0, wd, n).astype("int64"), rng.uniform(0, 4000, n),
+            rng.random(n) > 0.2, rng.integers(0, h * wd, 500).astype("int64"),
+            rng.integers(0, n, 500).astype("int64"), h, wd, 2000.0)
+    fields = {name: mod.polar_bin(*args) for name, mod in BACKENDS.items()}
+    ref_name, ref = next(iter(fields.items()))
+    for name, got in fields.items():
+        np.testing.assert_array_equal(np.isnan(got), np.isnan(ref), err_msg=name)
+        np.testing.assert_array_equal(got[~np.isnan(ref)], ref[~np.isnan(ref)], err_msg=name)

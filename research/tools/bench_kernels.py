@@ -1,9 +1,11 @@
-"""Before/after benchmark for the native kernels (research/native).
+"""Before/after benchmark for the native kernels.
 
-Runs each kernel with the Python reference and with the compiled extension on
-the same inputs, checks they agree, and reports the speed-up. Sizes are the
-ones production actually uses: 192² and 100² for the flow (training grid and
-serving grid), 768² for the polar binning (the QPE archive's analysis grid).
+Runs each kernel with the Python reference and with every compiled backend
+importable on this machine — `pluvio_native` (C++/pybind11, research/native)
+and `pluvio_native_rs` (Rust/PyO3, research/native_rs) — on the same inputs,
+checks they all agree bit-for-bit, and reports the speed-ups side by side.
+Sizes are the ones production uses: 192² and 100² for the flow (training and
+serving grids), 768² for the polar binning (the QPE archive's grid).
 
     python -m tools.bench_kernels [--repeat 5] [--json out.json]
 """
@@ -80,16 +82,27 @@ def _time(fn, repeat: int) -> float:
     return min(ts)
 
 
+def _backends() -> dict:
+    """Every compiled kernel module importable here, by label."""
+    out = {}
+    for label, mod in (("c++", "pluvio_native"), ("rust", "pluvio_native_rs")):
+        try:
+            out[label] = __import__(mod)
+        except ImportError:
+            pass
+    return out
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repeat", type=int, default=5)
     p.add_argument("--json", default=None)
     args = p.parse_args(argv)
 
-    nat = motion._native()
-    if nat is None:
-        print("pluvio_native is not importable — build it: "
-              "cd research/native && python setup.py build_ext --inplace")
+    backends = _backends()
+    if not backends:
+        print("no compiled kernels importable — build research/native (C++) "
+              "and/or research/native_rs (Rust)")
         return 1
 
     rows = []
@@ -97,40 +110,57 @@ def main(argv=None) -> int:
                                  ((100, 100), 7, "flow 100² (serving grid)"),
                                  ((256, 256), 12, "flow 256² (producer grid)")]:
         a, b = _wet_pair(hw)
-        kw = dict(max_shift=max_shift, blocks=4, subpixel=False)
+        kw = {"max_shift": max_shift, "blocks": 4, "subpixel": False}
         motion._NATIVE = None
         py_ms = _time(lambda: motion.block_flow(a, b, **kw), args.repeat)
         ref = motion.block_flow(a, b, **kw)
-        motion._NATIVE = nat
-        nat_ms = _time(lambda: motion.block_flow(a, b, **kw), args.repeat)
-        got = motion.block_flow(a, b, **kw)
-        same = all(np.array_equal(x, y) for x, y in zip(ref, got, strict=True))
-        rows.append({"kernel": label, "python_ms": py_ms, "native_ms": nat_ms,
-                     "speedup": py_ms / nat_ms, "identical": same})
+        row = {"kernel": label, "python_ms": py_ms}
+        for name, mod in backends.items():
+            motion._NATIVE = mod
+            row[f"{name}_ms"] = _time(lambda: motion.block_flow(a, b, **kw), args.repeat)
+            got = motion.block_flow(a, b, **kw)
+            row[f"{name}_identical"] = all(np.array_equal(x, y)
+                                           for x, y in zip(ref, got, strict=True))
+        motion._NATIVE = None
+        rows.append(row)
 
     case = _polar_case()
     py_ms = _time(lambda: _polar_python(**case), args.repeat)
     ref = _polar_python(**case)
     call = dict(case)
-    call["row"] = np.ascontiguousarray(call["row"], dtype="int64")
-    call["col"] = np.ascontiguousarray(call["col"], dtype="int64")
-    call["fill_cells"] = np.ascontiguousarray(call["fill_cells"], dtype="int64")
-    call["fill_bins"] = np.ascontiguousarray(call["fill_bins"], dtype="int64")
-    nat_ms = _time(lambda: nat.polar_bin(**call), args.repeat)
-    got = nat.polar_bin(**call)
-    same = bool(np.array_equal(np.isnan(got), np.isnan(ref))
-                and np.array_equal(got[~np.isnan(ref)], ref[~np.isnan(ref)]))
-    rows.append({"kernel": "polar_bin 768² (QPE analysis grid)", "python_ms": py_ms,
-                 "native_ms": nat_ms, "speedup": py_ms / nat_ms, "identical": same})
+    for key in ("row", "col", "fill_cells", "fill_bins"):
+        call[key] = np.ascontiguousarray(call[key], dtype="int64")
+    row = {"kernel": "polar_bin 768² (QPE analysis grid)", "python_ms": py_ms}
+    for name, mod in backends.items():
+        row[f"{name}_ms"] = _time(lambda: mod.polar_bin(**call), args.repeat)
+        got = mod.polar_bin(**call)
+        row[f"{name}_identical"] = bool(np.array_equal(np.isnan(got), np.isnan(ref))
+                                        and np.array_equal(got[~np.isnan(ref)], ref[~np.isnan(ref)]))
+    rows.append(row)
 
+    names = list(backends)
     width = max(len(r["kernel"]) for r in rows)
-    print(f"{'kernel'.ljust(width)}  {'python':>10}  {'native':>10}  {'speed-up':>9}  identical")
+    header = f"{'kernel'.ljust(width)}  {'python':>10}"
+    for n in names:
+        header += f"  {n:>9}  {'x':>6}"
+    print(header + "  identical")
     for r in rows:
-        print(f"{r['kernel'].ljust(width)}  {r['python_ms']:9.2f}ms  {r['native_ms']:9.2f}ms  "
-              f"{r['speedup']:8.1f}x  {'yes' if r['identical'] else 'NO'}")
+        line = f"{r['kernel'].ljust(width)}  {r['python_ms']:9.2f}ms"
+        ok = True
+        for n in names:
+            line += f"  {r[f'{n}_ms']:8.2f}ms  {r['python_ms'] / r[f'{n}_ms']:5.1f}x"
+            ok = ok and r[f"{n}_identical"]
+        print(line + f"  {'yes' if ok else 'NO'}")
+    if len(names) == 2:
+        a, b = names
+        print()
+        for r in rows:
+            ratio = r[f"{a}_ms"] / r[f"{b}_ms"]
+            faster = b if ratio > 1 else a
+            print(f"{r['kernel'].ljust(width)}  {a} vs {b}: {ratio:.2f}x — {faster} faster")
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps(rows, indent=1))
-    return 0 if all(r["identical"] for r in rows) else 1
+    return 0 if all(r.get(f"{n}_identical", True) for r in rows for n in names) else 1
 
 
 if __name__ == "__main__":

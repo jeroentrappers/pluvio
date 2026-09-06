@@ -92,3 +92,6 @@ __pycache__/
 # compiled native kernels (research/native) — built per machine
 research/native/**/*.so
 research/native/build/
+research/native_rs/target/
+research/native_rs/**/*.so
+research/native_rs/**/*.dylib

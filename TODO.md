@@ -541,6 +541,10 @@ CSI decays. The objective is the biggest lever we own.
       1.94 → 0.98 s per stamp, Lagrangian `build_input` 169 → 64 ms.
       Deployed to the research and radarproc checkouts on hetz1.
       Does NOT change serving latency (that is radar publication, 4.1).
+      A Rust/PyO3 port (`research/native_rs`) of the same kernels measures
+      the same within noise (ratio 0.81–1.32× across 8 measurements, no
+      consistent winner), is held to the same bit-exactness contract by the
+      tests, and is kept as an alternative; production runs the C++ build.
       Docs: `research/docs/native_kernels.md`. Lane: agent.
 
 ## Epic 3 — Evaluation institution (days 1–60)

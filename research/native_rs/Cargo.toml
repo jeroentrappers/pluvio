@@ -1,0 +1,21 @@
+[package]
+name = "pluvio_native_rs"
+version = "0.1.0"
+edition = "2021"
+
+# The same two kernels as research/native (C++/pybind11), in Rust, so the two
+# can be measured against each other on identical inputs — see
+# research/docs/native_kernels.md.
+
+[lib]
+name = "pluvio_native_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
