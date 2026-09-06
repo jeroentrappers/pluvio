@@ -147,3 +147,29 @@ box (QPE day-zarrs, forecast archive, wide archive, external baselines,
 buienradar_eu, RAC corpus) — those come back with the box, or not at all. A
 second Storage Box would take new writes and give somewhere to rsync the
 local capture, but it does not restore that history.
+
+## Storage-box SSH (fast maintenance, 2026-09-06)
+
+The Storage Box also speaks SSH on **port 23** with the sub-account
+(`u614373-sub1`); SSH must be ticked for that sub-account in Hetzner Robot
+(it was off until 2026-09-06, which is why the first key install failed with
+an empty auth-method list). hetz1's key lives at
+`/root/.ssh/storagebox_ed25519`:
+
+```
+ssh -p 23 -i /root/.ssh/storagebox_ed25519 u614373-sub1@u614373-sub1.your-storagebox.de "ls radar_volumes/2026/09"
+```
+
+It is a **restricted shell** (its own `help` lists the commands: ls/tree/cd,
+mkdir, rm, mv, cp, du, df, chmod, quota…), one command per invocation, no
+pipes. That is enough for the operations that hurt over CIFS, where every
+file costs a network round trip:
+
+| operation | over the CIFS mount | over SSH |
+|---|---|---|
+| `du -sh dwd_vol` (59 GB, ~50k files) | timed out at 90 s | seconds |
+| deleting a pruned raw-volume day | tens of minutes | seconds |
+| merging 27 GB of small files back | ~30 min with 12 parallel rsyncs | n/a (use rsync over SSH) |
+
+Use it for bulk deletes and size audits; keep the CIFS mount for the jobs
+that read and write data continuously.
