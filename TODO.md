@@ -547,6 +547,19 @@ CSI decays. The objective is the biggest lever we own.
       tests, and is kept as an alternative; production runs the C++ build.
       Docs: `research/docs/native_kernels.md`. Lane: agent.
 
+- [x] **1.15 Storage-box watchdog** — `tools/storagebox_watchdog.py` +
+      `pluvio-storagebox-watchdog` (every 2 min, root): real I/O probe under an
+      external timeout (a hung CIFS mount reports "active", so only a killable
+      read+write probe detects it), keeps the detached mountpoint empty and
+      immutable so nothing shadows it onto the root disk, remounts and re-arms
+      the dependent timers when the box answers again, verdict folded into
+      `qc_inputs` (a missing/stale watchdog report is itself a WARN). Written
+      after the 2026-09-06 outage, which froze the served composite for ~40 min
+      unnoticed — see `research/docs/ops_schedule.md`. 8 tests. Lane: ops.
+      Open: alerting beyond the QC JSON (push/e-mail) is still 5.1's channel
+      decision; the `/opt/pluvio/mount-shadow-*` copy needs merging or deleting
+      once the box is back.
+
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored

@@ -78,3 +78,33 @@ exit on "Training done"). Control from laptops is a client role only.
 3. `pluvio-nas-rotate.timer` (daily 01:45).
 4. Remove the crontab; `systemctl list-timers` becomes the complete schedule;
    this file is regenerated from the unit files by a small script.
+
+## Incident 2026-09-06 — storage box unreachable
+
+09:47:52 local the Hetzner storage box stopped answering (`CIFS: VFS: … has
+not responded in 180 seconds`); port 445 dead over both IPv4 and IPv6, no
+ICMP. CIFS **hung** rather than failing, so:
+
+* every `produce_observed` pool worker blocked in
+  `cifs_wait_for_server_reconnect`; the unit was killed on its 900 s
+  `TimeoutStartSec` each run, its effective cadence stretched 5 → 15 min and
+  then to nothing. The served composite (`serve/observed.npz`) froze at 09:56
+  and nothing alerted for ~40 min.
+* `qpe-archive`, `wide-archive`, `forecast-archive`, `external-baselines`,
+  `buienradar-eu`, `qc`, `qc-inputs`, `qpe-prune` all failed on the mount.
+* the nowcast/forecast serving path was unaffected (local `/opt/pluvio/serve`,
+  `/opt/pluvio/zarr`): the site stayed up, `append-infer` kept running.
+
+A `umount -l` to force a remount turned `/mnt/storagebox` into a plain local
+directory and collectors wrote **2.3 GB onto the root disk** within minutes
+(moved aside to `/opt/pluvio/mount-shadow-<stamp>/`, to be merged back or
+discarded once the box returns — the collectors re-fetch what is missing).
+
+Actions taken: box-writing timers stopped (`pluvio-observed`, the archives,
+and the `aifs/dwd/era5/icon-d2/rtcor/mtg` forwarders), mountpoint emptied and
+`chattr +i`-ed, `pluvio-storagebox-watchdog` deployed (2-min I/O probe,
+auto-remount, auto re-arm, verdict into the QC report).
+
+Still needed from Hetzner: the box itself. Recovery is automatic once port
+445 answers; check `systemctl status pluvio-storagebox-watchdog` and
+`serve/storagebox_watchdog.json`.
