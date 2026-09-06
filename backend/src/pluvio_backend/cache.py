@@ -238,7 +238,7 @@ class ForecastCache:
             return {}
         try:
             return dict(json.loads(meta_path.read_text(encoding="utf-8")).get("bands") or {})
-        except OSError, ValueError:  # parenthesised: research/ runs 3.13 (PEP 758 is 3.14+)
+        except (OSError, ValueError):
             return {}
 
     def write_band(

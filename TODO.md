@@ -530,6 +530,19 @@ CSI decays. The objective is the biggest lever we own.
       and dominates the wet-mask centroid — a coverage/intensity-structure
       mismatch, not motion; consider a coverage-aware blend (match wet fraction
       before mixing) and morphing the hourly keyframes in the backend.
+- [x] **2.9 Native kernels for the two hot loops** — `research/native`
+      (pybind11/C++, built with `-O3 -ffp-contract=off`, threaded per block,
+      GIL released): `block_flow` (the NCC motion search) and `polar_bin` (the
+      composite's scatter-mean + hole fill). Bit-for-bit identical to the
+      Python reference (tests assert equality incl. degenerate/NaN cases);
+      `PLUVIO_NATIVE=0` or an unbuilt extension falls back to Python.
+      Measured on hetz1: flow 36×/40×/21× at 192²/100²/256², polar_bin 4.8×;
+      benchmark advection baseline 157 → 7.6 ms, QPE composite of 3 radars
+      1.94 → 0.98 s per stamp, Lagrangian `build_input` 169 → 64 ms.
+      Deployed to the research and radarproc checkouts on hetz1.
+      Does NOT change serving latency (that is radar publication, 4.1).
+      Docs: `research/docs/native_kernels.md`. Lane: agent.
+
 ## Epic 3 — Evaluation institution (days 1–60)
 
 Why: every skill claim this week had to be re-derived because runs were scored

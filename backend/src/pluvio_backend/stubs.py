@@ -169,7 +169,7 @@ def stub_band(
         precip = hourly[idx].get("precipQuantity")
         try:
             value = float(precip) if precip is not None else 0.0
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             value = 0.0
         frames[k] = value  # broadcast scalar — flat field
     return frames, issued_at

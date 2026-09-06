@@ -46,7 +46,12 @@ pluvio-api = "pluvio_backend.api:main"
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+# py313, not py314: research/ runs 3.13 and imports backend/src (the fiducial
+# round-trip test reads cache.GridSpec), so shared modules must stay parsable
+# there. With py314 the formatter rewrites `except (A, B):` to PEP 758's
+# unparenthesized form, which 3.13 rejects — it broke the whole research
+# suite's collection on 2026-09-04.
+target-version = "py313"
 
 [tool.ruff.lint]
 extend-select = ["I", "B", "UP", "SIM", "RUF"]

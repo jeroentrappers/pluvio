@@ -593,7 +593,10 @@ class ZarrCorrectionDataset(Dataset):
             # spurious offset on an exact match (the score surface either
             # side of a perfect peak is not symmetric), which the lead scaling
             # then multiplies into a visible drift.
-            vy, vx, valid = block_flow(prev, curr, max_shift=self.lagrangian_max_shift)
+            # threads=1: the DataLoader's worker pool is the parallelism on
+            # this path; a thread per block inside every worker only
+            # oversubscribes the box (6 workers x 16 blocks).
+            vy, vx, valid = block_flow(prev, curr, max_shift=self.lagrangian_max_shift, threads=1)
             flow = repair_edge_flow(vy, vx, valid, self.grid_hw,
                                     self.lagrangian_max_shift)
         self._flow_cache[key] = flow

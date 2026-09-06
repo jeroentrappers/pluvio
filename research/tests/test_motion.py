@@ -157,6 +157,10 @@ def test_mean_subtraction_is_load_bearing(monkeypatch):
     ncc_error = abs(float(vx[1, 1]) - true_shift) / true_shift
     assert ncc_error < 0.10  # the real (mean-subtracted) scorer recovers it
 
+    # The mutants replace the PYTHON scorer, so force the Python reference
+    # (the compiled kernel has the same arithmetic compiled in and cannot be
+    # monkeypatched — test_native_kernels.py asserts they agree bit-for-bit).
+    monkeypatch.setattr(motion, "_NATIVE", None)
     monkeypatch.setattr(motion, "_ncc_score", _normalised_no_mean)
     _vy_norm, vx_norm, _valid_norm = block_flow(a, b, max_shift=7, blocks=4)
     assert abs(float(vx_norm[1, 1]) - true_shift) / true_shift < 0.10  # normalisation alone: still fine

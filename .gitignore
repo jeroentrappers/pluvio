@@ -88,3 +88,7 @@ research/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# compiled native kernels (research/native) — built per machine
+research/native/**/*.so
+research/native/build/

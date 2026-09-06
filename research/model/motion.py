@@ -25,7 +25,9 @@ constraint so a port never needs anything more.
 
 from __future__ import annotations
 
+import logging
 import math
+import os
 
 import numpy as np
 
@@ -34,6 +36,12 @@ BLOCKS = 4               # BLOCKS x BLOCKS overlapping estimation windows
 WET_THR = 0.05           # mm/h — cells that count toward a block's wet fraction
 MIN_WET_FRAC = 0.005     # below this wet fraction, a block is flagged invalid
 _EPS = 1e-6
+
+LOG = logging.getLogger("pluvio.motion")
+# 0 = one thread per block, capped at the machine's cores (see block_flow).
+DEFAULT_THREADS = int(os.environ.get("PLUVIO_NATIVE_THREADS", "0"))
+_UNSET = object()
+_NATIVE: object = _UNSET   # research/native kernels, resolved once by _native()
 
 
 def max_shift_px(km_per_px: float, step_min: float, *, max_kmh: float = 100.0,
@@ -108,10 +116,31 @@ def _parabolic_offset(s_minus: float, s_zero: float, s_plus: float) -> float:
     return float(np.clip(0.5 * (s_minus - s_plus) / denom, -0.5, 0.5))
 
 
+def _native():
+    """The compiled kernels (research/native), or None.
+
+    Opt-out with PLUVIO_NATIVE=0. Absent module → the pure-Python reference
+    below runs, so a box without a compiler behaves identically, only slower.
+    """
+    global _NATIVE
+    if _NATIVE is _UNSET:
+        if os.environ.get("PLUVIO_NATIVE", "1") == "0":
+            _NATIVE = None
+        else:
+            try:
+                import pluvio_native  # type: ignore
+                _NATIVE = pluvio_native
+            except ImportError:
+                _NATIVE = None
+                LOG.debug("pluvio_native not built — using the Python kernels")
+    return _NATIVE
+
+
 def block_flow(a: np.ndarray, b: np.ndarray, *, max_shift: int = DEFAULT_MAX_SHIFT,
                blocks: int = BLOCKS, wet_thr: float = WET_THR,
                min_wet_frac: float = MIN_WET_FRAC,
-               subpixel: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+               subpixel: bool = False,
+               threads: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-block a→b displacement, scored by NCC on wet blocks only.
 
     Returns ``(vy, vx, valid)``, three ``(blocks, blocks)`` arrays: the
@@ -134,6 +163,16 @@ def block_flow(a: np.ndarray, b: np.ndarray, *, max_shift: int = DEFAULT_MAX_SHI
     h, w = a.shape
     la, lb = np.log1p(np.maximum(a, 0.0)), np.log1p(np.maximum(b, 0.0))
     wet_a = la > np.log1p(wet_thr)
+    nat = _native()
+    if nat is not None:
+        # threads=1 inside a DataLoader worker (the worker pool is the
+        # parallelism there; nested threads only oversubscribe) — callers on
+        # that path pass it explicitly, everyone else gets the env default.
+        n_threads = DEFAULT_THREADS if threads is None else int(threads)
+        vy, vx, valid = nat.block_flow(la, lb, wet_a, int(max_shift), int(blocks),
+                                       float(min_wet_frac), bool(subpixel), n_threads)
+        return vy, vx, valid
+
     ys = np.linspace(0, h, blocks + 1).astype(int)
     xs = np.linspace(0, w, blocks + 1).astype(int)
     vy = np.zeros((blocks, blocks), dtype="float32")

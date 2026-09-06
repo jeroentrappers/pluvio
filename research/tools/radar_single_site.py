@@ -394,6 +394,19 @@ def polar_to_grid(rate, azimuths, ranges, site, grid_shape, bounds, elangle=0.0,
     vals = np.asarray(rate).ravel()
     ok = np.isfinite(vals) & (g["heights"] <= max_beam_m) & g["inb"]
 
+    from model.motion import _native
+
+    nat = _native()
+    if nat is not None:
+        return nat.polar_bin(np.ascontiguousarray(vals, dtype="float64"),
+                             np.ascontiguousarray(g["row"], dtype="int64"),
+                             np.ascontiguousarray(g["col"], dtype="int64"),
+                             np.ascontiguousarray(g["heights"], dtype="float64"),
+                             np.ascontiguousarray(g["inb"], dtype=bool),
+                             np.ascontiguousarray(g["fill_cells"], dtype="int64"),
+                             np.ascontiguousarray(g["fill_bins"], dtype="int64"),
+                             int(h), int(wd), float(max_beam_m))
+
     acc = np.zeros((h, wd), "f8")
     cnt = np.zeros((h, wd), "i8")
     np.add.at(acc, (g["row"][ok], g["col"][ok]), vals[ok])
