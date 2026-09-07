@@ -79,6 +79,7 @@
   "dryUntil": "Sec jusqu'à environ {{start}}, puis {{intensity}} jusqu'à environ {{end}}.",
   "dryUntilOpenEnd": "Sec jusqu'à environ {{start}}, puis {{intensity}} pour le reste des {{hours}} prochaines heures.",
   "possibleLater": "Plus tard, vers {{time}}, {{intensity}} possible ({{source}}, moins certain).",
+  "chance": "Probabilité de précipitations d'environ {{pct}} %.",
   "intensity": {
    "light": "pluie légère",
    "moderate": "pluie modérée",

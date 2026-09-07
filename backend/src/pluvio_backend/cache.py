@@ -185,6 +185,36 @@ class GridSpec:
 
 DEFAULT_GRID = GridSpec(bounds=DEFAULT_BOUNDS, shape=DEFAULT_GRID_SHAPE)
 
+# The two exceedance thresholds the product speaks in. Kept here rather than
+# imported from model.py so cache.py stays free of that module (model.py
+# already imports this one).
+P_RAIN_THRESHOLD_MM_H = 0.1
+P_HEAVY_THRESHOLD_MM_H = 1.0
+
+
+def _exceedance_planes(exceedance, band_name, hw):
+    """(p_rain, p_heavy) lead-stacks for one band, or (None, None).
+
+    Picks the two product thresholds out of whatever the producer published,
+    by exact value: a near-miss threshold would silently change what "chance
+    of rain" means, so it is dropped instead.
+    """
+    if not exceedance or band_name not in exceedance:
+        return None, None
+    thresholds, probs = exceedance[band_name]
+    thresholds = np.asarray(thresholds, dtype="float32")
+    probs = np.asarray(probs, dtype="float32")
+    if probs.ndim != 4 or probs.shape[0] != thresholds.size:
+        return None, None
+    if tuple(probs.shape[-2:]) != tuple(hw):
+        return None, None
+
+    def plane(thr: float):
+        hit = np.flatnonzero(np.isclose(thresholds, thr, atol=1e-6))
+        return probs[int(hit[0])] if hit.size else None
+
+    return plane(P_RAIN_THRESHOLD_MM_H), plane(P_HEAVY_THRESHOLD_MM_H)
+
 
 class ForecastCache:
     """One-stop API to read/write forecast snapshots."""
@@ -335,12 +365,20 @@ class ForecastCache:
         snapshot_dir: pathlib.Path,
         all_bands: dict[schedules.BandName, np.ndarray],
         bucket_step: float = 0.1,
+        exceedance: dict[schedules.BandName, tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> int:
         """Write per-bucket Parquet shards for fast point lookups.
 
         Bucket key: round(lat / bucket_step), round(lon / bucket_step).
         Each shard holds, for every cell within that bucket and every
         (band, lead_min), the precipitation rate.
+
+        ``exceedance`` maps a band to (thresholds, probs) with probs shaped
+        (n_thresholds, n_leads, H, W) — the producer's P(rate > thr) for a
+        quantile checkpoint (2.2). The two thresholds the product speaks in
+        become the ``p_rain`` and ``p_heavy`` columns; a band without them (a
+        deterministic checkpoint, a stub) simply has nulls there, so the shard
+        schema does not change with the model.
         """
         h, w = self.grid.shape
         west, east = self.grid.bounds["west"], self.grid.bounds["east"]
@@ -351,8 +389,11 @@ class ForecastCache:
         records: list[dict] = []
         for band_name, arr in all_bands.items():
             band = schedules.band(band_name)
+            p_rain, p_heavy = _exceedance_planes(exceedance, band_name, arr.shape[-2:])
             for i, lead in enumerate(band.leads_min):
                 grid = arr[i]
+                pr = p_rain[i] if p_rain is not None and i < len(p_rain) else None
+                ph = p_heavy[i] if p_heavy is not None and i < len(p_heavy) else None
                 for r in range(h):
                     for c in range(w):
                         records.append(
@@ -362,6 +403,8 @@ class ForecastCache:
                                 "band": band_name,
                                 "lead_min": lead,
                                 "rate_mm_per_h": float(grid[r, c]),
+                                "p_rain": None if pr is None else float(pr[r, c]),
+                                "p_heavy": None if ph is None else float(ph[r, c]),
                             }
                         )
 

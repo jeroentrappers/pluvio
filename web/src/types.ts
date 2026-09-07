@@ -13,6 +13,11 @@ export interface FrameDto {
   // Tile index in the sprite sheet (ForecastDto.sprite) — the client renders
   // this frame by cropping that tile rather than fetching a per-frame PNG.
   sprite_index?: number | null
+  // P(rain) at this point and lead, from the model's quantile stack.
+  // Null for a deterministic checkpoint: no probability is invented from
+  // a single rate, so the UI simply says nothing about chance.
+  p_rain?: number | null // P(rate > 0.1 mm/h), 0–1
+  p_heavy?: number | null // P(rate > 1.0 mm/h), 0–1
 }
 
 export interface SpriteDto {

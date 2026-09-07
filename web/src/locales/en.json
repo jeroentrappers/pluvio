@@ -79,6 +79,7 @@
   "dryUntil": "Dry until about {{start}}, then {{intensity}} until about {{end}}.",
   "dryUntilOpenEnd": "Dry until about {{start}}, then {{intensity}} for the rest of the next {{hours}} hours.",
   "possibleLater": "Later, around {{time}}, {{intensity}} is possible ({{source}}, less certain).",
+  "chance": "Chance of rain about {{pct}}%.",
   "intensity": {
    "light": "light rain",
    "moderate": "moderate rain",

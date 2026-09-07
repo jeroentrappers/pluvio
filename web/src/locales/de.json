@@ -79,6 +79,7 @@
   "dryUntil": "Trocken bis etwa {{start}}, danach {{intensity}} bis etwa {{end}}.",
   "dryUntilOpenEnd": "Trocken bis etwa {{start}}, danach {{intensity}} für den Rest der nächsten {{hours}} Stunden.",
   "possibleLater": "Später, gegen {{time}}, ist {{intensity}} möglich ({{source}}, weniger sicher).",
+  "chance": "Niederschlagswahrscheinlichkeit etwa {{pct}} %.",
   "intensity": {
    "light": "leichter Regen",
    "moderate": "mäßiger Regen",

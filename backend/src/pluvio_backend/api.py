@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import sys
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -98,6 +99,12 @@ class FrameDto(BaseModel):
     # Index of this frame's tile in the sprite sheet (see ForecastDto.sprite), so
     # the client renders it by cropping rather than fetching a per-frame PNG.
     sprite_index: int | None = None
+    # P(rain) at this location and lead, from the producer's quantile stack
+    # (2.2): p_rain = P(rate > 0.1 mm/h), p_heavy = P(rate > 1.0 mm/h). Null
+    # for a deterministic checkpoint — the API reports no probability rather
+    # than deriving one from a single number.
+    p_rain: float | None = None
+    p_heavy: float | None = None
 
 
 class ForecastDto(BaseModel):
@@ -146,6 +153,18 @@ class HealthDto(BaseModel):
     issued_at: datetime | None
     age_seconds: float | None
     model_version: str
+
+
+def _opt_float(value) -> float | None:
+    """A probability column that a snapshot may not carry at all (older
+    snapshot, deterministic producer) and that pandas hands back as NaN."""
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(out) else out
 
 
 def _band_grid(meta: dict, band: str) -> dict:
@@ -265,6 +284,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     source=prov.get("source"),
                     confidence=prov.get("confidence"),
                     sprite_index=sprite_index.get(f"{band}:{lead}"),
+                    p_rain=_opt_float(row.get("p_rain")),
+                    p_heavy=_opt_float(row.get("p_heavy")),
                 )
             )
 

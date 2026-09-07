@@ -79,6 +79,7 @@
   "dryUntil": "Droog tot ongeveer {{start}}, daarna {{intensity}} tot ongeveer {{end}}.",
   "dryUntilOpenEnd": "Droog tot ongeveer {{start}}, daarna {{intensity}} voor de rest van de komende {{hours}} uur.",
   "possibleLater": "Later, rond {{time}}, is {{intensity}} mogelijk ({{source}}, minder zeker).",
+  "chance": "Kans op neerslag ongeveer {{pct}}%.",
   "intensity": {
    "light": "lichte regen",
    "moderate": "matige regen",

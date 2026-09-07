@@ -22,6 +22,9 @@ export interface RadarFrame {
   source: string | null // "nowcast" | "blend" | "nwp" | null (stub-served)
   confidence: number | null // 0–1
   spriteIndex: number | null // tile in the sprite sheet
+  // P(rain) from the model's quantile stack; null on a deterministic model.
+  pRain: number | null // P(rate > 0.1 mm/h), 0–1
+  pHeavy: number | null // P(rate > 1.0 mm/h), 0–1
 }
 
 // The single sprite sheet for a prediction: one download, scrub by cropping.
@@ -96,6 +99,8 @@ export async function getRadar(
       source: f.source ?? null,
       confidence: f.confidence ?? null,
       spriteIndex: f.sprite_index ?? null,
+      pRain: f.p_rain ?? null,
+      pHeavy: f.p_heavy ?? null,
     }))
     .sort((a, b) => a.leadMin - b.leadMin)
 
@@ -152,6 +157,8 @@ export async function getHistory(
       source: 'radar',
       confidence: null,
       spriteIndex: f.sprite_index ?? null,
+      pRain: null, // measured, not forecast: a probability would be meaningless
+      pHeavy: null,
     }))
     .sort((a, b) => a.leadMin - b.leadMin)
   const sprite = dto.sprite

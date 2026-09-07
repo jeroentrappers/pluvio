@@ -202,3 +202,49 @@ def test_band_grid_prefers_the_bands_own_entry_then_the_snapshot_grid():
     assert _band_grid(meta, "short")["bounds"] == "snap"
     assert _band_grid({"grid": {"bounds": "snap"}}, "nowcast")["bounds"] == "snap"
     assert _band_grid({}, "nowcast") == {}
+
+
+def _seed_cache_with_probability(root) -> None:
+    """Same cache, plus the producer's P(rate > thr) for the nowcast band."""
+    cache = ForecastCache(root)
+    band = schedules.band("nowcast")
+    arr = np.zeros((band.n_leads, 100, 100), dtype="float32")
+    arr[:, 40:50, 45:55] = 3.0
+    thresholds = np.asarray([0.1, 1.0], dtype="float32")
+    probs = np.zeros((2, band.n_leads, 100, 100), dtype="float32")
+    probs[0, :, 40:50, 45:55] = 0.8      # P(any rain) in the blob
+    probs[1, :, 40:50, 45:55] = 0.35     # P(> 1 mm/h)
+
+    snap = cache.new_snapshot_dir()
+    cache.write_band(snap, "nowcast", arr)
+    cache.write_overlays(snap, "nowcast", arr)
+    cache.write_point_shards(snap, {"nowcast": arr},
+                             exceedance={"nowcast": (thresholds, probs)})
+    cache.write_grid_metadata(snap, model_version="test-api-prob")
+    cache.mark_complete(snap)
+    cache.swap_latest(snap)
+
+
+def test_forecast_reports_probability_when_the_producer_publishes_it(tmp_path) -> None:
+    """2.2: a quantile checkpoint's P(rain) has to reach the client, per lead."""
+    _seed_cache_with_probability(tmp_path)
+    client = TestClient(create_app(Settings(cache_root=tmp_path)))
+    # a point inside the rain blob (rows run north→south from the grid bounds)
+    grid = ForecastCache(tmp_path).grid
+    lat, lon = grid.cell_center_latlon(45, 50)
+    r = client.get("/v1/forecast", params={"lat": lat, "lon": lon})
+    assert r.status_code == 200
+    frames = [f for f in r.json()["frames"] if f["band"] == "nowcast"]
+    assert frames
+    assert all(f["p_rain"] == pytest.approx(0.8, abs=1e-3) for f in frames)
+    assert all(f["p_heavy"] == pytest.approx(0.35, abs=1e-3) for f in frames)
+
+
+def test_forecast_reports_no_probability_for_a_deterministic_producer(client: TestClient) -> None:
+    """No quantile stack means no probability — never one derived from the
+    single rate, which would be a fabricated number."""
+    r = client.get("/v1/forecast", params={"lat": 50.85, "lon": 4.35})
+    assert r.status_code == 200
+    frames = r.json()["frames"]
+    assert frames
+    assert all(f["p_rain"] is None and f["p_heavy"] is None for f in frames)

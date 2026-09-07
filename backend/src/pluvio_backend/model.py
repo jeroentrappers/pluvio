@@ -34,7 +34,7 @@ import httpx
 import numpy as np
 
 from . import schedules
-from .cache import DEFAULT_BOUNDS, GridSpec
+from .cache import DEFAULT_BOUNDS, DEFAULT_GRID, GridSpec
 from .stubs import stub_band
 
 LOG = logging.getLogger("pluvio.model")
@@ -351,6 +351,55 @@ def model_band(
     LOG.warning("no fresh forecast artifact for band=%s — falling back to stub", band_name)
     rates, issued_at = stub_band(client, base_url, grid, band_name)
     return rates, issued_at, grid
+
+
+# The producer publishes P(rate > thr) per lead for a quantile checkpoint
+# (research/model/infer_latest.py: `p_exceed`, `p_exceed_thresholds`). These are
+# the two thresholds the product speaks in: any rain at all, and rain heavy
+# enough to matter.
+P_RAIN_THRESHOLD_MM_H = 0.1
+P_HEAVY_THRESHOLD_MM_H = 1.0
+
+
+def band_exceedance(
+    band_name: schedules.BandName,
+) -> tuple[np.ndarray, np.ndarray, GridSpec | None] | None:
+    """(thresholds, probs, grid) for one band, or None when unavailable.
+
+    ``probs`` is (n_thresholds, n_band_leads, H, W) in [0, 1]. Only a quantile
+    checkpoint publishes this, so a deterministic producer simply yields None
+    and the API reports no probability rather than inventing one.
+
+    Probabilities are interpolated linearly between the producer's leads even
+    for the nowcast band, where the rates are motion-morphed: morphing a
+    probability field would move the *distribution* of a cell that has moved,
+    which is defensible, but the fields are smooth enough at these leads that
+    it buys nothing measurable and it would have to be verified separately.
+    """
+    for path in (NPZ_PATH, FORECAST_NPZ_PATH):
+        loaded = _load_fresh(path)
+        if loaded is None:
+            continue
+        d, _ = loaded
+        if "p_exceed" not in d or "p_exceed_thresholds" not in d:
+            continue
+        thresholds = np.asarray(d["p_exceed_thresholds"], dtype="float32")
+        cube = np.asarray(d["p_exceed"], dtype="float32")       # (T, L, H, W)
+        src_leads = [int(x) for x in d["leads"]]
+        if cube.ndim != 4 or cube.shape[1] != len(src_leads):
+            LOG.warning("p_exceed in %s has shape %s against %d leads — ignoring",
+                        path, cube.shape, len(src_leads))
+            continue
+        band = schedules.band(band_name)
+        probs = np.stack([
+            np.stack([_interp_lead(cube[t], src_leads, lead) for lead in band.leads_min])
+            for t in range(cube.shape[0])
+        ]).astype("float32")
+        grid = None
+        if "bounds" in d:
+            grid = _grid_from_npz(d, DEFAULT_GRID)
+        return thresholds, np.clip(probs, 0.0, 1.0), grid
+    return None
 
 
 def band_provenance(band_name: schedules.BandName) -> dict | None:

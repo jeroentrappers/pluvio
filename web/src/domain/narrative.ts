@@ -22,6 +22,9 @@ export interface NarrativeFrame {
   level: PrecipLevel
   source: string | null
   kind?: 'obs' | 'fc'
+  // P(rate > 0.1 mm/h) from the model's quantile stack; null/undefined on a
+  // deterministic model, in which case no chance is stated at all.
+  pRain?: number | null
 }
 
 export interface NarrativePart {
@@ -34,6 +37,11 @@ export interface Episode {
   end: Date | null // null = still raining at the end of the horizon
   peak: PrecipLevel
   source: string | null // source of the frame where it starts
+  // Highest P(rain) across the episode's frames, null when the model does not
+  // publish one. The maximum, not the mean: the sentence names when rain
+  // arrives, so the chance it belongs with is the chance at its likeliest
+  // moment, not one diluted by the tail of the episode.
+  pRain: number | null
 }
 
 const LEVEL_RANK: Record<PrecipLevel, number> = { none: 0, light: 1, moderate: 2, heavy: 3, violent: 4 }
@@ -48,13 +56,19 @@ export function episodes(frames: NarrativeFrame[], horizonMin: number, minGapMin
   for (const f of fc) {
     const wet = f.level !== 'none'
     if (wet) {
-      if (cur && lastWet && f.leadMin - lastWet.leadMin > minGapMin) {
+      // The DRY span between two wet frames, not the distance between their
+      // lead times: with 10-min frames those differ by one step, which made a
+      // single dry frame read as an 11-minute gap and split one passing shower
+      // into two episodes.
+      const dryGapMin = lastWet ? f.leadMin - lastWet.leadMin - stepAfter(fc, lastWet) : 0
+      if (cur && lastWet && dryGapMin > minGapMin) {
         cur.end = new Date(lastWet.validTime.getTime() + 60_000 * stepAfter(fc, lastWet))
         out.push(cur)
         cur = null
       }
-      if (!cur) cur = { start: f.validTime, end: null, peak: f.level, source: f.source }
+      if (!cur) cur = { start: f.validTime, end: null, peak: f.level, source: f.source, pRain: null }
       if (LEVEL_RANK[f.level] > LEVEL_RANK[cur.peak]) cur.peak = f.level
+      if (f.pRain != null) cur.pRain = Math.max(cur.pRain ?? 0, f.pRain)
       lastWet = f
     }
   }
@@ -126,6 +140,15 @@ export function narrativeParts(
         },
       })
     }
+  }
+
+  // The model's own probability for the episode the sentences are about, when
+  // it publishes one. Stated as a separate short clause rather than folded
+  // into every phrasing: it is the one number a reader can check against what
+  // actually happened, so it should read the same way every time.
+  const chanceOf = near[0]?.pRain
+  if (chanceOf != null && near.length > 0) {
+    parts.push({ key: 'narrative.chance', params: { pct: Math.round(chanceOf * 100) } })
   }
 
   // Beyond the radar band: one hedged sentence for the first rain episode in

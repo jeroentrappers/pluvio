@@ -261,9 +261,19 @@ CSI decays. The objective is the biggest lever we own.
       by linear CDF interpolation between quantiles, documented approximation).
       Benchmark scores quantile checkpoints on the median, CRPS = 2×mean
       pinball over the levels, and a 10-bin reliability diagram of P(rate>thr)
-      per lead/threshold (`reliability` slot filled). Open: backend/web
-      exposure of P(rain); a training run
-      (research, GPU). Acceptance unchanged: reliability in the benchmark,
+      per lead/threshold (`reliability` slot filled). Backend/web exposure done
+      2026-09-07: `model.band_exceedance` reads `p_exceed`/`p_exceed_thresholds`
+      from the served npz and interpolates onto each band's leads (linear, also
+      for the motion-morphed nowcast band — morphing a probability field is
+      defensible but would need its own verification); `write_point_shards`
+      gains `p_rain`/`p_heavy` columns (P>0.1, P>1.0 mm/h, matched on exact
+      threshold value); `/v1/forecast` frames carry `p_rain`/`p_heavy`, null for
+      a deterministic checkpoint — never a probability derived from one rate;
+      the web narrative adds one `narrative.chance` clause ("Chance of rain
+      about N%.", en/nl/fr/de) using the episode's MAXIMUM P(rain), since the
+      sentence names when rain arrives. Inert until a quantile checkpoint is
+      served. Open: the training run itself (research, GPU — queued behind the
+      2.3 re-runs). Acceptance unchanged: reliability in the benchmark,
       sharper median than the deterministic baseline. Depends: 2.1, 3.2
 - [~] **2.3 Lagrangian input channels** — advected latest observation at each
       lead as model input. Landed (agent half): computed ON THE FLY in

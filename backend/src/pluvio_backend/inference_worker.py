@@ -24,7 +24,7 @@ import numpy as np
 from . import schedules
 from .cache import ForecastCache, GridSpec
 from .config import get_settings
-from .model import band_provenance, model_band
+from .model import band_exceedance, band_provenance, model_band
 from .stubs import stub_band  # noqa: F401  (kept; model_band falls back to it)
 
 LOG = logging.getLogger("pluvio.worker")
@@ -86,8 +86,25 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
             skipped,
             cache.grid.shape,
         )
+    # P(rain) per band, when the producer published a quantile stack (2.2).
+    # Only for bands folded into the shards, and only on the shard grid.
+    exceedance: dict[schedules.BandName, tuple] = {}
+    for name in shard_bands:
+        got = band_exceedance(name)
+        if got is None:
+            continue
+        thresholds, probs, prob_grid = got
+        if probs.shape[-2:] != cache.grid.shape:
+            LOG.warning("tick band=%s: p_exceed on grid %s, cache grid is %s — dropped",
+                        name, probs.shape[-2:], cache.grid.shape)
+            continue
+        if prob_grid is not None and prob_grid.bounds != cache.grid.bounds:
+            LOG.warning("tick band=%s: p_exceed footprint %s != cache %s — dropped",
+                        name, prob_grid.bounds, cache.grid.bounds)
+            continue
+        exceedance[name] = (thresholds, probs)
     if shard_bands:
-        cache.write_point_shards(snap, shard_bands)
+        cache.write_point_shards(snap, shard_bands, exceedance=exceedance or None)
 
     # One sprite-sheet PNG of every frame so the client animates the whole
     # horizon with a single download (no per-frame requests).

@@ -74,3 +74,45 @@ describe('narrativeParts (Buienradar style)', () => {
     expect(p[0].key).toBe('narrative.dryHorizon')
   })
 })
+
+describe('probability clause', () => {
+  it('states the chance of rain when the model publishes one', () => {
+    // 30 min dry, then rain with P(rain) rising to 0.72
+    const frames = [
+      { leadMin: 0, rateMmPerH: 0, pRain: 0.05 },
+      { leadMin: 30, rateMmPerH: 0, pRain: 0.2 },
+      { leadMin: 60, rateMmPerH: 1.2, pRain: 0.6 },
+      { leadMin: 90, rateMmPerH: 2.0, pRain: 0.72 },
+      { leadMin: 120, rateMmPerH: 0, pRain: 0.3 },
+    ].map((f) => ({
+      leadMin: f.leadMin,
+      validTime: new Date(T0.getTime() + f.leadMin * 60_000),
+      rateMmPerH: f.rateMmPerH,
+      level: levelFromMmPerHour(f.rateMmPerH),
+      source: 'nowcast',
+      kind: 'fc' as const,
+      pRain: f.pRain,
+    }))
+    const parts = narrativeParts(frames, T0, 'en')
+    const chance = parts.find((p) => p.key === 'narrative.chance')
+    // the episode's likeliest moment, not the mean over it
+    expect(chance?.params?.pct).toBe(72)
+  })
+
+  it('says nothing about chance for a deterministic model', () => {
+    const frames = [
+      { leadMin: 0, rateMmPerH: 0 },
+      { leadMin: 60, rateMmPerH: 1.5 },
+    ].map((f) => ({
+      leadMin: f.leadMin,
+      validTime: new Date(T0.getTime() + f.leadMin * 60_000),
+      rateMmPerH: f.rateMmPerH,
+      level: levelFromMmPerHour(f.rateMmPerH),
+      source: 'nowcast',
+      kind: 'fc' as const,
+      pRain: null,
+    }))
+    const parts = narrativeParts(frames, T0, 'en')
+    expect(parts.some((p) => p.key === 'narrative.chance')).toBe(false)
+  })
+})

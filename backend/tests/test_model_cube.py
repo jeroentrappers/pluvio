@@ -293,3 +293,48 @@ def test_lagrangian_blend_declines_a_box_that_does_not_overlap(
         blended = m._lagrangian_blend(out, leads, datetime.now(UTC), grid)
     assert blended is out
     assert any("does not overlap" in r.getMessage() for r in caplog.records)
+
+
+def test_band_exceedance_reads_p_exceed_from_the_nowcast_npz(tmp_path, monkeypatch):
+    """2.2: the producer publishes p_exceed alongside the median rates; the
+    backend must interpolate it onto the band's leads and clamp to [0, 1]."""
+    import numpy as np
+
+    from pluvio_backend import model as m
+    from pluvio_backend import schedules
+
+    band = schedules.band("nowcast")
+    leads = [0, 30, 60, 90, 120]
+    path = tmp_path / "model_nowcast.npz"
+    np.savez(
+        path,
+        leads=np.asarray(leads, dtype="int32"),
+        rates=np.zeros((len(leads), 100, 100), dtype="float32"),
+        issue_epoch=np.asarray(int(__import__("time").time()), dtype="int64"),
+        p_exceed_thresholds=np.asarray([0.1, 1.0], dtype="float32"),
+        p_exceed=np.full((2, len(leads), 100, 100), 0.5, dtype="float32"),
+    )
+    monkeypatch.setattr(m, "NPZ_PATH", path)
+    monkeypatch.setattr(m, "FORECAST_NPZ_PATH", tmp_path / "absent.npz")
+
+    got = m.band_exceedance("nowcast")
+    assert got is not None
+    thresholds, probs, _grid = got
+    assert list(thresholds) == [0.1, 1.0]
+    assert probs.shape == (2, band.n_leads, 100, 100)
+    assert probs.min() >= 0.0 and probs.max() <= 1.0
+
+
+def test_band_exceedance_is_none_for_a_deterministic_npz(tmp_path, monkeypatch):
+    import numpy as np
+
+    from pluvio_backend import model as m
+
+    leads = [0, 30, 60]
+    path = tmp_path / "model_nowcast.npz"
+    np.savez(path, leads=np.asarray(leads, dtype="int32"),
+             rates=np.zeros((len(leads), 100, 100), dtype="float32"),
+             issue_epoch=np.asarray(int(__import__("time").time()), dtype="int64"))
+    monkeypatch.setattr(m, "NPZ_PATH", path)
+    monkeypatch.setattr(m, "FORECAST_NPZ_PATH", tmp_path / "absent.npz")
+    assert m.band_exceedance("nowcast") is None
