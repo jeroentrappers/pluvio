@@ -14,7 +14,11 @@ raw. Retention policy, deliberately conservative:
   * raw: kept RETAIN_DAYS (default 10) as a re-processing window;
   * deletion only for days whose archive coverage passes MIN_COVERAGE — a day the
     archiver missed keeps its raw until it is archived, indefinitely;
-  * --prune is explicit; without it this never deletes anything.
+  * cache stores (re-downloadable upstream) are pruned on age alone, with an
+    optional PLUVIO_QPE_CACHE_KEEP_SINCE floor for a window still queued for
+    back-processing;
+  * --prune is explicit; without it this never deletes anything, and --prune-only
+    skips archiving so a slow backfill can never starve the pruner.
 
 Store layout: one zarr group per day, /mnt/storagebox/qpe/YYYY/MM/DD.zarr with
     rate     float16 (288, H, W)   mm/h, NaN = not covered by any radar
@@ -65,6 +69,15 @@ RAW_STORES = (                            # (root, layout) — see prune_raw
 # a much shorter window. Measured at 107 GB after one evaluation campaign.
 CACHE_STORES = ((pathlib.Path("/mnt/storagebox/knmi_vol"), "stampfile"),)
 CACHE_RETAIN_DAYS = int(os.environ.get("PLUVIO_QPE_CACHE_RETAIN_DAYS", "2"))
+# How far back the cache sweep looks. The archive-coverage gate used to keep every
+# un-archived day's cache forever, which is how 220 GB of KNMI volumes accumulated:
+# those files are re-downloadable, so age alone decides, and the sweep has to reach
+# back past whatever backlog already exists.
+CACHE_HORIZON_DAYS = int(os.environ.get("PLUVIO_QPE_CACHE_HORIZON_DAYS", "400"))
+# Floor for the cache sweep: days on or after this date are never cache-pruned, no
+# matter how old. Set it while a window is still queued for back-processing.
+_keep_since = os.environ.get("PLUVIO_QPE_CACHE_KEEP_SINCE", "").strip()
+CACHE_KEEP_SINCE = dt.date.fromisoformat(_keep_since) if _keep_since else None
 
 
 def _env():
@@ -234,11 +247,21 @@ def prune_raw(today: dt.date) -> None:
                 continue
             for f in _stampfiles(root, day):
                 f.unlink(missing_ok=True)
-    # cache stores: re-downloadable upstream, so age alone (plus the same archive
-    # guard, out of caution) is enough
-    for age in range(CACHE_RETAIN_DAYS, CACHE_RETAIN_DAYS + 60):
+
+
+def prune_cache(today: dt.date) -> int:
+    """Delete cache-store files older than CACHE_RETAIN_DAYS. Age only.
+
+    Cache stores hold data upstream still serves (KNMI archives back to 2019), so
+    losing a day costs a re-download, not a gap. Gating this on archive coverage —
+    as the raw prune must — meant a stretch of days the archiver had not caught up
+    on kept its cache indefinitely, which is a slow leak with no upper bound.
+    Days on or after CACHE_KEEP_SINCE are held back for pending back-processing.
+    """
+    removed = 0
+    for age in range(CACHE_RETAIN_DAYS, CACHE_HORIZON_DAYS):
         day = today - dt.timedelta(days=age)
-        if day_coverage(day) < MIN_COVERAGE:
+        if CACHE_KEEP_SINCE is not None and day >= CACHE_KEEP_SINCE:
             continue
         for root, _ in CACHE_STORES:
             n = 0
@@ -246,7 +269,12 @@ def prune_raw(today: dt.date) -> None:
                 f.unlink(missing_ok=True)
                 n += 1
             if n:
+                removed += n
                 LOG.info("cache-pruned %d files for %s from %s", n, day, root)
+    if CACHE_KEEP_SINCE is not None:
+        LOG.info("cache sweep held back days >= %s (pending back-processing)",
+                 CACHE_KEEP_SINCE)
+    return removed
 
 
 def _stampfiles(root: pathlib.Path, day: dt.date):
@@ -273,11 +301,18 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--prune", action="store_true",
                    help="after archiving, delete raw for old fully-archived days")
+    p.add_argument("--prune-only", action="store_true",
+                   help="prune and do not archive — the pruning run must not be "
+                        "starved by a slow backfill sharing its timeout")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     today = dt.datetime.now(dt.UTC).date()
+    if args.prune_only:
+        prune_raw(today)
+        prune_cache(today)
+        return 0
     if args.day:
         archive(dt.date.fromisoformat(args.day), args.max_stamps, args.workers)
     else:
@@ -288,6 +323,7 @@ def main(argv=None) -> int:
             left -= archive(day, left, args.workers)
     if args.prune:
         prune_raw(today)
+        prune_cache(today)
     return 0
 
 

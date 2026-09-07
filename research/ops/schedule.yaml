@@ -110,10 +110,16 @@ jobs:
     on_calendar: "*:0/10"
     managed: false
     description: 768-grid QPE day-zarr archive (self-describing since 1b6f023)
+  - name: qpe-backfill
+    on_calendar: "03:40"
+    managed: false
+    description: daily 96-stamp QPE backfill, archive only — runs BEFORE qpe-prune so a
+      slow catch-up can never starve the pruner (they shared one timeout until 2026-09-07)
   - name: qpe-prune
     on_calendar: "04:30"
     managed: false
-    description: prune raw volumes (3 d) + OPERA (7 d)
+    description: prune-only pass — raw volumes (coverage-gated) + KNMI cache (age-based,
+      held back to PLUVIO_QPE_CACHE_KEEP_SINCE) + OPERA (7 d)
   - name: wide-archive
     on_calendar: "*:37"
     managed: false
