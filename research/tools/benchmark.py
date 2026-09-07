@@ -245,6 +245,11 @@ def _load_models(specs: list[str], device):
         # A quantile head (2.2) is scored on its MEDIAN for the deterministic
         # metrics; the whole stack feeds CRPS and the reliability diagram.
         model.pluvio_quantiles = tuple(float(q) for q in quantiles) if quantiles else None
+        # The input layout this checkpoint was trained on (2.3): models with
+        # different recipes need different datasets, so an ablation can be
+        # scored in ONE run on ONE sample set (see _datasets_for_models).
+        model.pluvio_recipe = dict(ckpt.get("channel_recipe") or {})
+        model.pluvio_lagrangian = int(model.pluvio_recipe.get("lagrangian_channels", 0))
         LOG.info("loaded model %r from %s (val_rmse=%.4f, epoch=%s)",
                  name, ckpt_path, ckpt.get("val_rmse", float("nan")), ckpt.get("epoch"))
         models[name] = model
@@ -348,7 +353,14 @@ def _apply_bootstrap(results: dict, stats: dict, leads_min: list[int], threshold
 
 
 def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
-                  device: str = "cpu") -> dict:
+                  device: str = "cpu", models: dict | None = None) -> dict:
+    """Score the baselines plus every ``--model`` on one frozen sample set.
+
+    ``models`` injects already-built models (tests, ablations driven from
+    Python); otherwise ``model_specs`` are loaded from disk. Models may carry
+    different channel recipes — each is fed a dataset built for its own
+    recipe, all sharing this run's sample index.
+    """
     import zarr
 
     root = zarr.open_group(str(zarr_path), mode="r")
@@ -375,6 +387,24 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
 
     leads_min = [int(x) for x in cfg["leads_min"]]
     dataset = ZarrCorrectionDataset(zarr_path, leads_min=tuple(leads_min), build_index=True)
+    # One dataset per distinct model input layout, all sharing `dataset`'s
+    # sample index — so every model is scored on exactly the same samples
+    # while each is fed the channels it was trained on. Ablating a channel
+    # set otherwise fails with a shape mismatch mid-run.
+    model_datasets: dict[str, ZarrCorrectionDataset] = {}
+    extra_datasets: dict[int, ZarrCorrectionDataset] = {}
+    for name, model in (models or {}).items():
+        lagr = int(getattr(model, "pluvio_lagrangian", 0))
+        if lagr == 0:
+            model_datasets[name] = dataset
+            continue
+        if lagr not in extra_datasets:
+            extra_datasets[lagr] = ZarrCorrectionDataset(
+                zarr_path, leads_min=tuple(leads_min), build_index=False,
+                lagrangian_channels=lagr)
+            LOG.info("model %r needs %d Lagrangian channel(s) — second dataset built "
+                     "on the same sample set", name, lagr)
+        model_datasets[name] = extra_datasets[lagr]
 
     selected, case_idx_set = _select_samples(dataset, cfg)
     LOG.info("%d / %d indexed samples selected (%d curated case-day, %d window)",
@@ -386,11 +416,12 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
 
     torch_device = None
     torch_mod = None
+    injected = models
     models = {}
-    if model_specs:
+    if model_specs or injected:
         import torch as torch_mod
         torch_device = torch_mod.device(device)
-        models = _load_models(model_specs, torch_device)
+        models = injected if injected is not None else _load_models(model_specs, torch_device)
     model_names = list(BASELINE_NAMES) + list(models.keys())
 
     thresholds = [float(t) for t in cfg["thresholds_mm_h"]]
@@ -452,8 +483,13 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
         }
         quantile_stacks: dict[str, tuple[np.ndarray, tuple[float, ...]]] = {}
         if models:
-            x = dataset.build_input(s.issue_idx, s.lead_min, s.history_idx)
+            inputs: dict[int, np.ndarray] = {}
             for name, model in models.items():
+                ds_m = model_datasets[name]
+                key = id(ds_m)
+                if key not in inputs:
+                    inputs[key] = ds_m.build_input(s.issue_idx, s.lead_min, s.history_idx)
+                x = inputs[key]
                 with torch_mod.no_grad():
                     xt = torch_mod.from_numpy(x).unsqueeze(0).to(torch_device)
                     out = model(xt)[0].cpu().numpy().astype("float32")   # (Q or 1, H, W)

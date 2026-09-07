@@ -560,3 +560,41 @@ def test_adequacy_anchored_on_scored_truth_not_t0_analysis(tmp_path):
     cfg = bm.load_config(config_path)
     report = bm.run_benchmark(str(store), cfg, model_specs=[], device="cpu")
     assert report["metadata"]["adequacy"]["n_events"] > 0
+
+
+def test_models_with_different_channel_recipes_are_scored_in_one_run(synthetic_store, tmp_path):
+    """2.3 ablation: a 0-channel and a 2-channel Lagrangian checkpoint differ in
+    input width, so the scorer must build one dataset per recipe and still put
+    both on the SAME sample set (otherwise the run dies on a shape mismatch)."""
+    import torch
+
+    from model.unet import PluvioUNet
+    from model.zarr_dataset import ZarrCorrectionDataset
+    from tools import benchmark as bm
+
+    plain = ZarrCorrectionDataset(synthetic_store, leads_min=(30,), build_index=False)
+    n_plain = plain.n_channels
+
+    class Const(torch.nn.Module):
+        def __init__(self, want: int, value: float):
+            super().__init__()
+            self.want, self.value = want, value
+
+        def forward(self, x):
+            assert x.shape[1] == self.want, f"got {x.shape[1]} channels, want {self.want}"
+            return torch.full((x.shape[0], 1, *x.shape[-2:]), self.value)
+
+    models = {"plain": Const(n_plain, 1.0), "lagr": Const(n_plain + 2, 2.0)}
+    models["plain"].pluvio_lagrangian = 0
+    models["lagr"].pluvio_lagrangian = 2
+    for m in models.values():
+        m.pluvio_quantiles = None
+
+    cfg = bm.load_config(_write_config(tmp_path / "benchmark.yaml", max_samples=6, leads_min=[30]))
+    res = bm.run_benchmark(str(synthetic_store), cfg, [], device="cpu", models=models)
+    rows = res["results"]
+    assert {"plain", "lagr"} <= set(rows)
+    assert res["metadata"]["sample_set_hash"]                      # one manifest for both
+    for name in ("plain", "lagr"):
+        assert rows[name]["30"]["0.1"]["n_samples"] == rows["persistence"]["30"]["0.1"]["n_samples"]
+    assert PluvioUNet(in_channels=n_plain + 2, base_channels=4, out_channels=1) is not None
