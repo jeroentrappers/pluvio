@@ -34,6 +34,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from model.dataset import PluvioCorrectionDataset  # noqa: E402
 from model.losses import CombinedLoss  # noqa: E402
+from model.metrics import fss_components  # noqa: E402
 from model.shard_dataset import (  # noqa: E402
     ShardDataset,
     ShardRecipeMismatch,
@@ -111,22 +112,70 @@ def train_one_epoch(
     return float(sum(losses) / max(len(losses), 1)), mean_terms
 
 
+VAL_FSS_THRESHOLD_MM_H = 0.1   # dBZ-space equivalent handled by the loader's scaling
+VAL_FSS_SCALE_PX = 3
+
+
+def resolve_select_on(args) -> str:
+    """Which validation metric picks the checkpoint.
+
+    ``auto`` means "the objective": any loss that is not plain RMSE — FSS,
+    sharpness, or a quantile head — trades RMSE for something else on purpose,
+    so RMSE stops the run at epoch 1 and discards everything after it.
+    """
+    if args.select_on != "auto":
+        return args.select_on
+    shaped = (float(getattr(args, "fss_weight", 0) or 0) > 0
+              or float(getattr(args, "sharpness_weight", 0) or 0) > 0
+              or bool(getattr(args, "quantiles", None)))
+    return "val_loss" if shaped else "val_rmse"
+
+
 @torch.no_grad()
 def validate(
-    model: torch.nn.Module, loader: DataLoader, device: torch.device, median_index: int = 0
+    model: torch.nn.Module, loader: DataLoader, device: torch.device, median_index: int = 0,
+    loss_fn: torch.nn.Module | None = None,
 ) -> dict[str, float]:
-    """Val RMSE of the deterministic output — the median channel for a
-    quantile head (2.2), the only channel otherwise."""
+    """Validation metrics of the deterministic output — the median channel for
+    a quantile head (2.2), the only channel otherwise.
+
+    ``val_rmse`` alone is the wrong model-selection signal for any loss that
+    deliberately trades RMSE for structure: under FSS+sharpness (2.1b) both v3
+    arms had their best val RMSE at epoch 1 and then spent 30 epochs "getting
+    worse" while the objective and the wet-cell skill kept improving. So this
+    also reports the validation value of the objective itself, an FSS at the
+    lowest scored threshold, and the wet-area frequency bias that the sharpness
+    term inflates.
+    """
     model.eval()
     rmses: list[float] = []
+    losses: list[float] = []
+    fss_num = fss_den = 0.0
+    pred_wet = obs_wet = 0.0
     for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
-        pred = model(x)
-        if pred.shape[1] > 1:
-            pred = pred[:, median_index : median_index + 1]
+        raw = model(x)
+        if loss_fn is not None:
+            losses.append(float(loss_fn(raw, y).detach().cpu()))
+        pred = raw[:, median_index : median_index + 1] if raw.shape[1] > 1 else raw
         rmses.append(float(rmse(pred, y).cpu()))
-    return {"val_rmse": sum(rmses) / max(len(rmses), 1)}
+        p_np = pred[:, 0].float().cpu().numpy()
+        o_np = y[:, 0].float().cpu().numpy()
+        for pf, of in zip(p_np, o_np, strict=True):
+            num, den = fss_components(pf, of, threshold=VAL_FSS_THRESHOLD_MM_H,
+                                      scale_px=VAL_FSS_SCALE_PX)
+            fss_num += num
+            fss_den += den
+        pred_wet += float((p_np >= VAL_FSS_THRESHOLD_MM_H).mean())
+        obs_wet += float((o_np >= VAL_FSS_THRESHOLD_MM_H).mean())
+    n = max(len(rmses), 1)
+    out = {"val_rmse": sum(rmses) / n,
+           "val_fss3": 1.0 - fss_num / fss_den if fss_den > 0 else float("nan"),
+           "val_wet_bias": (pred_wet / obs_wet) if obs_wet > 0 else float("nan")}
+    if losses:
+        out["val_loss"] = sum(losses) / len(losses)
+    return out
 
 
 def _load_shard_sets(args) -> tuple[ShardDataset, ShardDataset]:
@@ -288,7 +337,13 @@ def main(argv: list[str] | None = None) -> int:
                              "to every existing checkpoint. Recorded in the checkpoint's "
                              "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
-                        help="early-stopping patience in epochs (val RMSE plateau)")
+                        help="early-stopping patience in epochs (plateau of --select-on)")
+    parser.add_argument("--select-on", default="auto",
+                        choices=("auto", "val_loss", "val_rmse", "val_fss3"),
+                        help="metric that picks the checkpoint and drives early stopping. "
+                             "auto = the objective (val_loss) whenever the loss is not plain "
+                             "RMSE, else val_rmse — selecting on RMSE under an FSS+sharpness "
+                             "loss keeps the epoch-1 model and throws the run away")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="Stop training after this many wall-clock minutes (CPU budget guard).")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -457,7 +512,13 @@ def main(argv: list[str] | None = None) -> int:
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=4)
 
+    # An FSS/sharpness objective deliberately gives up RMSE, so selecting on
+    # RMSE stops the run at epoch 1. Default to the objective the model is
+    # actually minimising, and say so in the log.
+    select_on = resolve_select_on(args)
+    LOG.info("model selection on %s (--select-on=%s)", select_on, args.select_on)
     best_val = float("inf")
+    best_score = float("inf")
     patience = args.patience
     no_improve = 0
     checkpoint_path = pathlib.Path(args.checkpoint)
@@ -468,26 +529,34 @@ def main(argv: list[str] | None = None) -> int:
         train_loss, term_means = train_one_epoch(
             model, train_loader, optimizer, scaler, device, loss_fn
         )
-        metrics = validate(model, val_loader, device, median_index)
-        scheduler.step(metrics["val_rmse"])
+        metrics = validate(model, val_loader, device, median_index, loss_fn=loss_fn)
+        score = metrics[select_on] if select_on != "val_fss3" else -metrics["val_fss3"]
+        scheduler.step(score)
         elapsed_min = (time.monotonic() - started) / 60
         LOG.info(
-            "Epoch %d: train_loss=%.4f val_rmse=%.4f lr=%.1e (%.1f min elapsed)",
-            epoch, train_loss, metrics["val_rmse"],
-            optimizer.param_groups[0]["lr"], elapsed_min,
+            "Epoch %d: train_loss=%.4f val_loss=%.4f val_rmse=%.4f val_fss3=%.4f "
+            "val_wet_bias=%.2f lr=%.1e (%.1f min elapsed) [select_on=%s]",
+            epoch, train_loss, metrics.get("val_loss", float("nan")), metrics["val_rmse"],
+            metrics["val_fss3"], metrics["val_wet_bias"],
+            optimizer.param_groups[0]["lr"], elapsed_min, select_on,
         )
         if args.fss_weight > 0 or args.sharpness_weight > 0:
             LOG.info(
                 "  ↳ loss terms: %s",
                 ", ".join(f"{k}={v:.4f}" for k, v in term_means.items()),
             )
-        if metrics["val_rmse"] < best_val:
+        if score < best_score:
+            best_score = score
             best_val = metrics["val_rmse"]
             no_improve = 0
             torch.save(
                 {
                     "model": model.state_dict(),
                     "val_rmse": best_val,
+                    "val_loss": metrics.get("val_loss"),
+                    "val_fss3": metrics["val_fss3"],
+                    "val_wet_bias": metrics["val_wet_bias"],
+                    "select_on": select_on,
                     "in_channels": train_set.n_channels,
                     "base_channels": args.base_channels,
                     "out_channels": out_channels,
@@ -504,13 +573,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             no_improve += 1
             if no_improve >= patience:
-                LOG.info("Early stopping at epoch %d (best val_rmse=%.4f)", epoch, best_val)
+                LOG.info("Early stopping at epoch %d (best %s=%.4f, val_rmse=%.4f)",
+                         epoch, select_on, abs(best_score), best_val)
                 break
         if args.max_minutes is not None and elapsed_min >= args.max_minutes:
             LOG.info("Hit --max-minutes=%.1f budget; stopping.", args.max_minutes)
             break
 
-    LOG.info("Training done. Best val_rmse=%.4f → %s", best_val, checkpoint_path)
+    LOG.info("Training done. Best %s=%.4f (val_rmse=%.4f) → %s",
+             select_on, abs(best_score), best_val, checkpoint_path)
     return 0
 
 

@@ -43,3 +43,73 @@ def test_lagrangian_channels_rejects_out_of_range_value(capsys):
     with pytest.raises(SystemExit):
         main(["--lagrangian-channels", "3"])
     assert "--lagrangian-channels" in capsys.readouterr().err
+
+
+def test_validate_reports_the_objective_not_just_rmse():
+    """Selecting on val RMSE under an FSS+sharpness loss keeps the epoch-1
+    model: both v3 arms scored their best RMSE at epoch 1 and then ran 30
+    epochs whose objective kept improving. So validate() must report the
+    loss it is trained on, an FSS, and the bias the sharpness term inflates.
+    """
+    import torch
+
+    from model.losses import CombinedLoss
+    from model.train import validate
+
+    torch.manual_seed(0)
+    x = torch.rand(2, 3, 32, 32)
+    y = torch.rand(2, 1, 32, 32)
+    loader = [(x, y)]
+
+    class Head(torch.nn.Module):
+        def forward(self, t):
+            return t[:, :1] * 0.5
+
+    loss_fn = CombinedLoss(fss_weight=0.5, sharpness_weight=0.05)
+    out = validate(Head(), loader, torch.device("cpu"), 0, loss_fn=loss_fn)
+    assert {"val_rmse", "val_loss", "val_fss3", "val_wet_bias"} <= set(out)
+    assert out["val_loss"] > 0
+    assert 0.0 <= out["val_fss3"] <= 1.0
+
+
+def test_select_on_resolves_auto_to_the_objective_for_a_shaped_loss():
+    """auto = the metric the model is actually minimising."""
+    import argparse
+
+    from model.train import resolve_select_on
+
+    def ns(**kw):
+        base = {"select_on": "auto", "fss_weight": 0.0, "sharpness_weight": 0.0,
+                "quantiles": None}
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    assert resolve_select_on(ns()) == "val_rmse"
+    assert resolve_select_on(ns(fss_weight=0.5)) == "val_loss"
+    assert resolve_select_on(ns(sharpness_weight=0.05)) == "val_loss"
+    assert resolve_select_on(ns(quantiles="0.1,0.5,0.9")) == "val_loss"
+    assert resolve_select_on(ns(fss_weight=0.5, select_on="val_rmse")) == "val_rmse"
+
+
+def test_two_epoch_run_selects_on_the_objective_and_records_it(synthetic_store, tmp_path):
+    """End-to-end: a shaped loss must be able to pick a LATER epoch than the
+    RMSE-best one, and the checkpoint has to say which metric chose it. Cheap
+    guard against a typo in the selection block costing a 12-hour GPU run."""
+    import torch
+
+    from model.train import main
+
+    ckpt = tmp_path / "smoke.pt"
+    rc = main([
+        "--zarr", str(synthetic_store),
+        "--epochs", "2", "--batch-size", "2", "--base-channels", "4",
+        "--max-train-samples", "8", "--max-val-samples", "4", "--num-workers", "0",
+        "--fss-weight", "0.5", "--sharpness-weight", "0.05",
+        "--patience", "5", "--device", "cpu",
+        "--checkpoint", str(ckpt),
+    ])
+    assert rc == 0
+    saved = torch.load(ckpt, map_location="cpu", weights_only=False)
+    assert saved["select_on"] == "val_loss"
+    assert saved["val_loss"] is not None
+    assert "val_fss3" in saved and "val_wet_bias" in saved
