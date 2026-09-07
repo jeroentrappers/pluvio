@@ -112,7 +112,7 @@ def train_one_epoch(
     return float(sum(losses) / max(len(losses), 1)), mean_terms
 
 
-VAL_FSS_THRESHOLD_MM_H = 0.1   # dBZ-space equivalent handled by the loader's scaling
+VAL_FSS_THRESHOLD_MM_H = 0.1   # mm/h — radar and targets are in mm/h (zarr_dataset)
 VAL_FSS_SCALE_PX = 3
 
 
