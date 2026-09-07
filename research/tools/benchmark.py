@@ -387,13 +387,21 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
 
     leads_min = [int(x) for x in cfg["leads_min"]]
     dataset = ZarrCorrectionDataset(zarr_path, leads_min=tuple(leads_min), build_index=True)
+    torch_device = None
+    torch_mod = None
+    injected = models
+    models = {}
+    if model_specs or injected:
+        import torch as torch_mod
+        torch_device = torch_mod.device(device)
+        models = injected if injected is not None else _load_models(model_specs, torch_device)
     # One dataset per distinct model input layout, all sharing `dataset`'s
     # sample index — so every model is scored on exactly the same samples
     # while each is fed the channels it was trained on. Ablating a channel
     # set otherwise fails with a shape mismatch mid-run.
     model_datasets: dict[str, ZarrCorrectionDataset] = {}
     extra_datasets: dict[int, ZarrCorrectionDataset] = {}
-    for name, model in (models or {}).items():
+    for name, model in models.items():
         lagr = int(getattr(model, "pluvio_lagrangian", 0))
         if lagr == 0:
             model_datasets[name] = dataset
@@ -414,14 +422,6 @@ def run_benchmark(zarr_path: str, cfg: dict, model_specs: list[str],
     max_shift = max_shift_px(km_per_px, dataset.history_step_min)
     LOG.info("grid spacing ~%.2f km/px -> advection search radius %d px", km_per_px, max_shift)
 
-    torch_device = None
-    torch_mod = None
-    injected = models
-    models = {}
-    if model_specs or injected:
-        import torch as torch_mod
-        torch_device = torch_mod.device(device)
-        models = injected if injected is not None else _load_models(model_specs, torch_device)
     model_names = list(BASELINE_NAMES) + list(models.keys())
 
     thresholds = [float(t) for t in cfg["thresholds_mm_h"]]

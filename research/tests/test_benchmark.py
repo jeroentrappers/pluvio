@@ -598,3 +598,28 @@ def test_models_with_different_channel_recipes_are_scored_in_one_run(synthetic_s
     for name in ("plain", "lagr"):
         assert rows[name]["30"]["0.1"]["n_samples"] == rows["persistence"]["30"]["0.1"]["n_samples"]
     assert PluvioUNet(in_channels=n_plain + 2, base_channels=4, out_channels=1) is not None
+
+
+def test_checkpoint_loaded_from_disk_gets_a_dataset_for_its_recipe(synthetic_store, tmp_path):
+    """The `--model NAME=path.pt` path must reach the same per-recipe dataset
+    map as injected models: the models used to be loaded AFTER that map was
+    built, so every spec-driven run died on a KeyError for its own model."""
+    import torch
+
+    from model.zarr_dataset import ZarrCorrectionDataset
+    from tools import benchmark as bm
+
+    plain = ZarrCorrectionDataset(synthetic_store, leads_min=(30,), build_index=False)
+    ckpt = tmp_path / "tiny.pt"
+    from model.unet import PluvioUNet
+
+    net = PluvioUNet(in_channels=plain.n_channels, base_channels=4, out_channels=1)
+    torch.save({"model": net.state_dict(), "in_channels": plain.n_channels,
+                "base_channels": 4, "epoch": 1, "val_rmse": 0.5,
+                "channel_recipe": {"lagrangian_channels": 0}}, ckpt)
+
+    cfg = bm.load_config(_write_config(tmp_path / "benchmark.yaml", max_samples=4, leads_min=[30]))
+    res = bm.run_benchmark(str(synthetic_store), cfg, [f"tiny={ckpt}"], device="cpu")
+    assert "tiny" in res["results"]
+    assert res["results"]["tiny"]["30"]["0.1"]["n_samples"] == \
+        res["results"]["persistence"]["30"]["0.1"]["n_samples"]
