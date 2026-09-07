@@ -129,9 +129,11 @@ def test_off_grid_nowcast_band_is_served_and_records_its_own_footprint(_settings
     """A nowcast band on a 192x192 full-Benelux grid, while the cache is still
     at the legacy DEFAULT_GRID: the band and its overlays are written on that
     grid and grid.json reports it, so the client places the overlay correctly.
-    Point shards and the sprite still key off the cache grid, so they are
-    skipped with a warning rather than crashing on the shape mismatch — 1.9
-    removes the divergence by widening the cache grid."""
+
+    Point shards and the sprite are one uniform index, so the band is SAMPLED
+    onto the cache grid for those (it used to be dropped, which cost
+    /v1/forecast every lead of the band it happened to be). 1.9 removes the
+    divergence entirely by widening the cache grid."""
     import json
 
     summary = run_tick("nowcast", infer=_infer_on(FULL_BENELUX, 1.0))
@@ -145,8 +147,15 @@ def test_off_grid_nowcast_band_is_served_and_records_its_own_footprint(_settings
     meta = json.loads((snap / "grid.json").read_text())
     assert meta["grid"]["bounds"] == FULL_BENELUX.bounds
     assert meta["grid"]["shape"] == list(FULL_BENELUX.shape)
-    assert meta["sprite"] is None  # no uniform-grid band to fold into a sheet
-    assert not (snap / "points").exists()
+    # folded, not dropped: a sheet and a point index exist, on the cache grid
+    assert meta["sprite"] is not None
+    assert (snap / "points").exists()
+    lat, lon = cache.grid.cell_center_latlon(50, 50)
+    point = cache.read_point(lat, lon)
+    assert point is not None and not point.empty
+    nowcast_rows = point[point["band"] == "nowcast"]
+    assert not nowcast_rows.empty
+    assert (nowcast_rows["rate_mm_per_h"] == 1.0).all()
 
 
 def test_a_later_band_tick_keeps_the_recorded_footprint(_settings) -> None:

@@ -243,3 +243,57 @@ def test_to_dict_publishes_edge_bounds_half_a_cell_out():
     assert d["edge_bounds"]["east"] == pytest.approx(7.5 + dlon / 2)
     assert d["edge_bounds"]["south"] == pytest.approx(48.9 - dlat / 2)
     assert d["edge_bounds"]["north"] == pytest.approx(52.5 + dlat / 2)
+
+
+def test_sample_onto_grid_is_identity_on_the_same_grid() -> None:
+    import numpy as np
+
+    from pluvio_backend.cache import DEFAULT_GRID, sample_onto_grid
+
+    a = np.arange(3 * 100 * 100, dtype="float32").reshape(3, 100, 100)
+    out = sample_onto_grid(a, DEFAULT_GRID, DEFAULT_GRID)
+    assert np.array_equal(out, a)
+
+
+def test_sample_onto_grid_keeps_values_at_their_own_location() -> None:
+    """A value painted at one cell of the source must read back at the cell of
+    the destination that covers the same lat/lon — the whole point of sampling
+    a band onto the shard grid instead of dropping it (1.9)."""
+    import numpy as np
+
+    from pluvio_backend.cache import GridSpec, sample_onto_grid
+
+    bounds = {"west": 1.5, "east": 7.5, "south": 48.9, "north": 52.5}
+    src = GridSpec(bounds=bounds, shape=(192, 192))
+    dst = GridSpec(bounds=bounds, shape=(100, 100))
+    a = np.zeros((1, 192, 192), dtype="float32")
+    a[0, 40, 60] = 7.0
+    lat, lon = src.cell_center_latlon(40, 60)
+    out = sample_onto_grid(a, src, dst)
+    r, c = dst.latlon_to_cell(lat, lon)
+    # exactly one destination cell is touched, the one covering that lat/lon,
+    # and it holds the MEAN of the source cells whose centres fall in it —
+    # so a single hot cell is diluted, never displaced or dropped
+    assert np.count_nonzero(out) == 1
+    contributing = sum(
+        1
+        for i in range(192)
+        for j in range(192)
+        if dst.latlon_to_cell(*src.cell_center_latlon(i, j)) == (r, c)
+    )
+    assert out[0, r, c] == pytest.approx(7.0 / contributing)
+
+
+def test_sample_onto_grid_reports_nan_outside_the_source_footprint() -> None:
+    import numpy as np
+
+    from pluvio_backend.cache import GridSpec, sample_onto_grid
+
+    src = GridSpec(bounds={"west": 3.0, "east": 6.0, "south": 50.0, "north": 51.5}, shape=(20, 20))
+    dst = GridSpec(bounds={"west": 1.5, "east": 7.5, "south": 48.9, "north": 52.5}, shape=(40, 40))
+    out = sample_onto_grid(np.ones((1, 20, 20), dtype="float32"), src, dst)
+    assert np.isnan(out).any()          # the margin the source does not cover
+    assert np.nanmax(out) == 1.0
+    # inside the source footprint nothing is NaN
+    r, c = dst.latlon_to_cell(50.75, 4.5)
+    assert out[0, r, c] == 1.0

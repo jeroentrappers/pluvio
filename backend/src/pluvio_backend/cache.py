@@ -192,6 +192,97 @@ P_RAIN_THRESHOLD_MM_H = 0.1
 P_HEAVY_THRESHOLD_MM_H = 1.0
 
 
+def _grid_from_meta(recorded: dict | None, hw) -> GridSpec | None:
+    """A GridSpec from a grid.json `bands` entry, or None if unusable."""
+    if not isinstance(recorded, dict):
+        return None
+    bounds = recorded.get("bounds")
+    shape = recorded.get("shape") or list(hw)
+    if not isinstance(bounds, dict) or not {"west", "east", "south", "north"} <= set(bounds):
+        return None
+    try:
+        return GridSpec(bounds={k: float(bounds[k]) for k in ("west", "east", "south", "north")},
+                        shape=(int(shape[0]), int(shape[1])))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def sample_onto_grid(arr: np.ndarray, src: GridSpec, dst: GridSpec) -> np.ndarray:
+    """Resample a (..., H, W) stack from `src`'s footprint onto `dst`'s.
+
+    Point lookups need one uniform grid: the shard index and the sprite are
+    keyed by the cache grid, so a band produced on its own footprint (a 192²
+    full-Benelux nowcast beside a 100² legacy band, 1.9) used to be dropped
+    from both — losing every lead of that band from /v1/forecast. Resampling
+    keeps it in the index at the geolocation it actually has. Overlays are NOT
+    resampled: they stay on their own grid, labelled per band in grid.json,
+    because rescaling an image for display would cost detail for nothing.
+
+    Every source cell whose centre falls inside a destination cell's footprint
+    is averaged into it, so going to a COARSER grid keeps the rain it covers
+    instead of point-sampling most of it away; a destination cell no source
+    centre lands in takes the nearest source cell, which is what makes going
+    to a finer grid work. Cells outside `src` altogether come back NaN, and
+    NaN inputs are ignored rather than poisoning a cell's mean.
+    """
+    if tuple(arr.shape[-2:]) == tuple(src.shape) and src.shape == dst.shape \
+            and src.bounds == dst.bounds:
+        return np.asarray(arr, dtype="float32")
+
+    a = np.asarray(arr, dtype="float32")
+    sh, sw = src.shape
+    dh, dw = dst.shape
+    lead_shape = a.shape[:-2]
+    flat = a.reshape(-1, sh * sw)
+
+    b_src = src.bounds
+    lat_s = np.linspace(b_src["north"], b_src["south"], sh) if sh > 1 else \
+        np.array([b_src["north"]])
+    lon_s = np.linspace(b_src["west"], b_src["east"], sw) if sw > 1 else \
+        np.array([b_src["west"]])
+    dew, des, dee, den = dst.edge_bounds()
+    row_i = np.floor((den - lat_s) / (den - des) * dh).astype(int)
+    col_i = np.floor((lon_s - dew) / (dee - dew) * dw).astype(int)
+    ok = ((row_i >= 0) & (row_i < dh))[:, None] & ((col_i >= 0) & (col_i < dw))[None, :]
+    lin = (np.clip(row_i, 0, dh - 1)[:, None] * dw + np.clip(col_i, 0, dw - 1)[None, :]).ravel()
+    ok_flat = ok.ravel()
+
+    out = np.full((flat.shape[0], dh * dw), np.nan, dtype="float32")
+    counts = np.bincount(lin[ok_flat], minlength=dh * dw).astype("float64")
+    for n in range(flat.shape[0]):
+        vals = flat[n]
+        good = ok_flat & np.isfinite(vals)
+        sums = np.bincount(lin[good], weights=vals[good].astype("float64"), minlength=dh * dw)
+        n_good = np.bincount(lin[good], minlength=dh * dw).astype("float64")
+        hit = n_good > 0
+        out[n, hit] = (sums[hit] / n_good[hit]).astype("float32")
+
+    # Destination cells no source centre landed in (a finer destination, or a
+    # coarser source): take the nearest source cell, but only where the
+    # destination cell is actually inside the source footprint.
+    empty = counts == 0
+    if empty.any():
+        b_dst = dst.bounds
+        lat_d = np.linspace(b_dst["north"], b_dst["south"], dh) if dh > 1 else \
+            np.array([b_dst["north"]])
+        lon_d = np.linspace(b_dst["west"], b_dst["east"], dw) if dw > 1 else \
+            np.array([b_dst["west"]])
+        sew, ses, see, sen = src.edge_bounds()
+        dlat = (b_src["north"] - b_src["south"]) / (sh - 1) if sh > 1 else 1.0
+        dlon = (b_src["east"] - b_src["west"]) / (sw - 1) if sw > 1 else 1.0
+        nr = np.rint((b_src["north"] - lat_d) / dlat).astype(int) if sh > 1 else np.zeros(dh, int)
+        nc = np.rint((lon_d - b_src["west"]) / dlon).astype(int) if sw > 1 else np.zeros(dw, int)
+        inside = ((lat_d >= ses) & (lat_d <= sen))[:, None] & \
+            ((lon_d >= sew) & (lon_d <= see))[None, :]
+        take = inside.ravel() & empty
+        if take.any():
+            src_lin = (np.clip(nr, 0, sh - 1)[:, None] * sw
+                       + np.clip(nc, 0, sw - 1)[None, :]).ravel()
+            out[:, take] = flat[:, src_lin[take]]
+
+    return out.reshape(*lead_shape, dh, dw)
+
+
 def _exceedance_planes(exceedance, band_name, hw):
     """(p_rain, p_heavy) lead-stacks for one band, or (None, None).
 
@@ -386,29 +477,45 @@ class ForecastCache:
         cols = np.linspace(west, east, w)
         rows = np.linspace(north, south, h)  # row 0 = north
 
-        records: list[dict] = []
+        # One frame per (band, lead) built by broadcasting rather than a
+        # per-cell Python loop: 154 leads over the legacy 100² grid is already
+        # 1.5M rows (3.4 s), and the full-Benelux 192² box is 5.7M (1.9).
+        cell_lat = np.repeat(rows, w)                     # (h*w,) row-major
+        cell_lon = np.tile(cols, h)
+        chunks: list[pd.DataFrame] = []
         for band_name, arr in all_bands.items():
             band = schedules.band(band_name)
+            leads = np.asarray(band.leads_min, dtype="int32")
+            n_leads = len(leads)
+            if arr.shape[0] < n_leads:
+                raise ValueError(
+                    f"band {band_name!r} has {arr.shape[0]} frames for {n_leads} leads"
+                )
+            flat = np.asarray(arr[:n_leads], dtype="float32").reshape(n_leads, -1)
             p_rain, p_heavy = _exceedance_planes(exceedance, band_name, arr.shape[-2:])
-            for i, lead in enumerate(band.leads_min):
-                grid = arr[i]
-                pr = p_rain[i] if p_rain is not None and i < len(p_rain) else None
-                ph = p_heavy[i] if p_heavy is not None and i < len(p_heavy) else None
-                for r in range(h):
-                    for c in range(w):
-                        records.append(
-                            {
-                                "lat": float(rows[r]),
-                                "lon": float(cols[c]),
-                                "band": band_name,
-                                "lead_min": lead,
-                                "rate_mm_per_h": float(grid[r, c]),
-                                "p_rain": None if pr is None else float(pr[r, c]),
-                                "p_heavy": None if ph is None else float(ph[r, c]),
-                            }
-                        )
 
-        df = pd.DataFrame(records)
+            def _flat_prob(planes, n_leads=n_leads):
+                if planes is None:
+                    return np.full(n_leads * cell_lat.size, np.nan, dtype="float32")
+                return np.asarray(planes[:n_leads], dtype="float32").reshape(-1)
+
+            chunks.append(
+                pd.DataFrame(
+                    {
+                        "lat": np.tile(cell_lat, n_leads),
+                        "lon": np.tile(cell_lon, n_leads),
+                        "band": band_name,
+                        "lead_min": np.repeat(leads, cell_lat.size),
+                        "rate_mm_per_h": flat.reshape(-1),
+                        "p_rain": _flat_prob(p_rain),
+                        "p_heavy": _flat_prob(p_heavy),
+                    }
+                )
+            )
+
+        df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(
+            columns=["lat", "lon", "band", "lead_min", "rate_mm_per_h", "p_rain", "p_heavy"]
+        )
         df["lat_bucket"] = (df["lat"] / bucket_step).round().astype(int)
         df["lon_bucket"] = (df["lon"] / bucket_step).round().astype(int)
         n_written = 0
@@ -574,24 +681,49 @@ class ForecastCache:
             reverse=True,
         )
 
+    def sample_band_onto_grid(self, arr: np.ndarray, src: GridSpec) -> np.ndarray:
+        """`arr` (on `src`) sampled onto this cache's grid, NaN outside it."""
+        return sample_onto_grid(arr, src, self.grid)
+
     def read_band_any(self, band_name: schedules.BandName) -> np.ndarray | None:
-        """Freshest array for `band_name` across all complete snapshots.
+        """Freshest array for `band_name`, on THIS cache's grid, or None."""
+        got = self.read_band_any_with_grid(band_name)
+        if got is None:
+            return None
+        arr, grid = got
+        return arr if grid.shape == self.grid.shape and grid.bounds == self.grid.bounds else None
+
+    def read_band_any_with_grid(
+        self, band_name: schedules.BandName
+    ) -> tuple[np.ndarray, GridSpec] | None:
+        """Freshest (array, grid) for `band_name` across all complete snapshots.
 
         Bands refresh on different cadences, so the long-range outlook may live
         in an older snapshot than the latest nowcast. This lets the worker fold
         every band's freshest data into the snapshot it's about to publish.
+
+        The array is returned on whatever grid it was WRITTEN on — a band
+        served from its own footprint (1.9) is not on this cache's default —
+        so the caller can sample it onto the grid it needs instead of dropping
+        it. The lead count still has to match the current band definition:
+        folding an array written under an older definition would mislabel
+        leads, and those age out via prune as fresh ticks rewrite the band.
         """
-        expected = (schedules.band(band_name).n_leads, *self.grid.shape)
+        n_leads = schedules.band(band_name).n_leads
         for snap in self.complete_snapshots():
             path = snap / "bands" / f"{band_name}.zarr"
             if not path.exists():
                 continue
             arr = np.asarray(zarr.open_array(store=str(path), mode="r")[:])
-            # Skip arrays written under an older band definition (different lead
-            # count) — folding them in would mislabel leads. They age out via
-            # prune as fresh ticks rewrite the band.
-            if arr.shape == expected:
-                return arr
+            if arr.ndim != 3 or arr.shape[0] != n_leads:
+                continue
+            recorded = self.snapshot_band_grids(snap).get(band_name)
+            grid = _grid_from_meta(recorded, arr.shape[-2:]) or self.snapshot_grid(snap) or self.grid
+            if tuple(grid.shape) != tuple(arr.shape[-2:]):
+                # Recorded footprint disagrees with the array itself; trust the
+                # array's shape only when the cache default matches it.
+                grid = self.grid if tuple(self.grid.shape) == tuple(arr.shape[-2:]) else grid
+            return arr, grid
         return None
 
     def read_point(self, lat: float, lon: float, bucket_step: float = 0.1) -> pd.DataFrame | None:

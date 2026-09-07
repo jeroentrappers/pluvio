@@ -61,47 +61,45 @@ def run_tick(band_name: schedules.BandName, infer: BandInference = model_band) -
     # (bands refresh on different cadences). This lets the API serve the full
     # horizon — nowcast → 10-day long-range — from one published snapshot.
     all_bands: dict[schedules.BandName, np.ndarray] = {band_name: rates}
+    band_grids: dict[schedules.BandName, GridSpec] = {band_name: used_grid}
     for b in schedules.all_bands():
         if b.name == band_name:
             continue
-        arr = cache.read_band_any(b.name)
-        if arr is not None:
-            all_bands[b.name] = arr
+        got = cache.read_band_any_with_grid(b.name)
+        if got is not None:
+            all_bands[b.name], band_grids[b.name] = got
 
-    # write_point_shards/write_sprite fold every band into one array/index
-    # keyed by the cache's default grid — a band produced on its OWN, larger
-    # grid (a v3/full-Benelux npz, before 1.9 aligns the cache's default to
-    # match) can't be mixed in there without a shape mismatch. Serve it as
-    # its own band + overlays (already written above, on `used_grid`) but
-    # leave the uniform-grid point/sprite folding to bands that actually
-    # share the cache's grid; full multi-grid folding is 1.9's job.
-    shard_bands = {
-        name: arr for name, arr in all_bands.items() if arr.shape[-2:] == cache.grid.shape
-    }
-    skipped = sorted(set(all_bands) - set(shard_bands))
-    if skipped:
-        LOG.warning(
-            "tick band=%s: %s not on the cache grid %s — excluded from point shards/sprite",
-            band_name,
-            skipped,
-            cache.grid.shape,
-        )
-    # P(rain) per band, when the producer published a quantile stack (2.2).
-    # Only for bands folded into the shards, and only on the shard grid.
+    # write_point_shards/write_sprite fold every band into ONE array/index
+    # keyed by the cache grid, so a band served on its own footprint (a 192²
+    # full-Benelux nowcast beside a 100² legacy band, 1.9) has to be sampled
+    # onto that grid — it used to be dropped, which silently cost
+    # /v1/forecast every lead of that band. Overlays keep their own grid
+    # (written above on `used_grid`, labelled per band in grid.json): an
+    # image is placed by its bounds, so resampling it would only lose detail.
+    shard_bands: dict[schedules.BandName, np.ndarray] = {}
+    resampled: list[str] = []
+    for name, arr in all_bands.items():
+        src = band_grids.get(name, cache.grid)
+        if tuple(arr.shape[-2:]) == tuple(cache.grid.shape) and src.bounds == cache.grid.bounds:
+            shard_bands[name] = arr
+            continue
+        shard_bands[name] = cache.sample_band_onto_grid(arr, src)
+        resampled.append(name)
+    if resampled:
+        LOG.info("tick band=%s: %s sampled onto the cache grid %s for point shards/sprite",
+                 band_name, sorted(resampled), cache.grid.shape)
+
+    # P(rain) per band, when the producer published a quantile stack (2.2),
+    # sampled onto the same grid as the rates it belongs to.
     exceedance: dict[schedules.BandName, tuple] = {}
     for name in shard_bands:
         got = band_exceedance(name)
         if got is None:
             continue
         thresholds, probs, prob_grid = got
-        if probs.shape[-2:] != cache.grid.shape:
-            LOG.warning("tick band=%s: p_exceed on grid %s, cache grid is %s — dropped",
-                        name, probs.shape[-2:], cache.grid.shape)
-            continue
-        if prob_grid is not None and prob_grid.bounds != cache.grid.bounds:
-            LOG.warning("tick band=%s: p_exceed footprint %s != cache %s — dropped",
-                        name, prob_grid.bounds, cache.grid.bounds)
-            continue
+        src = prob_grid or band_grids.get(name, cache.grid)
+        if tuple(probs.shape[-2:]) != tuple(cache.grid.shape) or src.bounds != cache.grid.bounds:
+            probs = cache.sample_band_onto_grid(probs, src)
         exceedance[name] = (thresholds, probs)
     if shard_bands:
         cache.write_point_shards(snap, shard_bands, exceedance=exceedance or None)

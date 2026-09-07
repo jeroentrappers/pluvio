@@ -134,9 +134,18 @@ below every metric. Make eyes unnecessary.
       2026-09-04 later: grid.json now carries per-band footprints (`bands`),
       and the manifest/forecast endpoints label each band by the grid it was
       rendered on — the mixed-grid mislabel is closed (deployed 2026-09-04
-      ~11:50Z with the scoreboard route). Still gated on a
-      converged full-Benelux model: cache default grid/point shards/location
-      check widening, Flutter bounds, the infer_latest switch.
+      ~11:50Z with the scoreboard route).
+      2026-09-07: the mixed-grid CLIFF is closed too. A band on its own
+      footprint used to be excluded from the point shards and the sprite, so
+      /v1/forecast silently lost every lead of it; `cache.sample_onto_grid`
+      (area-mean where the destination is coarser, nearest where finer, NaN
+      outside the source) now folds it, `read_band_any_with_grid` returns the
+      grid a band was written on instead of skipping off-grid arrays, and
+      `write_point_shards` is vectorised (100²: 3.4 s → 1.8 s; 192² costs
+      2.7 s where the loop would have cost ~13 s per tick). Still gated on a
+      converged full-Benelux model: cache DEFAULT_BOUNDS/shape widening and
+      the infer_latest switch, which must land together. Flutter bounds are
+      moot while the mobile app is out of scope (5.x decision 2026-09-06).
 - [x] **1.10 `geo.bbox()` over-claims the stereographic domain** — the legacy
       analysis grid is not a lat/lon rectangle (south row varies 0.475° W→E);
       `bbox()` returns the corner envelope. Audit every caller (WMS GetMap,
