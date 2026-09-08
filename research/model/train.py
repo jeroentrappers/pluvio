@@ -116,6 +116,19 @@ VAL_FSS_THRESHOLD_MM_H = 0.1   # mm/h — radar and targets are in mm/h (zarr_da
 VAL_FSS_SCALE_PX = 3
 
 
+def _companion_metrics(args, select_on: str) -> list[str]:
+    """Alternative selection metrics to keep a checkpoint for.
+
+    ``auto``: for a shaped loss, the skill metric the product actually cares
+    about (val_fss3) plus RMSE, minus whichever one already drives selection.
+    """
+    raw = ("auto" if args.save_best_of is None else args.save_best_of).strip()
+    if raw != "auto":
+        return [m for m in (x.strip() for x in raw.split(",")) if m and m != select_on]
+    shaped = select_on != "val_rmse"
+    return [m for m in (["val_fss3", "val_rmse"] if shaped else []) if m != select_on]
+
+
 def resolve_select_on(args) -> str:
     """Which validation metric picks the checkpoint.
 
@@ -338,6 +351,11 @@ def main(argv: list[str] | None = None) -> int:
                              "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (plateau of --select-on)")
+    parser.add_argument("--save-best-of", default="auto",
+                        help="comma-separated extra metrics to keep a companion "
+                             "checkpoint for (val_loss,val_rmse,val_fss3), 'auto' for "
+                             "the sensible set, '' for none. The frozen benchmark then "
+                             "decides which selection metric ships")
     parser.add_argument("--select-on", default="auto",
                         choices=("auto", "val_loss", "val_rmse", "val_fss3"),
                         help="metric that picks the checkpoint and drives early stopping. "
@@ -523,6 +541,19 @@ def main(argv: list[str] | None = None) -> int:
     no_improve = 0
     checkpoint_path = pathlib.Path(args.checkpoint)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    # metric -> "is a better than the best so far"
+    ORDER = {"val_loss": lambda a, b: a < b, "val_rmse": lambda a, b: a < b,
+             "val_fss3": lambda a, b: a > b}
+    wanted = [m for m in _companion_metrics(args, select_on) if m in ORDER]
+    companions = {m: ORDER[m] for m in wanted}
+    companion_best = {m: (float("-inf") if m == "val_fss3" else float("inf")) for m in wanted}
+    companion_paths = {
+        m: checkpoint_path.with_name(f"{checkpoint_path.stem}.{m}{checkpoint_path.suffix}")
+        for m in wanted
+    }
+    if wanted:
+        LOG.info("also keeping one checkpoint per companion metric: %s",
+                 ", ".join(f"{m} → {companion_paths[m].name}" for m in wanted))
     started = time.monotonic()
 
     for epoch in range(1, args.epochs + 1):
@@ -545,30 +576,48 @@ def main(argv: list[str] | None = None) -> int:
                 "  ↳ loss terms: %s",
                 ", ".join(f"{k}={v:.4f}" for k, v in term_means.items()),
             )
+        def _state(epoch=epoch, metrics=metrics, chosen_on=select_on) -> dict:
+            return {
+                "model": model.state_dict(),
+                "val_rmse": metrics["val_rmse"],
+                "val_loss": metrics.get("val_loss"),
+                "val_fss3": metrics["val_fss3"],
+                "val_wet_bias": metrics["val_wet_bias"],
+                "select_on": chosen_on,
+                "in_channels": train_set.n_channels,
+                "base_channels": args.base_channels,
+                "out_channels": out_channels,
+                "quantiles": list(quantiles) if quantiles else None,
+                "arch": "PluvioUNet",
+                "epoch": epoch,
+                "loss_config": loss_config,
+                "channel_recipe": channel_recipe,
+                "shards": shard_provenance,
+            }
+
+        # Companion checkpoints, one per alternative selection metric. The
+        # loss is a weighted sum, so its minimum need not be the epoch with
+        # the best forecast: on the first run under val_loss selection the
+        # chosen epoch had val_fss3=0.597/bias 2.16 while a later epoch
+        # reached 0.629/1.88 at a val_loss 0.003 worse. Keeping one checkpoint
+        # per metric lets the frozen benchmark decide which weights ship,
+        # instead of the argument being settled by whichever metric the run
+        # happened to select on.
+        for metric, better in companions.items():
+            value = metrics.get(metric)
+            if value is None:
+                continue
+            if better(value, companion_best[metric]):
+                companion_best[metric] = value
+                path = companion_paths[metric]
+                torch.save(_state(chosen_on=metric), path)
+                LOG.info("  ↳ companion (best %s=%.4f) → %s", metric, value, path)
+
         if score < best_score:
             best_score = score
             best_val = metrics["val_rmse"]
             no_improve = 0
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "val_rmse": best_val,
-                    "val_loss": metrics.get("val_loss"),
-                    "val_fss3": metrics["val_fss3"],
-                    "val_wet_bias": metrics["val_wet_bias"],
-                    "select_on": select_on,
-                    "in_channels": train_set.n_channels,
-                    "base_channels": args.base_channels,
-                    "out_channels": out_channels,
-                    "quantiles": list(quantiles) if quantiles else None,
-                    "arch": "PluvioUNet",
-                    "epoch": epoch,
-                    "loss_config": loss_config,
-                    "channel_recipe": channel_recipe,
-                    "shards": shard_provenance,
-                },
-                checkpoint_path,
-            )
+            torch.save(_state(), checkpoint_path)
             LOG.info("  ↳ checkpoint saved → %s", checkpoint_path)
         else:
             no_improve += 1

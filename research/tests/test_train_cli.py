@@ -113,3 +113,45 @@ def test_two_epoch_run_selects_on_the_objective_and_records_it(synthetic_store, 
     assert saved["select_on"] == "val_loss"
     assert saved["val_loss"] is not None
     assert "val_fss3" in saved and "val_wet_bias" in saved
+
+
+def test_companion_metrics_cover_skill_and_rmse_for_a_shaped_loss():
+    import argparse
+
+    from model.train import _companion_metrics
+
+    def ns(save_best_of="auto"):
+        return argparse.Namespace(save_best_of=save_best_of)
+
+    assert _companion_metrics(ns(), "val_loss") == ["val_fss3", "val_rmse"]
+    # never a companion for the metric that already drives selection
+    assert _companion_metrics(ns(), "val_fss3") == ["val_rmse"]
+    # plain RMSE selection means the loss is RMSE: nothing else to compare
+    assert _companion_metrics(ns(), "val_rmse") == []
+    assert _companion_metrics(ns("val_fss3"), "val_loss") == ["val_fss3"]
+    assert _companion_metrics(ns(""), "val_loss") == []
+
+
+def test_companion_checkpoint_is_written_next_to_the_primary(synthetic_store, tmp_path):
+    """A run under val_loss selection must also leave the best-FSS weights on
+    disk, so the benchmark can score both instead of trusting the loss to pick
+    the better forecast."""
+    import torch
+
+    from model.train import main
+
+    ckpt = tmp_path / "smoke.pt"
+    rc = main([
+        "--zarr", str(synthetic_store),
+        "--epochs", "2", "--batch-size", "2", "--base-channels", "4",
+        "--max-train-samples", "8", "--max-val-samples", "4", "--num-workers", "0",
+        "--fss-weight", "0.5", "--sharpness-weight", "0.05",
+        "--patience", "5", "--device", "cpu",
+        "--checkpoint", str(ckpt),
+    ])
+    assert rc == 0
+    companion = tmp_path / "smoke.val_fss3.pt"
+    assert companion.exists()
+    saved = torch.load(companion, map_location="cpu", weights_only=False)
+    assert saved["select_on"] == "val_fss3"
+    assert saved["val_fss3"] is not None
