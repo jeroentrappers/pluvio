@@ -155,3 +155,86 @@ def test_companion_checkpoint_is_written_next_to_the_primary(synthetic_store, tm
     saved = torch.load(companion, map_location="cpu", weights_only=False)
     assert saved["select_on"] == "val_fss3"
     assert saved["val_fss3"] is not None
+
+
+def test_a_stopped_run_resumes_where_it_left_off(synthetic_store, tmp_path):
+    """Pause and resume: the state file has to carry the optimizer, the LR
+    schedule and the early-stopping counters, so stopping the run (a reboot,
+    or the machine wanted for something else) costs at most the unfinished
+    epoch — not the run."""
+    import torch
+
+    from model.train import main
+
+    ckpt = tmp_path / "resume.pt"
+    common = [
+        "--zarr", str(synthetic_store), "--batch-size", "2", "--base-channels", "4",
+        "--max-train-samples", "8", "--max-val-samples", "4", "--num-workers", "0",
+        "--fss-weight", "0.5", "--patience", "5", "--device", "cpu",
+        "--checkpoint", str(ckpt),
+    ]
+    assert main([*common, "--epochs", "2"]) == 0
+    state_path = tmp_path / "resume.state.pt"
+    assert state_path.exists()
+    first = torch.load(state_path, map_location="cpu", weights_only=False)
+    assert first["epoch"] == 2
+    assert {"optimizer", "scheduler", "best_score", "no_improve"} <= set(first)
+
+    # Resuming with a larger budget continues from epoch 3, it does not restart
+    assert main([*common, "--epochs", "4"]) == 0
+    second = torch.load(state_path, map_location="cpu", weights_only=False)
+    assert second["epoch"] == 4
+    # and the optimizer state moved on rather than being reinitialised
+    assert second["optimizer"]["state"], "resumed run has no optimizer moments"
+
+
+def test_resume_never_starts_from_scratch(synthetic_store, tmp_path):
+    import torch
+
+    from model.train import main
+
+    ckpt = tmp_path / "fresh.pt"
+    common = [
+        "--zarr", str(synthetic_store), "--batch-size", "2", "--base-channels", "4",
+        "--max-train-samples", "8", "--max-val-samples", "4", "--num-workers", "0",
+        "--patience", "5", "--device", "cpu", "--checkpoint", str(ckpt),
+    ]
+    assert main([*common, "--epochs", "2"]) == 0
+    assert main([*common, "--epochs", "1", "--resume", "never"]) == 0
+    state = torch.load(tmp_path / "fresh.state.pt", map_location="cpu", weights_only=False)
+    assert state["epoch"] == 1          # restarted, not continued from 2
+
+
+def test_a_signal_mid_epoch_saves_a_resumable_state(synthetic_store, tmp_path, monkeypatch):
+    """SIGTERM inside an epoch must not lose the run: the partial epoch is
+    discarded (its metrics are not comparable) and the state records the last
+    completed epoch."""
+    import signal as signal_mod
+
+    import torch
+
+    import model.train as tr
+
+    real = tr.train_one_epoch
+    calls = {"n": 0}
+
+    def fake(*a, should_stop=None, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            # simulate the signal arriving during the second epoch
+            import os
+            os.kill(os.getpid(), signal_mod.SIGTERM)
+        return real(*a, should_stop=should_stop, **kw)
+
+    monkeypatch.setattr(tr, "train_one_epoch", fake)
+    ckpt = tmp_path / "sig.pt"
+    rc = tr.main([
+        "--zarr", str(synthetic_store), "--epochs", "6", "--batch-size", "2",
+        "--base-channels", "4", "--max-train-samples", "8", "--max-val-samples", "4",
+        "--num-workers", "0", "--patience", "5", "--device", "cpu",
+        "--checkpoint", str(ckpt),
+    ])
+    assert rc == 0
+    state = torch.load(tmp_path / "sig.state.pt", map_location="cpu", weights_only=False)
+    assert state["epoch"] in (1, 2)     # the last epoch whose metrics were real
+    assert calls["n"] == 2              # it stopped instead of running all six

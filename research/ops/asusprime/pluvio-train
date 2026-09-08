@@ -1,0 +1,48 @@
+#!/bin/bash
+# Pluvio training control: pause before a reboot, resume after one.
+#
+#   pluvio-train pause     stop the run, keeping a resumable state on disk
+#   pluvio-train resume    start/continue the queued arms where they left off
+#   pluvio-train status    what is running and how far it got
+#
+# The trainer writes checkpoints/<name>.state.pt every epoch and on a stop
+# signal, so a pause costs at most the unfinished epoch's compute.
+set -u
+ROOT=/home/jeroentrappers/pluvio_v2
+cd "$ROOT" || exit 1
+PATTERN='[m]odel\.train'
+
+case "${1:-status}" in
+  pause)
+    pids=$(pgrep -f "$PATTERN")
+    if [ -z "$pids" ]; then echo "nothing running"; exit 0; fi
+    touch "$ROOT/TRAIN_PAUSED"
+    echo "sending SIGTERM to: $pids"
+    kill $pids
+    for _ in $(seq 1 240); do          # up to 20 min for the epoch to wind up
+      [ -z "$(pgrep -f "$PATTERN")" ] && break
+      sleep 5
+    done
+    if [ -n "$(pgrep -f "$PATTERN")" ]; then
+      echo "still running after 20 min — leaving it alone, run pause again"; exit 1
+    fi
+    echo "paused. state files:"; ls -la "$ROOT"/checkpoints/*.state.pt 2>/dev/null
+    ;;
+  resume)
+    rm -f "$ROOT/TRAIN_PAUSED"
+    if [ -n "$(pgrep -f "$PATTERN")" ]; then echo "already running"; exit 0; fi
+    setsid nohup "$ROOT/rerun_v3_selfix.sh" > /dev/null 2>&1 < /dev/null &
+    sleep 5
+    echo "resumed:"; pgrep -af "$PATTERN" | cut -c1-100
+    ;;
+  status)
+    [ -f "$ROOT/TRAIN_PAUSED" ] && echo "PAUSED (marker present)"
+    pgrep -af "$PATTERN" | cut -c1-100 || echo "no training process"
+    for log in "$ROOT"/full_train_v3_*_sel.log; do
+      [ -e "$log" ] || continue
+      echo "-- $(basename "$log")"
+      grep -E "Epoch |Early stopping|Training done|paused|stopped after" "$log" | tail -2
+    done
+    ;;
+  *) echo "usage: pluvio-train {pause|resume|status}"; exit 2 ;;
+esac

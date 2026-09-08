@@ -23,6 +23,7 @@ import argparse
 import logging
 import pathlib
 import re
+import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -79,11 +80,16 @@ def train_one_epoch(
     scaler: torch.amp.GradScaler,
     device: torch.device,
     loss_fn: CombinedLoss,
-) -> tuple[float, dict[str, float]]:
-    """Runs one epoch. Returns the mean batch loss and the mean of each
-    loss component (``loss_fn.last_terms``) over the epoch — components with
-    zero weight are simply absent from every batch's ``last_terms`` dict."""
+    should_stop=None,
+) -> tuple[float, dict[str, float], bool]:
+    """Runs one epoch. Returns the mean batch loss, the mean of each loss
+    component (``loss_fn.last_terms``) over the epoch — components with zero
+    weight are simply absent from every batch's ``last_terms`` dict — and
+    whether it stopped early because ``should_stop()`` went true (a pause
+    signal), in which case the epoch is INCOMPLETE and its metrics are not
+    comparable to a full one."""
     model.train()
+    stopped = False
     losses: list[float] = []
     term_sums: dict[str, float] = {}
     term_counts: dict[str, int] = {}
@@ -108,12 +114,31 @@ def train_one_epoch(
         for k, v in loss_fn.last_terms.items():
             term_sums[k] = term_sums.get(k, 0.0) + v
             term_counts[k] = term_counts.get(k, 0) + 1
+        if should_stop is not None and should_stop():
+            stopped = True
+            break
     mean_terms = {k: term_sums[k] / term_counts[k] for k in term_sums}
-    return float(sum(losses) / max(len(losses), 1)), mean_terms
+    return float(sum(losses) / max(len(losses), 1)), mean_terms, stopped
 
 
 VAL_FSS_THRESHOLD_MM_H = 0.1   # mm/h — radar and targets are in mm/h (zarr_dataset)
 VAL_FSS_SCALE_PX = 3
+
+
+def _state_path(args) -> pathlib.Path:
+    if args.state:
+        return pathlib.Path(args.state)
+    ck = pathlib.Path(args.checkpoint)
+    return ck.with_name(f"{ck.stem}.state{ck.suffix}")
+
+
+def _resume_path(args) -> pathlib.Path | None:
+    """Where to resume from, or None to start fresh."""
+    mode = (args.resume or "auto").strip()
+    if mode == "never":
+        return None
+    path = _state_path(args) if mode == "auto" else pathlib.Path(mode)
+    return path if path.exists() else None
 
 
 def _companion_metrics(args, select_on: str) -> list[str]:
@@ -351,6 +376,15 @@ def main(argv: list[str] | None = None) -> int:
                              "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (plateau of --select-on)")
+    parser.add_argument("--state", default=None,
+                        help="path of the resumable training state (model + optimizer + "
+                             "scheduler + epoch counters), written every epoch. "
+                             "Default: <checkpoint stem>.state.pt")
+    parser.add_argument("--resume", default="auto",
+                        help="'auto' (default) resumes from --state when that file exists, "
+                             "'never' always starts fresh, or a path to resume from. A run "
+                             "can therefore be stopped (SIGTERM/SIGINT, or a reboot) and "
+                             "picked up where it left off")
     parser.add_argument("--save-best-of", default="auto",
                         help="comma-separated extra metrics to keep a companion "
                              "checkpoint for (val_loss,val_rmse,val_fss3), 'auto' for "
@@ -554,12 +588,85 @@ def main(argv: list[str] | None = None) -> int:
     if wanted:
         LOG.info("also keeping one checkpoint per companion metric: %s",
                  ", ".join(f"{m} → {companion_paths[m].name}" for m in wanted))
+
+    # Resumable state, written every epoch and on a stop signal: weights,
+    # optimizer moments, LR-schedule position and every counter that decides
+    # early stopping. Without it a reboot (or a machine wanted for something
+    # else for an evening) costs the whole run, since only the best weights
+    # were ever on disk and those carry no optimizer state.
+    state_path = _state_path(args)
+    first_epoch = 1
+    resume_from = _resume_path(args)
+    if resume_from is not None:
+        st = torch.load(resume_from, map_location=device, weights_only=False)
+        model.load_state_dict(st["model"])
+        optimizer.load_state_dict(st["optimizer"])
+        scheduler.load_state_dict(st["scheduler"])
+        if st.get("scaler") is not None:
+            scaler.load_state_dict(st["scaler"])
+        first_epoch = int(st["epoch"]) + 1
+        best_score = float(st["best_score"])
+        best_val = float(st["best_val"])
+        no_improve = int(st["no_improve"])
+        companion_best.update({k: float(v) for k, v in (st.get("companion_best") or {}).items()
+                               if k in companion_best})
+        if st.get("select_on") and st["select_on"] != select_on:
+            LOG.warning("resumed state selected on %r, this run selects on %r — "
+                        "the early-stopping counter carries over anyway",
+                        st["select_on"], select_on)
+        LOG.info("resumed from %s at epoch %d (best %s=%.4f, %d epochs without improvement)",
+                 resume_from, st["epoch"], select_on, abs(best_score), no_improve)
+
+    # A stop signal saves state and exits cleanly, so pausing costs at most the
+    # unfinished epoch's compute — never the run.
+    stopping = {"signal": None}
+
+    def _on_stop(signum, _frame):
+        stopping["signal"] = signum
+        LOG.warning("signal %d — saving state and stopping after this step", signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, _on_stop)
+
+    def _save_state(epoch: int) -> None:
+        tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "scaler": scaler.state_dict() if scaler.is_enabled() else None,
+                "epoch": epoch,
+                "best_score": best_score,
+                "best_val": best_val,
+                "no_improve": no_improve,
+                "companion_best": companion_best,
+                "select_on": select_on,
+                "in_channels": train_set.n_channels,
+                "base_channels": args.base_channels,
+                "out_channels": out_channels,
+                "quantiles": list(quantiles) if quantiles else None,
+                "channel_recipe": channel_recipe,
+            },
+            tmp,
+        )
+        tmp.replace(state_path)   # atomic: a kill mid-write can't leave a torn state
+
     started = time.monotonic()
 
-    for epoch in range(1, args.epochs + 1):
-        train_loss, term_means = train_one_epoch(
-            model, train_loader, optimizer, scaler, device, loss_fn
+    for epoch in range(first_epoch, args.epochs + 1):
+        train_loss, term_means, interrupted = train_one_epoch(
+            model, train_loader, optimizer, scaler, device, loss_fn,
+            should_stop=lambda: stopping["signal"] is not None,
         )
+        if interrupted:
+            # Partial epoch: its metrics mean nothing, so skip validation and
+            # selection entirely and record the state as "epoch-1 done" so the
+            # resumed run repeats this epoch from these weights.
+            _save_state(epoch - 1)
+            LOG.info("paused inside epoch %d — resume with --resume auto (state: %s)",
+                     epoch, state_path)
+            return 0
         metrics = validate(model, val_loader, device, median_index, loss_fn=loss_fn)
         score = metrics[select_on] if select_on != "val_fss3" else -metrics["val_fss3"]
         scheduler.step(score)
@@ -625,6 +732,11 @@ def main(argv: list[str] | None = None) -> int:
                 LOG.info("Early stopping at epoch %d (best %s=%.4f, val_rmse=%.4f)",
                          epoch, select_on, abs(best_score), best_val)
                 break
+        _save_state(epoch)
+        if stopping["signal"] is not None:
+            LOG.info("stopped after epoch %d — resume with --resume auto (state: %s)",
+                     epoch, state_path)
+            return 0
         if args.max_minutes is not None and elapsed_min >= args.max_minutes:
             LOG.info("Hit --max-minutes=%.1f budget; stopping.", args.max_minutes)
             break
