@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import pathlib
 import re
-import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -73,6 +73,106 @@ def rmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.sqrt(F.mse_loss(pred, target))
 
 
+def save_atomic(state: dict, path: pathlib.Path) -> None:
+    """``torch.save`` via a temp file + rename, so an interrupted write cannot
+    leave a truncated checkpoint behind.
+
+    The resume file is rewritten every epoch, which widens the window in which
+    a reboot lands mid-save; ``os.replace`` is atomic within a filesystem, so
+    the reader either sees the previous epoch's file or the new one, never a
+    half-written one.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(state, tmp)
+    os.replace(tmp, path)
+
+
+def resume_from(
+    path: pathlib.Path,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
+    scaler: torch.amp.GradScaler,
+    *,
+    device: torch.device,
+    in_channels: int,
+    base_channels: int,
+    out_channels: int,
+    select_on: str,
+) -> dict:
+    """Restore a run in place. Returns the bookkeeping the caller needs
+    (``start_epoch``, ``best_score``, ``best_val``, ``no_improve``,
+    ``companion_best``); defaults there mean "start that counter fresh".
+
+    Refuses to load weights into a differently-shaped model: a silent
+    ``strict=False`` here would train a half-initialised net for hours and
+    only show up as bad metrics.
+    """
+    state = torch.load(path, map_location=device, weights_only=False)
+
+    shape = {
+        "in_channels": in_channels,
+        "base_channels": base_channels,
+        "out_channels": out_channels,
+    }
+    mismatch = {
+        key: (state.get(key), want)
+        for key, want in shape.items()
+        if state.get(key) is not None and state.get(key) != want
+    }
+    if mismatch:
+        raise SystemExit(
+            f"--resume {path}: checkpoint architecture does not match this run's "
+            "arguments — "
+            + ", ".join(f"{k}: checkpoint={have} but run wants {want}"
+                        for k, (have, want) in mismatch.items())
+            + ". Re-run with matching arguments, or drop --resume to train fresh."
+        )
+
+    model.load_state_dict(state["model"])
+    restored = {"start_epoch": 1}
+
+    if "optimizer" in state:
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        scaler.load_state_dict(state["scaler"])
+        restored["start_epoch"] = int(state.get("epoch", 0)) + 1
+        LOG.info(
+            "Resumed from %s: epoch %d done, continuing at epoch %d (lr=%.1e)",
+            path, state.get("epoch", 0), restored["start_epoch"],
+            optimizer.param_groups[0]["lr"],
+        )
+    else:
+        # Every checkpoint written before this flag existed carries weights
+        # only. Warm-starting from them is still useful, but AdamW's moments
+        # rebuild from scratch, so expect a bump for an epoch or two.
+        LOG.warning(
+            "Resumed WEIGHTS ONLY from %s (epoch %s): no optimizer/scheduler state in "
+            "this checkpoint, so AdamW restarts cold, the LR returns to --lr and the "
+            "epoch counter restarts at 1. Expect a transient loss bump.",
+            path, state.get("epoch", "?"),
+        )
+
+    # Early-stopping counters only carry over when the run is still selecting
+    # on the same metric — a best_score recorded under val_loss says nothing
+    # about whether val_fss3 has plateaued.
+    if state.get("select_on") == select_on and "best_score" in state:
+        restored["best_score"] = state["best_score"]
+        restored["best_val"] = state.get("best_val", float("inf"))
+        restored["no_improve"] = int(state.get("no_improve", 0))
+        restored["companion_best"] = dict(state.get("companion_best") or {})
+        LOG.info(
+            "  ↳ carried over best %s=%.4f, %d epoch(s) without improvement",
+            select_on, abs(restored["best_score"]), restored["no_improve"],
+        )
+    elif "best_score" in state:
+        LOG.warning(
+            "  ↳ checkpoint selected on %s but this run selects on %s; early-stopping "
+            "counters restart from zero.", state.get("select_on"), select_on,
+        )
+    return restored
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     loader: DataLoader,
@@ -80,16 +180,11 @@ def train_one_epoch(
     scaler: torch.amp.GradScaler,
     device: torch.device,
     loss_fn: CombinedLoss,
-    should_stop=None,
-) -> tuple[float, dict[str, float], bool]:
-    """Runs one epoch. Returns the mean batch loss, the mean of each loss
-    component (``loss_fn.last_terms``) over the epoch — components with zero
-    weight are simply absent from every batch's ``last_terms`` dict — and
-    whether it stopped early because ``should_stop()`` went true (a pause
-    signal), in which case the epoch is INCOMPLETE and its metrics are not
-    comparable to a full one."""
+) -> tuple[float, dict[str, float]]:
+    """Runs one epoch. Returns the mean batch loss and the mean of each
+    loss component (``loss_fn.last_terms``) over the epoch — components with
+    zero weight are simply absent from every batch's ``last_terms`` dict."""
     model.train()
-    stopped = False
     losses: list[float] = []
     term_sums: dict[str, float] = {}
     term_counts: dict[str, int] = {}
@@ -114,31 +209,12 @@ def train_one_epoch(
         for k, v in loss_fn.last_terms.items():
             term_sums[k] = term_sums.get(k, 0.0) + v
             term_counts[k] = term_counts.get(k, 0) + 1
-        if should_stop is not None and should_stop():
-            stopped = True
-            break
     mean_terms = {k: term_sums[k] / term_counts[k] for k in term_sums}
-    return float(sum(losses) / max(len(losses), 1)), mean_terms, stopped
+    return float(sum(losses) / max(len(losses), 1)), mean_terms
 
 
 VAL_FSS_THRESHOLD_MM_H = 0.1   # mm/h — radar and targets are in mm/h (zarr_dataset)
 VAL_FSS_SCALE_PX = 3
-
-
-def _state_path(args) -> pathlib.Path:
-    if args.state:
-        return pathlib.Path(args.state)
-    ck = pathlib.Path(args.checkpoint)
-    return ck.with_name(f"{ck.stem}.state{ck.suffix}")
-
-
-def _resume_path(args) -> pathlib.Path | None:
-    """Where to resume from, or None to start fresh."""
-    mode = (args.resume or "auto").strip()
-    if mode == "never":
-        return None
-    path = _state_path(args) if mode == "auto" else pathlib.Path(mode)
-    return path if path.exists() else None
 
 
 def _companion_metrics(args, select_on: str) -> list[str]:
@@ -337,6 +413,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--checkpoint", default="checkpoints/pluvio_unet.pt")
+    parser.add_argument("--resume", nargs="?", const="auto", default=None,
+                        help="Continue a previous run instead of starting from epoch 1. "
+                             "Bare --resume (or 'auto') picks up <checkpoint>.last.pt, which "
+                             "the loop rewrites every epoch with model + optimizer + "
+                             "scheduler + early-stopping state. Pass an explicit path to "
+                             "resume from another file; a weights-only checkpoint (anything "
+                             "written before .last.pt existed) still loads, but the optimizer "
+                             "restarts cold and the epoch counter restarts at 1.")
     parser.add_argument("--val-frac", type=float, default=0.2,
                         help="Fraction of the time window (most recent) held out for validation.")
     parser.add_argument("--require-rain-fraction", type=float, default=None,
@@ -376,15 +460,6 @@ def main(argv: list[str] | None = None) -> int:
                              "channel recipe so infer_latest rebuilds the same input.")
     parser.add_argument("--patience", type=int, default=30,
                         help="early-stopping patience in epochs (plateau of --select-on)")
-    parser.add_argument("--state", default=None,
-                        help="path of the resumable training state (model + optimizer + "
-                             "scheduler + epoch counters), written every epoch. "
-                             "Default: <checkpoint stem>.state.pt")
-    parser.add_argument("--resume", default="auto",
-                        help="'auto' (default) resumes from --state when that file exists, "
-                             "'never' always starts fresh, or a path to resume from. A run "
-                             "can therefore be stopped (SIGTERM/SIGINT, or a reboot) and "
-                             "picked up where it left off")
     parser.add_argument("--save-best-of", default="auto",
                         help="comma-separated extra metrics to keep a companion "
                              "checkpoint for (val_loss,val_rmse,val_fss3), 'auto' for "
@@ -589,84 +664,43 @@ def main(argv: list[str] | None = None) -> int:
         LOG.info("also keeping one checkpoint per companion metric: %s",
                  ", ".join(f"{m} → {companion_paths[m].name}" for m in wanted))
 
-    # Resumable state, written every epoch and on a stop signal: weights,
-    # optimizer moments, LR-schedule position and every counter that decides
-    # early stopping. Without it a reboot (or a machine wanted for something
-    # else for an evening) costs the whole run, since only the best weights
-    # were ever on disk and those carry no optimizer state.
-    state_path = _state_path(args)
-    first_epoch = 1
-    resume_from = _resume_path(args)
-    if resume_from is not None:
-        st = torch.load(resume_from, map_location=device, weights_only=False)
-        model.load_state_dict(st["model"])
-        optimizer.load_state_dict(st["optimizer"])
-        scheduler.load_state_dict(st["scheduler"])
-        if st.get("scaler") is not None:
-            scaler.load_state_dict(st["scaler"])
-        first_epoch = int(st["epoch"]) + 1
-        best_score = float(st["best_score"])
-        best_val = float(st["best_val"])
-        no_improve = int(st["no_improve"])
-        companion_best.update({k: float(v) for k, v in (st.get("companion_best") or {}).items()
-                               if k in companion_best})
-        if st.get("select_on") and st["select_on"] != select_on:
-            LOG.warning("resumed state selected on %r, this run selects on %r — "
-                        "the early-stopping counter carries over anyway",
-                        st["select_on"], select_on)
-        LOG.info("resumed from %s at epoch %d (best %s=%.4f, %d epochs without improvement)",
-                 resume_from, st["epoch"], select_on, abs(best_score), no_improve)
-
-    # A stop signal saves state and exits cleanly, so pausing costs at most the
-    # unfinished epoch's compute — never the run.
-    stopping = {"signal": None}
-
-    def _on_stop(signum, _frame):
-        stopping["signal"] = signum
-        LOG.warning("signal %d — saving state and stopping after this step", signum)
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _on_stop)
-
-    def _save_state(epoch: int) -> None:
-        tmp = state_path.with_suffix(state_path.suffix + ".tmp")
-        torch.save(
-            {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "scaler": scaler.state_dict() if scaler.is_enabled() else None,
-                "epoch": epoch,
-                "best_score": best_score,
-                "best_val": best_val,
-                "no_improve": no_improve,
-                "companion_best": companion_best,
-                "select_on": select_on,
-                "in_channels": train_set.n_channels,
-                "base_channels": args.base_channels,
-                "out_channels": out_channels,
-                "quantiles": list(quantiles) if quantiles else None,
-                "channel_recipe": channel_recipe,
-            },
-            tmp,
+    # Full training state, rewritten every epoch. Separate from the "best"
+    # checkpoint on purpose: resuming wants the newest optimizer state, while
+    # checkpoint_path must keep the best-scoring epoch's weights even when the
+    # run has since spent 20 epochs on a plateau.
+    resume_path = checkpoint_path.with_name(f"{checkpoint_path.stem}.last{checkpoint_path.suffix}")
+    start_epoch = 1
+    if args.resume is not None:
+        source = resume_path if args.resume == "auto" else pathlib.Path(args.resume)
+        if not source.exists():
+            raise SystemExit(
+                f"--resume {source}: no such file. Drop --resume to start a fresh run, "
+                "or point it at a checkpoint that exists."
+            )
+        restored = resume_from(
+            source, model, optimizer, scheduler, scaler,
+            device=device, in_channels=train_set.n_channels,
+            base_channels=args.base_channels, out_channels=out_channels,
+            select_on=select_on,
         )
-        tmp.replace(state_path)   # atomic: a kill mid-write can't leave a torn state
+        start_epoch = restored["start_epoch"]
+        best_score = restored.get("best_score", best_score)
+        best_val = restored.get("best_val", best_val)
+        no_improve = restored.get("no_improve", no_improve)
+        companion_best.update(
+            {m: v for m, v in restored.get("companion_best", {}).items() if m in companion_best}
+        )
+        if start_epoch > args.epochs:
+            LOG.info("Checkpoint is already at epoch %d of --epochs %d; nothing to do.",
+                     start_epoch - 1, args.epochs)
+            return 0
 
     started = time.monotonic()
 
-    for epoch in range(first_epoch, args.epochs + 1):
-        train_loss, term_means, interrupted = train_one_epoch(
-            model, train_loader, optimizer, scaler, device, loss_fn,
-            should_stop=lambda: stopping["signal"] is not None,
+    for epoch in range(start_epoch, args.epochs + 1):
+        train_loss, term_means = train_one_epoch(
+            model, train_loader, optimizer, scaler, device, loss_fn
         )
-        if interrupted:
-            # Partial epoch: its metrics mean nothing, so skip validation and
-            # selection entirely and record the state as "epoch-1 done" so the
-            # resumed run repeats this epoch from these weights.
-            _save_state(epoch - 1)
-            LOG.info("paused inside epoch %d — resume with --resume auto (state: %s)",
-                     epoch, state_path)
-            return 0
         metrics = validate(model, val_loader, device, median_index, loss_fn=loss_fn)
         score = metrics[select_on] if select_on != "val_fss3" else -metrics["val_fss3"]
         scheduler.step(score)
@@ -683,8 +717,9 @@ def main(argv: list[str] | None = None) -> int:
                 "  ↳ loss terms: %s",
                 ", ".join(f"{k}={v:.4f}" for k, v in term_means.items()),
             )
-        def _state(epoch=epoch, metrics=metrics, chosen_on=select_on) -> dict:
-            return {
+        def _state(epoch=epoch, metrics=metrics, chosen_on=select_on,
+                   resumable=False) -> dict:
+            state = {
                 "model": model.state_dict(),
                 "val_rmse": metrics["val_rmse"],
                 "val_loss": metrics.get("val_loss"),
@@ -701,6 +736,20 @@ def main(argv: list[str] | None = None) -> int:
                 "channel_recipe": channel_recipe,
                 "shards": shard_provenance,
             }
+            if resumable:
+                # Only the .last.pt file carries these: AdamW's moments roughly
+                # double the file, and the companion/best checkpoints exist to
+                # ship weights, not to restart a run.
+                state.update({
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "best_score": best_score,
+                    "best_val": best_val,
+                    "no_improve": no_improve,
+                    "companion_best": dict(companion_best),
+                })
+            return state
 
         # Companion checkpoints, one per alternative selection metric. The
         # loss is a weighted sum, so its minimum need not be the epoch with
@@ -717,26 +766,26 @@ def main(argv: list[str] | None = None) -> int:
             if better(value, companion_best[metric]):
                 companion_best[metric] = value
                 path = companion_paths[metric]
-                torch.save(_state(chosen_on=metric), path)
+                save_atomic(_state(chosen_on=metric), path)
                 LOG.info("  ↳ companion (best %s=%.4f) → %s", metric, value, path)
 
         if score < best_score:
             best_score = score
             best_val = metrics["val_rmse"]
             no_improve = 0
-            torch.save(_state(), checkpoint_path)
+            save_atomic(_state(), checkpoint_path)
             LOG.info("  ↳ checkpoint saved → %s", checkpoint_path)
         else:
             no_improve += 1
-            if no_improve >= patience:
-                LOG.info("Early stopping at epoch %d (best %s=%.4f, val_rmse=%.4f)",
-                         epoch, select_on, abs(best_score), best_val)
-                break
-        _save_state(epoch)
-        if stopping["signal"] is not None:
-            LOG.info("stopped after epoch %d — resume with --resume auto (state: %s)",
-                     epoch, state_path)
-            return 0
+
+        # Written every epoch, after the counters above are current, so
+        # --resume picks up exactly where the process died.
+        save_atomic(_state(resumable=True), resume_path)
+
+        if no_improve > 0 and no_improve >= patience:
+            LOG.info("Early stopping at epoch %d (best %s=%.4f, val_rmse=%.4f)",
+                     epoch, select_on, abs(best_score), best_val)
+            break
         if args.max_minutes is not None and elapsed_min >= args.max_minutes:
             LOG.info("Hit --max-minutes=%.1f budget; stopping.", args.max_minutes)
             break
